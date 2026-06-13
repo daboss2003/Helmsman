@@ -19,11 +19,17 @@ import (
 	"github.com/helmsman/helmsman/internal/audit"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/helmsman/helmsman/internal/docker"
+	"github.com/helmsman/helmsman/internal/dockerexec"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/session"
 	"github.com/helmsman/helmsman/internal/store"
 )
+
+// maxConcurrentLogStreams caps simultaneous live log streams (each holds a
+// socket-proxy connection); excess returns 503.
+const maxConcurrentLogStreams = 8
 
 // secState is the slice of config that SIGHUP can hot-reload (plan §5.1:
 // allowlist + auth, never keys/bind). It is swapped atomically so the request
@@ -46,6 +52,20 @@ const loginVerifyConcurrency = 2
 // password + totp + csrf_token never approach this (review #11).
 const loginBodyLimit = 64 << 10
 
+// Deps are the (mostly optional) collaborators a Server uses. Anything nil
+// degrades gracefully (e.g. nil mon → "collecting…"; nil runner → write plane
+// shown disabled).
+type Deps struct {
+	DB         *store.DB
+	ConfigPath string // for SIGHUP allowlist+auth reload
+	Log        *slog.Logger
+	Monitor    *monitor.Monitor
+	OpsStore   *ops.ConfigStore
+	Prober     *ops.Prober
+	Runner     *dockerexec.Runner
+	Docker     *docker.Client
+}
+
 // Server holds everything the request pipeline needs. Construct with New.
 type Server struct {
 	cfg        *config.Config // immutable parts (bind, cookie, edge, session)
@@ -57,36 +77,41 @@ type Server struct {
 	templates  *template.Template
 	log        *slog.Logger
 	verifySem  chan struct{}
-	mon        *monitor.Monitor // read-plane snapshots (may be nil)
-	opsStore   *ops.ConfigStore // ops config (may be nil)
-	prober     *ops.Prober      // ops queue actions (may be nil)
+	mon        *monitor.Monitor   // read-plane snapshots (may be nil)
+	opsStore   *ops.ConfigStore   // ops config (may be nil)
+	prober     *ops.Prober        // ops queue actions (may be nil)
+	runner     *dockerexec.Runner // write-plane exec (may be nil)
+	docker     *docker.Client     // read-plane log streaming (may be nil)
+	logStreams chan struct{}      // concurrency cap on live log streams
 	sec        atomic.Pointer[secState]
 }
 
-// New builds a Server from a validated config and an open DB. configPath is kept
-// so SIGHUP can re-read and hot-reload the allowlist + auth. log, mon, opsStore,
-// and prober may be nil (mon nil → the dashboard shows "collecting…").
-func New(cfg *config.Config, db *store.DB, configPath string, log *slog.Logger, mon *monitor.Monitor, opsStore *ops.ConfigStore, prober *ops.Prober) (*Server, error) {
+// New builds a Server from a validated config and its dependencies.
+func New(cfg *config.Config, d Deps) (*Server, error) {
 	tmpl, err := parseTemplates()
 	if err != nil {
 		return nil, err
 	}
+	log := d.Log
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &Server{
 		cfg:        cfg,
-		configPath: configPath,
-		db:         db,
-		sessions:   session.New(db, cfg.Session.IdleTimeout.D(), cfg.Session.AbsoluteTimeout.D()),
-		audit:      audit.New(db, log),
+		configPath: d.ConfigPath,
+		db:         d.DB,
+		sessions:   session.New(d.DB, cfg.Session.IdleTimeout.D(), cfg.Session.AbsoluteTimeout.D()),
+		audit:      audit.New(d.DB, log),
 		limiter:    newRateLimiter(300, time.Minute),
 		templates:  tmpl,
 		log:        log,
 		verifySem:  make(chan struct{}, loginVerifyConcurrency),
-		mon:        mon,
-		opsStore:   opsStore,
-		prober:     prober,
+		mon:        d.Monitor,
+		opsStore:   d.OpsStore,
+		prober:     d.Prober,
+		runner:     d.Runner,
+		docker:     d.Docker,
+		logStreams: make(chan struct{}, maxConcurrentLogStreams),
 	}
 	sec, err := buildSecState(cfg)
 	if err != nil {
@@ -168,6 +193,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /apps/{project}/ops-config", s.requireAuth(s.withCSRFToken(s.handleOpsConfigGet)))
 	mux.HandleFunc("POST /apps/{project}/ops-config", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleOpsConfigPost))))
 	mux.HandleFunc("POST /apps/{project}/queues/{queue}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleQueueAction))))
+	// Lifecycle (M4 write plane): whole-project + per-service. Literal sub-routes
+	// (ops-config, queues) are more specific and take precedence over {action}.
+	mux.HandleFunc("POST /apps/{project}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAppAction))))
+	mux.HandleFunc("POST /apps/{project}/services/{service}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleServiceAction))))
+	mux.HandleFunc("GET /apps/{project}/services/{service}/logs", s.requireAuth(s.handleServiceLogs))
+	mux.HandleFunc("GET /apps/{project}/compose", s.requireAuth(s.withCSRFToken(s.handleComposeView)))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.

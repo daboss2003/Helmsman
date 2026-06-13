@@ -63,9 +63,23 @@ type Config struct {
 
 	DataDir string `yaml:"data_dir"`
 
+	// ProtectedProjects are Compose projects Helmsman must never start/stop/
+	// redeploy (the socket-proxy, and later the edge) — plan §3 protected set.
+	ProtectedProjects []string `yaml:"protected_projects"`
+
 	// derived, not from YAML
 	parsedAllowlist []netip.Prefix
 	parsedProxies   []netip.Prefix
+}
+
+// IsProtectedProject reports whether a compose project is in the protected set.
+func (c *Config) IsProtectedProject(project string) bool {
+	for _, p := range c.ProtectedProjects {
+		if p == project {
+			return true
+		}
+	}
+	return false
 }
 
 // AuthConfig holds the single operator's credentials.

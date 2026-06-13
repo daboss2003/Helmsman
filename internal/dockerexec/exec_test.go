@@ -1,0 +1,99 @@
+package dockerexec
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestJobArgvIsStaticAndTerminated(t *testing.T) {
+	j := Job{
+		Project:     "shop",
+		Dir:         "/srv/shop",
+		ConfigFiles: []string{"/srv/shop/docker-compose.yml", "/srv/shop/override.yml"},
+		Action:      []string{"up", "-d", "--force-recreate"},
+		Service:     "web",
+	}
+	got := strings.Join(j.argv(), " ")
+	want := "compose -p shop --project-directory /srv/shop -f /srv/shop/docker-compose.yml -f /srv/shop/override.yml up -d --force-recreate -- web"
+	if got != want {
+		t.Errorf("argv:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestWritePlaneGate(t *testing.T) {
+	if ok, _ := WritePlaneGate(2 << 30); !ok {
+		t.Error("2 GiB should arm the write plane")
+	}
+	if ok, reason := WritePlaneGate(512 << 20); ok || reason == "" {
+		t.Errorf("512 MiB should disable write plane, got ok=%v", ok)
+	}
+	if ok, _ := WritePlaneGate(0); !ok {
+		t.Error("unknown RAM (0) should arm with a caveat (dev)")
+	}
+}
+
+func TestSemaphoreOneAtATime(t *testing.T) {
+	s := NewSemaphore()
+	if !s.TryAcquire() {
+		t.Fatal("first TryAcquire should succeed")
+	}
+	if s.TryAcquire() {
+		t.Fatal("second TryAcquire should fail (cap 1)")
+	}
+	s.Release()
+	if !s.TryAcquire() {
+		t.Fatal("TryAcquire after Release should succeed")
+	}
+	s.Release()
+}
+
+func TestRunStreamsAndGates(t *testing.T) {
+	// fake "docker" that prints two lines and exits 0
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fakedocker")
+	script := "#!/bin/sh\necho line-one\necho line-two\nexit 0\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// write plane disabled → ErrWritePlaneDisabled, no exec
+	rDisabled := NewRunner(NewSemaphore(), false, "test")
+	rDisabled.binary = fake
+	if err := rDisabled.Run(context.Background(), Job{Project: "x", Action: []string{"up"}}, nil); err != ErrWritePlaneDisabled {
+		t.Errorf("disabled write plane: got %v, want ErrWritePlaneDisabled", err)
+	}
+
+	// armed → streams lines, exit 0
+	r := NewRunner(NewSemaphore(), true, "")
+	r.binary = fake
+	var lines []string
+	err := r.Run(context.Background(), Job{Project: "x", Action: []string{"up"}}, func(l string) { lines = append(lines, l) })
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(lines) != 2 || lines[0] != "line-one" || lines[1] != "line-two" {
+		t.Errorf("streamed lines = %v", lines)
+	}
+}
+
+func TestRunContextCancelKills(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fakedocker")
+	// a long sleeper; ctx cancel must reap it promptly
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(NewSemaphore(), true, "")
+	r.binary = fake
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_ = r.Run(ctx, Job{Project: "x", Action: []string{"up"}}, nil)
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Errorf("ctx cancel did not reap the child promptly: %v", elapsed)
+	}
+}

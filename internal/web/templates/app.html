@@ -4,9 +4,29 @@
   <p><a href="/">← Overview</a></p>
   <h1>{{.App.DisplayName}}</h1>
   <p class="muted">{{.App.UpCount}}/{{.App.Total}} services up · Compose project <code>{{.App.Project}}</code>
-    · <a href="/apps/{{pathEscape .App.Project}}/ops-config">ops config</a></p>
+    · <a href="/apps/{{pathEscape .App.Project}}/ops-config">ops config</a>
+    · <a href="/apps/{{pathEscape .App.Project}}/compose">compose</a></p>
+
+  {{if .WriteDisabledReason}}
+  <div class="error" role="alert">Write plane unavailable: {{.WriteDisabledReason}}. Lifecycle actions are disabled.</div>
+  {{else}}
+  <section class="panel">
+    <h2>Lifecycle</h2>
+    <div class="queue-actions">
+      <button type="button" class="lc-btn" data-lc-url="/apps/{{pathEscape .App.Project}}/start">Start</button>
+      <button type="button" class="lc-btn" data-lc-url="/apps/{{pathEscape .App.Project}}/stop">Stop</button>
+      <button type="button" class="lc-btn" data-lc-url="/apps/{{pathEscape .App.Project}}/restart">Restart</button>
+      <button type="button" class="lc-btn" data-lc-confirm="Redeploy {{.App.Project}}? This recreates its containers." data-lc-url="/apps/{{pathEscape .App.Project}}/redeploy">Redeploy</button>
+    </div>
+  </section>
+  {{end}}
+
+  <pre id="deploy-output" class="stream" hidden></pre>
+
   <section class="panel" data-poll-url="/partials/app/{{pathEscape .App.Project}}" data-poll-interval="5000">
     {{template "appdetail" .}}
   </section>
+
+  <pre id="log-output" class="stream" hidden></pre>
 </main>
 {{template "bottom" .}}

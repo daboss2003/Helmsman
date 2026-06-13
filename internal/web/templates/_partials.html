@@ -41,6 +41,7 @@
 
 {{define "appdetail"}}
 {{$csrf := .CSRFToken}}
+{{$wdr := .WriteDisabledReason}}
 {{with .App}}
 {{if .Ops}}{{if .Ops.Err}}<div class="error">App Ops Interface: {{.Ops.Err}}{{if .Ops.Version}} (reported v{{.Ops.Version}}){{end}}</div>{{end}}{{end}}
 {{$proj := .Project}}
@@ -91,7 +92,7 @@
 {{end}}
 <table class="grid">
   <thead>
-    <tr><th>Service</th><th>State</th><th>Health</th><th>CPU%</th><th>Memory</th><th>Restarts</th><th>Status</th></tr>
+    <tr><th>Service</th><th>State</th><th>Health</th><th>CPU%</th><th>Memory</th><th>Restarts</th><th>Status</th><th>Actions</th></tr>
   </thead>
   <tbody>
     {{range .Services}}
@@ -103,9 +104,13 @@
       <td class="mono">{{humanBytes .MemBytes}}{{if .MemLimit}} / {{humanBytes .MemLimit}}{{end}}</td>
       <td class="mono">{{.RestartCount}}</td>
       <td class="muted">{{.StatusText}}</td>
+      <td class="queue-actions">
+        <button type="button" class="link lc-btn" data-log-url="/apps/{{pathEscape $proj}}/services/{{pathEscape .Service}}/logs">logs</button>
+        {{if not $wdr}}<button type="button" class="link lc-btn" data-lc-url="/apps/{{pathEscape $proj}}/services/{{pathEscape .Service}}/restart">restart</button>{{end}}
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="7" class="muted">No containers for this app.</td></tr>
+    <tr><td colspan="8" class="muted">No containers for this app.</td></tr>
     {{end}}
   </tbody>
 </table>

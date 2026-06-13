@@ -35,6 +35,25 @@ func (c Container) Project() string { return c.Labels[LabelProject] }
 // Service returns the compose service label, or "" if unlabeled.
 func (c Container) Service() string { return c.Labels[LabelService] }
 
+// WorkingDir returns the compose project working directory (the app run_dir).
+func (c Container) WorkingDir() string { return c.Labels[LabelWorkingDir] }
+
+// ConfigFiles returns the compose config file paths for the project, dropping
+// empty/whitespace entries (a stray "" would become `docker compose -f ""`).
+func (c Container) ConfigFiles() []string {
+	v := c.Labels[LabelConfigFiles]
+	if v == "" {
+		return nil
+	}
+	var out []string
+	for _, f := range strings.Split(v, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // Name returns the primary container name without the leading slash.
 func (c Container) Name() string {
 	if len(c.Names) == 0 {

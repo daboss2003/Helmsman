@@ -19,10 +19,13 @@ import (
 	"time"
 )
 
-// Compose label keys Helmsman groups containers by (an app = one project).
+// Compose label keys Helmsman groups containers by (an app = one project) and
+// targets `docker compose` with (the project dir + config files).
 const (
-	LabelProject = "com.docker.compose.project"
-	LabelService = "com.docker.compose.service"
+	LabelProject     = "com.docker.compose.project"
+	LabelService     = "com.docker.compose.service"
+	LabelWorkingDir  = "com.docker.compose.project.working_dir"
+	LabelConfigFiles = "com.docker.compose.project.config_files"
 )
 
 const maxResponseBytes = 16 << 20 // cap untrusted API responses

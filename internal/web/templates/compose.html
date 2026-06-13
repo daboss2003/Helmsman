@@ -1,0 +1,24 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <p><a href="/apps/{{.Project}}">← {{.Project}}</a></p>
+  <h1>Compose — {{.Project}}</h1>
+  {{if .ComposeFiles}}
+  <p class="muted">Config files: {{range .ComposeFiles}}<code>{{.}}</code> {{end}}</p>
+  {{end}}
+
+  {{if .ComposeOK}}
+  <div class="panel"><strong class="health-healthy">✓ Passes the §5.6 validator</strong> — safe to deploy.</div>
+  {{else}}
+  <div class="error" role="alert">
+    <strong>§5.6 validator findings ({{len .ComposeViolations}}):</strong>
+    <ul>{{range .ComposeViolations}}<li>{{.}}</li>{{end}}</ul>
+  </div>
+  {{end}}
+
+  <section class="panel">
+    <h2>Compose (primary file)</h2>
+    <pre class="stream">{{.ComposeText}}</pre>
+  </section>
+</main>
+{{template "bottom" .}}

@@ -38,11 +38,15 @@ func (s ServiceStatus) Running() bool { return s.State == "running" }
 
 // App is one Compose project and its services. Ops is the canonical App Ops
 // Interface record (nil when ops is not configured for this app — plan §4.3).
+// WorkingDir/ConfigFiles come from the compose labels and let the write plane
+// target `docker compose` for this project.
 type App struct {
 	Project     string
 	DisplayName string
 	Services    []ServiceStatus
 	Ops         *ops.Result
+	WorkingDir  string
+	ConfigFiles []string
 }
 
 // Rich reports whether the app has a RICH ops record.
@@ -199,10 +203,14 @@ func (m *Monitor) pollOnce(parent context.Context) *Snapshot {
 	next := make(map[string]cpuCounters)
 
 	byProject := map[string][]ServiceStatus{}
+	projMeta := map[string]docker.Container{} // first container per project (for labels)
 	for _, c := range containers {
 		project := c.Project()
 		if project == "" {
 			continue // not a compose-managed app
+		}
+		if _, ok := projMeta[project]; !ok {
+			projMeta[project] = c
 		}
 		svc := ServiceStatus{
 			Service:     c.Service(),
@@ -234,7 +242,11 @@ func (m *Monitor) pollOnce(parent context.Context) *Snapshot {
 
 	for project, svcs := range byProject {
 		sort.Slice(svcs, func(i, j int) bool { return svcs[i].Service < svcs[j].Service })
-		snap.Apps = append(snap.Apps, App{Project: project, DisplayName: project, Services: svcs})
+		meta := projMeta[project]
+		snap.Apps = append(snap.Apps, App{
+			Project: project, DisplayName: project, Services: svcs,
+			WorkingDir: meta.WorkingDir(), ConfigFiles: meta.ConfigFiles(),
+		})
 	}
 	sort.Slice(snap.Apps, func(i, j int) bool { return snap.Apps[i].Project < snap.Apps[j].Project })
 

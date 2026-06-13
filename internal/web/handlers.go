@@ -22,6 +22,13 @@ type tmplData struct {
 	Project   string
 	OpsCfg    *ops.Config
 	OpsStatus *ops.Status
+
+	ComposeText       string
+	ComposeFiles      []string
+	ComposeViolations []string
+	ComposeOK         bool
+
+	WriteDisabledReason string // non-empty when the §0 write-plane gate is closed
 }
 
 type eventRow struct {
@@ -56,6 +63,17 @@ func (s *Server) snapshot() *monitor.Snapshot {
 	return s.mon.Snapshot()
 }
 
+// writeDisabledReason returns "" if lifecycle actions are available, else why not.
+func (s *Server) writeDisabledReason() string {
+	if s.runner == nil {
+		return "write plane unavailable"
+	}
+	if ok, reason := s.runner.WriteAllowed(); !ok {
+		return reason
+	}
+	return ""
+}
+
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	sess := SessionFrom(r.Context())
 	s.render(w, r, "home.html", tmplData{
@@ -85,11 +103,12 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "app.html", tmplData{
-		Title:     project + " — Helmsman",
-		CSRFToken: CSRFToken(r.Context()),
-		Username:  sess.Username,
-		App:       app,
-		Snap:      snap,
+		Title:               project + " — Helmsman",
+		CSRFToken:           CSRFToken(r.Context()),
+		Username:            sess.Username,
+		App:                 app,
+		Snap:                snap,
+		WriteDisabledReason: s.writeDisabledReason(),
 	})
 }
 
@@ -105,7 +124,7 @@ func (s *Server) handleAppPartial(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app not found", http.StatusNotFound)
 		return
 	}
-	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap, CSRFToken: CSRFToken(r.Context())})
+	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap, CSRFToken: CSRFToken(r.Context()), WriteDisabledReason: s.writeDisabledReason()})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

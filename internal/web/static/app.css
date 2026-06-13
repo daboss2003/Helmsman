@@ -105,6 +105,15 @@ button[type=submit] {
 .check { display: flex; align-items: center; gap: 0.5rem; flex-direction: row; }
 select { padding: 0.5rem; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); font: inherit; }
 
+/* streamed output (deploy / logs / compose) */
+.stream {
+  background: #0a0e13; border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.75rem 0.9rem; margin: 1rem 0; max-height: 360px; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; color: #c8d3e0;
+}
+.queue-actions button[disabled] { opacity: 0.5; cursor: default; }
+
 /* tables */
 .grid { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.88rem; }
 .grid th, .grid td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); }

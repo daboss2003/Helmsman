@@ -13,6 +13,7 @@ import (
 
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/docker"
+	"github.com/helmsman/helmsman/internal/dockerexec"
 	"github.com/helmsman/helmsman/internal/hostmon"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
@@ -70,7 +71,30 @@ func cmdServe(args []string) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); mon.Run(ctx) }()
 
-	srv, err := web.New(cfg, db, *configPath, log, mon, opsStore, prober)
+	// Write plane (M4): the §0 ≥1 GB resource gate + the global one-docker-child
+	// semaphore + static-argv exec wrapper.
+	var memTotal uint64
+	if hs, herr := hostSampler.Sample(); herr == nil {
+		memTotal = hs.MemTotal
+	}
+	writeAllowed, writeReason := dockerexec.WritePlaneGate(memTotal)
+	if !writeAllowed {
+		log.Warn("write plane disabled", "reason", writeReason)
+	} else if writeReason != "" {
+		log.Info("write plane armed", "note", writeReason)
+	}
+	runner := dockerexec.NewRunner(dockerexec.NewSemaphore(), writeAllowed, writeReason)
+
+	srv, err := web.New(cfg, web.Deps{
+		DB:         db,
+		ConfigPath: *configPath,
+		Log:        log,
+		Monitor:    mon,
+		OpsStore:   opsStore,
+		Prober:     prober,
+		Runner:     runner,
+		Docker:     dockerCli,
+	})
 	if err != nil {
 		return err
 	}
