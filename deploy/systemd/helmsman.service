@@ -1,0 +1,78 @@
+# Helmsman runs as its own systemd unit, NOT a compose container, so it can
+# never appear in a managed project's container list and a stack `down` can't
+# take it down (plan §3). Runs non-root as a dedicated low-priv user in the
+# `docker` group. Hardening per plan §3 / §15 Phase 4.
+#
+# Install:
+#   useradd --system --no-create-home --shell /usr/sbin/nologin helmsman
+#   usermod -aG docker helmsman
+#   install -m0755 helmsman /usr/local/bin/helmsman
+#   install -d -o helmsman -g helmsman -m0700 /var/lib/helmsman
+#   # Config is root-OWNED and group-readable by the service group so the
+#   # non-root service can read it; the master key is never group-WRITABLE:
+#   install -o root -g helmsman -m0640 config.yaml /etc/helmsman/config.yaml
+#   systemctl daemon-reload && systemctl enable --now helmsman
+
+[Unit]
+Description=Helmsman ops dashboard (control plane)
+Documentation=https://github.com/helmsman/helmsman
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=helmsman
+Group=helmsman
+SupplementaryGroups=docker
+ExecStart=/usr/local/bin/helmsman serve --config /etc/helmsman/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2s
+
+# --- Memory accounting: MemoryMax kills INSIDE this cgroup, incl. forked
+# docker/compose children (plan §0, §3). GOMEMLIMIT sits under the cap.
+MemoryMax=192M
+Environment=GOMEMLIMIT=150MiB
+# OOMScoreAdjust only biases the GLOBAL killer; it is NOT a substitute for MemoryMax.
+OOMScoreAdjust=-100
+
+# --- Sandbox (plan §15 Phase 4). The raw docker.sock is NEVER mounted here;
+# reads go through the read-only socket-proxy, writes shell out to `docker compose`.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+# Only the state dir is writable. The admin UI binds loopback only; Helmsman
+# never binds a public port itself (the managed edge child does — its own unit).
+ReadWritePaths=/var/lib/helmsman
+# CAP_NET_BIND_SERVICE is intentionally ABSENT here — only the edge child gets it.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# --- Egress allow-listing is the deepest backstop (plan §9 principle, §15):
+# even a perfect SSRF/RCE cannot reach cloud metadata or call home. Restrict
+# outbound to loopback (socket-proxy, edge admin) + your app/ACME networks.
+# Tune the allow ranges to your host, then remove the broad default.
+IPAddressDeny=any
+IPAddressAllow=localhost
+# IPAddressAllow=<docker-app-subnet> <acme-ca-range>
+
+[Install]
+WantedBy=multi-user.target

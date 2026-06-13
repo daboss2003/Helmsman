@@ -1,0 +1,187 @@
+package web
+
+import (
+	"net"
+	"net/http"
+	"net/netip"
+	"strings"
+
+	"github.com/helmsman/helmsman/internal/session"
+)
+
+// The request pipeline, in the exact order the security model mandates (plan §5):
+//
+//	1 IP allowlist  →  2 trusted-proxy/XFF resolve  →  3 security headers
+//	→ 4 rate limiter → 5 session loader → 6 auth → 7 CSRF + Origin → 8 router → 9 audit
+//
+// Steps 1–2 are fused (the XFF resolve is meaningless without the peer check).
+// Steps 6–7 are applied per-route inside the router (auth gates protected routes;
+// CSRF gates state-changers including the unauthenticated /login POST), so auth
+// always precedes CSRF where both apply. Step 9 (audit) is emitted by handlers
+// for the specific privileged actions the plan enumerates.
+
+// allowlistMiddleware is the FIRST middleware. It enforces the IP allowlist on
+// the unspoofable TCP peer, resolving a single overwritten XFF only when the
+// peer is a configured trusted proxy (plan §5.2 XFF invariant). Non-allowlisted
+// requests get a bare 404 (notfound) — never an auth prompt that confirms the
+// service exists. /healthz is exempt so a loopback liveness probe always works.
+func (s *Server) allowlistMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		peer, ok := peerAddr(r)
+		if !ok {
+			notFound(w)
+			return
+		}
+		sec := s.security()
+		client := peer
+
+		if sec.trustProxy && prefixesContain(sec.trustedProxies, peer) {
+			// The peer IS a trusted edge: REQUIRE exactly one valid overwritten
+			// XFF value. Missing, malformed, or an appended chain fails closed
+			// EXPLICITLY (deny) — we do not fall back to allowlisting the peer, so
+			// the guarantee holds even if the edge IP is mistakenly in the
+			// allowlist (review #15).
+			single, ok := singleXFF(r.Header.Values("X-Forwarded-For"))
+			if !ok {
+				s.auditDeny(r, peer, peer)
+				notFound(w)
+				return
+			}
+			ip, err := netip.ParseAddr(single)
+			if err != nil {
+				s.auditDeny(r, peer, peer)
+				notFound(w)
+				return
+			}
+			client = ip.Unmap()
+		}
+		// If the peer is NOT trusted, XFF is ignored entirely and the peer itself
+		// is allowlisted — a hostile container forging XFF cannot get in.
+
+		if !prefixesContain(sec.allowlist, client) {
+			s.auditDeny(r, peer, client)
+			notFound(w)
+			return
+		}
+
+		r = r.WithContext(withClientIP(r.Context(), client))
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityHeadersMiddleware sets the fixed strict admin-plane headers (plan §5.4).
+func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "+
+				"object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		// HSTS is safe to assert: the admin plane is only ever reached over the
+		// TLS edge or a loopback tunnel.
+		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		// Strip any Server header Go might add downstream.
+		h.Del("Server")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// rateLimitMiddleware applies the general per-IP limiter (pipeline step 4).
+func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		key := ClientIP(r.Context()).String()
+		if !s.limiter.allow(key) {
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sessionMiddleware loads the session cookie into context (pipeline step 5). It
+// never fails the request; requireAuth (step 6) enforces presence on protected
+// routes.
+func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie(s.cookieName()); err == nil && c.Value != "" {
+			if sess, err := s.sessions.Load(r.Context(), c.Value); err == nil {
+				r = r.WithContext(withSession(r.Context(), sess))
+			} else if err == session.ErrNotFound {
+				// Stale/expired cookie: clear it so the browser stops sending it.
+				s.clearSessionCookie(w)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// --- helpers ---
+
+func peerAddr(r *http.Request) (netip.Addr, bool) {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	// strip IPv6 zone if present
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		host = host[:i]
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return addr.Unmap(), true
+}
+
+// singleXFF returns the lone XFF token, or ok=false if there is not exactly one
+// (none, or an appended chain — both fail closed).
+func singleXFF(values []string) (string, bool) {
+	var tokens []string
+	for _, v := range values {
+		for _, t := range strings.Split(v, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				tokens = append(tokens, t)
+			}
+		}
+	}
+	if len(tokens) != 1 {
+		return "", false
+	}
+	return tokens[0], true
+}
+
+func prefixesContain(prefixes []netip.Prefix, ip netip.Addr) bool {
+	ip = ip.Unmap()
+	for _, p := range prefixes {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func notFound(w http.ResponseWriter) {
+	http.Error(w, "404 page not found", http.StatusNotFound)
+}
+
+// capBody bounds a request body before any handler (or requireCSRF) reads it, so
+// an oversized form can't buffer unbounded memory (review #11). An over-limit
+// body makes the subsequent ParseForm/FormValue fail, which the handlers map to
+// 400/403.
+func capBody(max int64, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, max)
+		next(w, r)
+	}
+}

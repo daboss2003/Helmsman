@@ -1,0 +1,16 @@
+# Build artifacts
+/helmsman
+/dist/
+*.exe
+
+# Local runtime state / databases
+*.db
+*.db-wal
+*.db-shm
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# Local dev config (the real one lives at /etc/helmsman/config.yaml, never in-repo)
+/config.local.yaml

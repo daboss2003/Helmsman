@@ -1,0 +1,34 @@
+{{define "top"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{.CSRFToken}}">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+{{end}}
+
+{{define "bottom"}}
+  <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}
+
+{{define "nav"}}
+<header class="nav">
+  <div class="brand">⎈ Helmsman</div>
+  {{if .Username}}
+  <nav>
+    <a href="/">Overview</a>
+    <a href="/events">Audit log</a>
+    <span class="who">{{.Username}}</span>
+    <form method="post" action="/logout" class="inline">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <button type="submit" class="link">Sign out</button>
+    </form>
+  </nav>
+  {{end}}
+</header>
+{{end}}

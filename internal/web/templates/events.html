@@ -1,0 +1,28 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <h1>Audit log</h1>
+  <p class="muted">Most recent 200 events. Append-only; secret values are never recorded.</p>
+  <table class="grid">
+    <thead>
+      <tr><th>When (UTC)</th><th>Actor</th><th>IP</th><th>Action</th><th>Target</th><th>Outcome</th><th>Level</th><th>Detail</th></tr>
+    </thead>
+    <tbody>
+      {{range .Events}}
+      <tr class="lvl-{{.Level}} out-{{.Outcome}}">
+        <td class="mono">{{.When}}</td>
+        <td>{{.Actor}}</td>
+        <td class="mono">{{.IP}}</td>
+        <td>{{.Action}}</td>
+        <td>{{.Target}}</td>
+        <td>{{.Outcome}}</td>
+        <td>{{.Level}}</td>
+        <td>{{.Detail}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="8" class="muted">No events yet.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</main>
+{{template "bottom" .}}
