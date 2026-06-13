@@ -88,6 +88,23 @@ button[type=submit] {
 .health-starting { color: var(--security); }
 .row-down td { color: var(--error); }
 
+/* ops: badge, indicators, sparkline, queues */
+.badge { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.4rem; border-radius: 6px; background: var(--accent); color: var(--accent-fg); vertical-align: middle; }
+.spark { width: 100%; max-width: 320px; height: 40px; color: var(--accent); display: block; margin-bottom: 0.6rem; }
+.indicators { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.5rem; }
+.indicator { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--muted); }
+.indicator .ind-name { font-weight: 600; }
+.indicator .ind-status { font-size: 0.8rem; text-transform: uppercase; }
+.indicator .ind-msg { font-size: 0.8rem; }
+.ind-up { border-left-color: var(--ok); }
+.ind-down { border-left-color: var(--error); }
+.ind-degraded { border-left-color: var(--security); }
+.ind-unknown { border-left-color: var(--muted); }
+.queue-actions { display: flex; gap: 0.6rem; }
+.stack { display: grid; gap: 0.85rem; max-width: 520px; }
+.check { display: flex; align-items: center; gap: 0.5rem; flex-direction: row; }
+select { padding: 0.5rem; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); font: inherit; }
+
 /* tables */
 .grid { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.88rem; }
 .grid th, .grid td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); }

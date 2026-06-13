@@ -54,7 +54,7 @@ func newTestMonitor(t *testing.T) (*Monitor, *store.DB) {
 	}
 	t.Cleanup(func() { db.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	m := New(db, fakeEngine(t), hostmon.New("/"), time.Second, time.Hour, log)
+	m := New(db, fakeEngine(t), hostmon.New("/"), time.Second, time.Hour, log, nil)
 	return m, db
 }
 
@@ -103,7 +103,7 @@ func TestPollDockerDownIsGraceful(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// point at a dead address
-	m := New(db, docker.New("127.0.0.1:1"), hostmon.New("/"), time.Second, time.Hour, log)
+	m := New(db, docker.New("127.0.0.1:1"), hostmon.New("/"), time.Second, time.Hour, log, nil)
 	snap := m.pollOnce(context.Background())
 	if snap.DockerOK {
 		t.Error("expected DockerOK=false against a dead proxy")

@@ -1,0 +1,50 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <p><a href="/apps/{{.Project}}">← {{.Project}}</a></p>
+  <h1>App Ops Interface — {{.Project}}</h1>
+  <p class="muted">Point Helmsman at this app's ops endpoint to light up RICH health,
+    snapshot, and queue panels. The shared secret is stored encrypted and is only ever
+    sent server-side in the header you name — never to your browser.</p>
+  {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+  {{if .OpsStatus}}
+  <p class="muted small">Last probe {{unixTime .OpsStatus.LastProbeAt}} — mode <strong>{{.OpsStatus.Mode}}</strong>{{if .OpsStatus.Version}} (v{{.OpsStatus.Version}}){{end}}{{if .OpsStatus.LastError}} · {{.OpsStatus.LastError}}{{end}}</p>
+  {{end}}
+
+  <section class="panel">
+    <form method="post" action="/apps/{{.Project}}/ops-config" class="stack" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label class="check">
+        <input type="checkbox" name="enabled" {{if .OpsCfg.Enabled}}checked{{end}}>
+        Enable ops probing for this app
+      </label>
+      <label>Base URL <span class="muted">(scheme://host[:port], a container endpoint — not loopback)</span>
+        <input type="text" name="base_url" value="{{.OpsCfg.BaseURL}}" placeholder="http://web:8080">
+      </label>
+      <label>Mode
+        <select name="ops_mode">
+          <option value="auto" {{if eq .OpsCfg.OpsMode "auto"}}selected{{end}}>auto (discover)</option>
+          <option value="rich" {{if eq .OpsCfg.OpsMode "rich"}}selected{{end}}>rich (force; app gates its endpoints)</option>
+          <option value="basic" {{if eq .OpsCfg.OpsMode "basic"}}selected{{end}}>basic (skip ops)</option>
+        </select>
+      </label>
+      <label>Base path <span class="muted">(optional prefix, e.g. /ops)</span>
+        <input type="text" name="base_path" value="{{.OpsCfg.BasePath}}" placeholder="/ops">
+      </label>
+      <label>Secret header name <span class="muted">(operator-chosen, e.g. X-Ops-Secret)</span>
+        <input type="text" name="secret_header" value="{{.OpsCfg.SecretHeader}}" placeholder="X-Ops-Secret">
+      </label>
+      <label>Shared secret <span class="muted">({{if .OpsCfg.HasSecret}}set — leave blank to keep{{else}}not set{{end}}; ≥ 16 chars)</span>
+        <input type="password" name="secret" autocomplete="new-password" placeholder="{{if .OpsCfg.HasSecret}}••••••••{{else}}enter secret{{end}}">
+      </label>
+      {{if .OpsCfg.HasSecret}}
+      <label class="check"><input type="checkbox" name="clear_secret"> Clear the stored secret</label>
+      {{end}}
+      <label>Adapter
+        <input type="text" name="adapter" value="{{if .OpsCfg.Adapter}}{{.OpsCfg.Adapter}}{{else}}ops.v1{{end}}">
+      </label>
+      <button type="submit">Save ops config</button>
+    </form>
+  </section>
+</main>
+{{template "bottom" .}}

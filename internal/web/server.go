@@ -20,6 +20,7 @@ import (
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
 	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/session"
 	"github.com/helmsman/helmsman/internal/store"
 )
@@ -57,13 +58,15 @@ type Server struct {
 	log        *slog.Logger
 	verifySem  chan struct{}
 	mon        *monitor.Monitor // read-plane snapshots (may be nil)
+	opsStore   *ops.ConfigStore // ops config (may be nil)
+	prober     *ops.Prober      // ops queue actions (may be nil)
 	sec        atomic.Pointer[secState]
 }
 
 // New builds a Server from a validated config and an open DB. configPath is kept
-// so SIGHUP can re-read and hot-reload the allowlist + auth. log and mon may be
-// nil (mon nil → the dashboard shows "collecting…").
-func New(cfg *config.Config, db *store.DB, configPath string, log *slog.Logger, mon *monitor.Monitor) (*Server, error) {
+// so SIGHUP can re-read and hot-reload the allowlist + auth. log, mon, opsStore,
+// and prober may be nil (mon nil → the dashboard shows "collecting…").
+func New(cfg *config.Config, db *store.DB, configPath string, log *slog.Logger, mon *monitor.Monitor, opsStore *ops.ConfigStore, prober *ops.Prober) (*Server, error) {
 	tmpl, err := parseTemplates()
 	if err != nil {
 		return nil, err
@@ -82,6 +85,8 @@ func New(cfg *config.Config, db *store.DB, configPath string, log *slog.Logger, 
 		log:        log,
 		verifySem:  make(chan struct{}, loginVerifyConcurrency),
 		mon:        mon,
+		opsStore:   opsStore,
+		prober:     prober,
 	}
 	sec, err := buildSecState(cfg)
 	if err != nil {
@@ -158,7 +163,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.requireAuth(s.withCSRFToken(s.handleHome)))
 	mux.HandleFunc("GET /partials/overview", s.requireAuth(s.handleOverviewPartial))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))
-	mux.HandleFunc("GET /partials/app/{project}", s.requireAuth(s.handleAppPartial))
+	mux.HandleFunc("GET /partials/app/{project}", s.requireAuth(s.withCSRFToken(s.handleAppPartial)))
+	// App Ops Interface (M3): config form + server-side-proxied queue actions.
+	mux.HandleFunc("GET /apps/{project}/ops-config", s.requireAuth(s.withCSRFToken(s.handleOpsConfigGet)))
+	mux.HandleFunc("POST /apps/{project}/ops-config", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleOpsConfigPost))))
+	mux.HandleFunc("POST /apps/{project}/queues/{queue}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleQueueAction))))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.

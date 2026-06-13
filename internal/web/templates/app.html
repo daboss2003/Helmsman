@@ -3,7 +3,8 @@
 <main class="wrap">
   <p><a href="/">← Overview</a></p>
   <h1>{{.App.DisplayName}}</h1>
-  <p class="muted">{{.App.UpCount}}/{{.App.Total}} services up · Compose project <code>{{.App.Project}}</code></p>
+  <p class="muted">{{.App.UpCount}}/{{.App.Total}} services up · Compose project <code>{{.App.Project}}</code>
+    · <a href="/apps/{{pathEscape .App.Project}}/ops-config">ops config</a></p>
   <section class="panel" data-poll-url="/partials/app/{{pathEscape .App.Project}}" data-poll-interval="5000">
     {{template "appdetail" .}}
   </section>

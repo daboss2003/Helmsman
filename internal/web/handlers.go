@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/helmsman/helmsman/internal/ops"
 )
 
 // tmplData is the view model passed to every template render.
@@ -18,6 +19,9 @@ type tmplData struct {
 	Events    []eventRow
 	Snap      *monitor.Snapshot
 	App       *monitor.App
+	Project   string
+	OpsCfg    *ops.Config
+	OpsStatus *ops.Status
 }
 
 type eventRow struct {
@@ -101,7 +105,7 @@ func (s *Server) handleAppPartial(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app not found", http.StatusNotFound)
 		return
 	}
-	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap})
+	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap, CSRFToken: CSRFToken(r.Context())})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

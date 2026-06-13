@@ -14,6 +14,7 @@ import (
 
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/hostmon"
+	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/store"
 )
 
@@ -35,12 +36,17 @@ type ServiceStatus struct {
 // Running reports whether the service container is running.
 func (s ServiceStatus) Running() bool { return s.State == "running" }
 
-// App is one Compose project and its services.
+// App is one Compose project and its services. Ops is the canonical App Ops
+// Interface record (nil when ops is not configured for this app — plan §4.3).
 type App struct {
 	Project     string
 	DisplayName string
 	Services    []ServiceStatus
+	Ops         *ops.Result
 }
+
+// Rich reports whether the app has a RICH ops record.
+func (a App) Rich() bool { return a.Ops != nil && a.Ops.Mode == ops.RICH }
 
 // UpCount returns the number of running services.
 func (a App) UpCount() int {
@@ -102,6 +108,7 @@ type Monitor struct {
 	containerCapWarned bool // logged-once flag for the per-poll container cap
 	pruneEvery         int
 	tickCount          int
+	prober             *ops.Prober // may be nil (ops disabled → BASIC only)
 	// prevCPU carries last tick's raw CPU counters per container for %-delta
 	// calc. Accessed only from the single Run/pollOnce goroutine.
 	prevCPU map[string]cpuCounters
@@ -110,11 +117,12 @@ type Monitor struct {
 // cpuCounters holds a container's raw CPU usage counters for one tick.
 type cpuCounters struct{ total, system uint64 }
 
-// New builds a Monitor.
-func New(db *store.DB, cli *docker.Client, host *hostmon.Sampler, interval, retention time.Duration, log *slog.Logger) *Monitor {
+// New builds a Monitor. prober may be nil (ops probing disabled).
+func New(db *store.DB, cli *docker.Client, host *hostmon.Sampler, interval, retention time.Duration, log *slog.Logger, prober *ops.Prober) *Monitor {
 	return &Monitor{
 		db: db, cli: cli, host: host,
 		interval: interval, retention: retention, log: log,
+		prober:     prober,
 		pruneEvery: 30, // prune roughly every 30 ticks
 	}
 }
@@ -229,6 +237,19 @@ func (m *Monitor) pollOnce(parent context.Context) *Snapshot {
 		snap.Apps = append(snap.Apps, App{Project: project, DisplayName: project, Services: svcs})
 	}
 	sort.Slice(snap.Apps, func(i, j int) bool { return snap.Apps[i].Project < snap.Apps[j].Project })
+
+	// App Ops Interface probe (plan §4): sequential, within the per-poll budget.
+	// A compromised app's response can only ever degrade it to BASIC, never crash.
+	if m.prober != nil {
+		for i := range snap.Apps {
+			if ctx.Err() != nil {
+				break
+			}
+			if res, ok := m.prober.Probe(ctx, snap.Apps[i].Project); ok {
+				snap.Apps[i].Ops = res
+			}
+		}
+	}
 
 	// If the per-poll budget expired mid-collection, surface that the view is
 	// partial rather than silently showing a subset (review #1).

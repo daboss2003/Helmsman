@@ -15,6 +15,8 @@ import (
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/hostmon"
 	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/helmsman/helmsman/internal/ops"
+	"github.com/helmsman/helmsman/internal/opsclient"
 	"github.com/helmsman/helmsman/internal/store"
 	"github.com/helmsman/helmsman/internal/web"
 )
@@ -49,18 +51,26 @@ func cmdServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Read plane (M2): poll Docker via the loopback socket-proxy + sample host.
-	// The poller is joined before the deferred db.Close() so shutdown ordering is
-	// synchronized — no DB write can race the close (review #8).
+	// Master cipher for secrets at rest (ops shared secrets in M3, env in M5).
+	cipher, err := openCipher(cfg)
+	if err != nil {
+		return err
+	}
+
+	// Read plane (M2/M3): poll Docker via the loopback socket-proxy, sample host,
+	// and probe the App Ops Interface (M3). The poller is joined before the
+	// deferred db.Close() so no DB write can race the close (review #8).
 	dockerCli := docker.New(cfg.Docker.ProxyAddr)
 	hostSampler := hostmon.New(cfg.DataDir)
+	opsStore := ops.NewConfigStore(db, cipher)
+	prober := ops.NewProber(opsStore, opsclient.New(), db)
 	mon := monitor.New(db, dockerCli, hostSampler, cfg.Monitor.PollInterval.D(),
-		cfg.Monitor.MetricsRetention.D(), log)
+		cfg.Monitor.MetricsRetention.D(), log, prober)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); mon.Run(ctx) }()
 
-	srv, err := web.New(cfg, db, *configPath, log, mon)
+	srv, err := web.New(cfg, db, *configPath, log, mon, opsStore, prober)
 	if err != nil {
 		return err
 	}

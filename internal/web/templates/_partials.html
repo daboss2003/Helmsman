@@ -23,7 +23,7 @@
     <div class="tiles">
       {{range .Apps}}
       <a class="tile {{if .Degraded}}tile-degraded{{else}}tile-ok{{end}}" href="/apps/{{pathEscape .Project}}">
-        <div class="tile-name">{{.DisplayName}}</div>
+        <div class="tile-name">{{.DisplayName}}{{if .Rich}} <span class="badge">RICH</span>{{end}}</div>
         <div class="tile-stat">{{.UpCount}}/{{.Total}} up</div>
       </a>
       {{end}}
@@ -40,7 +40,55 @@
 {{end}}
 
 {{define "appdetail"}}
+{{$csrf := .CSRFToken}}
 {{with .App}}
+{{if .Ops}}{{if .Ops.Err}}<div class="error">App Ops Interface: {{.Ops.Err}}{{if .Ops.Version}} (reported v{{.Ops.Version}}){{end}}</div>{{end}}{{end}}
+{{$proj := .Project}}
+{{if .Rich}}
+{{with .Ops}}
+<section class="panel">
+  <h2>Health <span class="badge">RICH{{if .Version}} · v{{.Version}}{{end}}</span></h2>
+  {{if .Snapshot}}
+  <svg class="spark" viewBox="0 0 220 32" preserveAspectRatio="none" aria-label="health history">
+    <polyline points="{{sparkPoints .Snapshot}}" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  </svg>
+  {{end}}
+  <div class="indicators">
+    {{range .Indicators}}
+    <div class="indicator ind-{{.Status}}">
+      <span class="ind-name">{{.Name}}</span>
+      <span class="ind-status">{{.Status}}</span>
+      {{if .Message}}<span class="ind-msg muted">{{.Message}}</span>{{end}}
+    </div>
+    {{else}}
+    <p class="muted">No dependency details reported.</p>
+    {{end}}
+  </div>
+</section>
+{{if .Queues}}
+<section class="panel">
+  <h2>Queues</h2>
+  <table class="grid">
+    <thead><tr><th>Queue</th><th>State</th><th>Counts</th><th>Actions</th></tr></thead>
+    <tbody>
+      {{range .Queues}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{if .IsPaused}}<span class="health-starting">paused</span>{{else}}active{{end}}</td>
+        <td class="mono">{{range .Counts}}{{.Name}}={{.Value}} {{end}}</td>
+        <td class="queue-actions">
+          <form method="post" action="/apps/{{pathEscape $proj}}/queues/{{pathEscape .Name}}/pause" class="inline"><input type="hidden" name="csrf_token" value="{{$csrf}}"><button type="submit" class="link">pause</button></form>
+          <form method="post" action="/apps/{{pathEscape $proj}}/queues/{{pathEscape .Name}}/resume" class="inline"><input type="hidden" name="csrf_token" value="{{$csrf}}"><button type="submit" class="link">resume</button></form>
+          <form method="post" action="/apps/{{pathEscape $proj}}/queues/{{pathEscape .Name}}/retry-failed" class="inline"><input type="hidden" name="csrf_token" value="{{$csrf}}"><button type="submit" class="link">retry-failed</button></form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{end}}
+{{end}}
 <table class="grid">
   <thead>
     <tr><th>Service</th><th>State</th><th>Health</th><th>CPU%</th><th>Memory</th><th>Restarts</th><th>Status</th></tr>
