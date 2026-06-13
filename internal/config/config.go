@@ -54,6 +54,8 @@ type Config struct {
 	Admin   AdminConfig   `yaml:"admin"`
 	Session SessionConfig `yaml:"session"`
 	Cookie  CookieConfig  `yaml:"cookie"`
+	Docker  DockerConfig  `yaml:"docker"`
+	Monitor MonitorConfig `yaml:"monitor"`
 
 	CaddyEditor       EditorBlock `yaml:"caddy_editor"`
 	ComposeValidation EditorBlock `yaml:"compose_validation"`
@@ -87,6 +89,18 @@ type EdgeConfig struct {
 type AdminConfig struct {
 	Hostname string `yaml:"hostname"`
 	Listen   string `yaml:"listen"`
+}
+
+// DockerConfig points at the read-only docker-socket-proxy (plan §3). Helmsman
+// NEVER talks to the raw socket; ProxyAddr must be a loopback endpoint.
+type DockerConfig struct {
+	ProxyAddr string `yaml:"proxy_addr"`
+}
+
+// MonitorConfig tunes the read-plane poller (plan §4 read plane).
+type MonitorConfig struct {
+	PollInterval     Duration `yaml:"poll_interval"`
+	MetricsRetention Duration `yaml:"metrics_retention"`
 }
 
 // SessionConfig holds idle/absolute timeouts (plan §5.3).
@@ -173,6 +187,15 @@ func applyDefaults(c *Config) {
 	}
 	if c.DataDir == "" {
 		c.DataDir = "/var/lib/helmsman"
+	}
+	if c.Docker.ProxyAddr == "" {
+		c.Docker.ProxyAddr = "127.0.0.1:2375"
+	}
+	if c.Monitor.PollInterval == 0 {
+		c.Monitor.PollInterval = Duration(10 * time.Second)
+	}
+	if c.Monitor.MetricsRetention == 0 {
+		c.Monitor.MetricsRetention = Duration(7 * 24 * time.Hour)
 	}
 }
 
@@ -375,6 +398,11 @@ func (c *Config) Validate() error {
 		}
 	default:
 		add("cookie.prefix: must be __Host- or __Secure-, got %q", c.Cookie.Prefix)
+	}
+
+	// --- docker proxy: must be a loopback endpoint (never the raw/remote socket) ---
+	if !isLoopbackBind(c.Docker.ProxyAddr) {
+		add("docker.proxy_addr: must be a loopback host:port (the read-only socket-proxy), got %q", c.Docker.ProxyAddr)
 	}
 
 	// --- editor modes ---

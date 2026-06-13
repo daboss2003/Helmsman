@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net/http"
 	"time"
+
+	"github.com/helmsman/helmsman/internal/monitor"
 )
 
 // tmplData is the view model passed to every template render.
@@ -14,6 +16,8 @@ type tmplData struct {
 	Error     string
 	EdgeMode  string
 	Events    []eventRow
+	Snap      *monitor.Snapshot
+	App       *monitor.App
 }
 
 type eventRow struct {
@@ -41,6 +45,13 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg stri
 	})
 }
 
+func (s *Server) snapshot() *monitor.Snapshot {
+	if s.mon == nil {
+		return nil
+	}
+	return s.mon.Snapshot()
+}
+
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	sess := SessionFrom(r.Context())
 	s.render(w, r, "home.html", tmplData{
@@ -48,7 +59,49 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		CSRFToken: CSRFToken(r.Context()),
 		Username:  sess.Username,
 		EdgeMode:  string(s.cfg.Edge.Mode),
+		Snap:      s.snapshot(),
 	})
+}
+
+// handleOverviewPartial returns just the overview fragment for live polling.
+func (s *Server) handleOverviewPartial(w http.ResponseWriter, r *http.Request) {
+	s.renderPartial(w, "overview", tmplData{Snap: s.snapshot()})
+}
+
+func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
+	sess := SessionFrom(r.Context())
+	project := r.PathValue("project")
+	snap := s.snapshot()
+	var app *monitor.App
+	if snap != nil {
+		app = snap.AppByProject(project)
+	}
+	if app == nil {
+		http.Error(w, "app not found", http.StatusNotFound)
+		return
+	}
+	s.render(w, r, "app.html", tmplData{
+		Title:     project + " — Helmsman",
+		CSRFToken: CSRFToken(r.Context()),
+		Username:  sess.Username,
+		App:       app,
+		Snap:      snap,
+	})
+}
+
+// handleAppPartial returns just the app service-table fragment for live polling.
+func (s *Server) handleAppPartial(w http.ResponseWriter, r *http.Request) {
+	project := r.PathValue("project")
+	snap := s.snapshot()
+	var app *monitor.App
+	if snap != nil {
+		app = snap.AppByProject(project)
+	}
+	if app == nil {
+		http.Error(w, "app not found", http.StatusNotFound)
+		return
+	}
+	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +150,18 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Authenticated/dynamic pages (incl. the audit log and the CSRF token in the
 	// page) must not be retained by the browser bfcache or any cache (review #19).
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = buf.WriteTo(w)
+}
+
+// renderPartial renders a named {{define}} block (a fragment for live polling).
+func (s *Server) renderPartial(w http.ResponseWriter, name string, data tmplData) {
+	var buf bytes.Buffer
+	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = buf.WriteTo(w)
 }

@@ -8,9 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/helmsman/helmsman/internal/config"
+	"github.com/helmsman/helmsman/internal/docker"
+	"github.com/helmsman/helmsman/internal/hostmon"
+	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/store"
 	"github.com/helmsman/helmsman/internal/web"
 )
@@ -42,13 +46,24 @@ func cmdServe(args []string) error {
 		return err
 	}
 
-	srv, err := web.New(cfg, db, *configPath, log)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Read plane (M2): poll Docker via the loopback socket-proxy + sample host.
+	// The poller is joined before the deferred db.Close() so shutdown ordering is
+	// synchronized — no DB write can race the close (review #8).
+	dockerCli := docker.New(cfg.Docker.ProxyAddr)
+	hostSampler := hostmon.New(cfg.DataDir)
+	mon := monitor.New(db, dockerCli, hostSampler, cfg.Monitor.PollInterval.D(),
+		cfg.Monitor.MetricsRetention.D(), log)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); mon.Run(ctx) }()
+
+	srv, err := web.New(cfg, db, *configPath, log, mon)
 	if err != nil {
 		return err
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	// SIGHUP hot-reloads the allowlist + auth (plan §5.1), never keys/bind.
 	hup := make(chan os.Signal, 1)
@@ -70,8 +85,13 @@ func cmdServe(args []string) error {
 
 	log.Info("helmsman serving",
 		"bind", cfg.BindAddr, "edge_mode", string(cfg.Edge.Mode), "db", db.Path)
-	if err := srv.Run(ctx); err != nil {
-		return fmt.Errorf("server: %w", err)
+	runErr := srv.Run(ctx)
+	// Cancel ctx (idempotent if a signal already did) so the poller exits, then
+	// join it before the deferred db.Close() runs (review #8).
+	stop()
+	wg.Wait()
+	if runErr != nil {
+		return fmt.Errorf("server: %w", runErr)
 	}
 	log.Info("helmsman stopped")
 	return nil

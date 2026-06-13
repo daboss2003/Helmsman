@@ -1,0 +1,52 @@
+# The docker-socket-proxy companion (plan §3): a READ-ONLY, verb-allowlisted
+# proxy in front of the real Docker socket. The raw /var/run/docker.sock is
+# mounted ONLY here — never into Helmsman. Helmsman reads container state through
+# this proxy on loopback :2375.
+#
+# Deny-by-default: only CONTAINERS / INFO / VERSION are enabled (the read plane,
+# M2). Everything else — EXEC, POST, IMAGES, VOLUMES, NETWORKS, BUILD, the
+# write verbs — stays 0. Writes are done by Helmsman shelling out to
+# `docker compose` directly (M4), never through this proxy.
+#
+#   docker compose -f deploy/socket-proxy/docker-compose.yml up -d
+
+services:
+  docker-socket-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:0.3.0  # digest-pin in production (plan §15)
+    container_name: helmsman-socket-proxy
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Bind ONLY to loopback so the proxy is never reachable off-host.
+    ports:
+      - "127.0.0.1:2375:2375"
+    volumes:
+      # Read-only mount of the raw socket — into the proxy ONLY.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # --- read plane: allow ---
+      CONTAINERS: "1"
+      INFO: "1"
+      VERSION: "1"
+      # --- everything else: deny (deny-by-default) ---
+      POST: "0"
+      EXEC: "0"
+      IMAGES: "0"
+      VOLUMES: "0"
+      NETWORKS: "0"
+      BUILD: "0"
+      COMMIT: "0"
+      CONFIGS: "0"
+      SECRETS: "0"
+      SERVICES: "0"
+      SWARM: "0"
+      SYSTEM: "0"
+      TASKS: "0"
+      PLUGINS: "0"
+      NODES: "0"
+      DISTRIBUTION: "0"
+      SESSION: "0"
+      AUTH: "0"

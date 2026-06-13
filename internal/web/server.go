@@ -19,6 +19,7 @@ import (
 	"github.com/helmsman/helmsman/internal/audit"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/session"
 	"github.com/helmsman/helmsman/internal/store"
 )
@@ -55,12 +56,14 @@ type Server struct {
 	templates  *template.Template
 	log        *slog.Logger
 	verifySem  chan struct{}
+	mon        *monitor.Monitor // read-plane snapshots (may be nil)
 	sec        atomic.Pointer[secState]
 }
 
 // New builds a Server from a validated config and an open DB. configPath is kept
-// so SIGHUP can re-read and hot-reload the allowlist + auth. log may be nil.
-func New(cfg *config.Config, db *store.DB, configPath string, log *slog.Logger) (*Server, error) {
+// so SIGHUP can re-read and hot-reload the allowlist + auth. log and mon may be
+// nil (mon nil → the dashboard shows "collecting…").
+func New(cfg *config.Config, db *store.DB, configPath string, log *slog.Logger, mon *monitor.Monitor) (*Server, error) {
 	tmpl, err := parseTemplates()
 	if err != nil {
 		return nil, err
@@ -78,6 +81,7 @@ func New(cfg *config.Config, db *store.DB, configPath string, log *slog.Logger) 
 		templates:  tmpl,
 		log:        log,
 		verifySem:  make(chan struct{}, loginVerifyConcurrency),
+		mon:        mon,
 	}
 	sec, err := buildSecState(cfg)
 	if err != nil {
@@ -152,6 +156,9 @@ func (s *Server) Handler() http.Handler {
 
 	// Protected routes.
 	mux.HandleFunc("GET /{$}", s.requireAuth(s.withCSRFToken(s.handleHome)))
+	mux.HandleFunc("GET /partials/overview", s.requireAuth(s.handleOverviewPartial))
+	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))
+	mux.HandleFunc("GET /partials/app/{project}", s.requireAuth(s.handleAppPartial))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.

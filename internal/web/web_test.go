@@ -59,7 +59,7 @@ func buildServer(t *testing.T, allowlist []string, trustProxy bool, trustedProxi
 	}
 	t.Cleanup(func() { db.Close() })
 
-	srv, err := New(cfg, db, "", nil)
+	srv, err := New(cfg, db, "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

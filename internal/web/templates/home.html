@@ -2,25 +2,9 @@
 {{template "nav" .}}
 <main class="wrap">
   <h1>Overview</h1>
-  <p class="muted">Welcome, {{.Username}}. Edge mode: <strong>{{.EdgeMode}}</strong>.</p>
-
-  <section class="panel">
-    <h2>Apps</h2>
-    <p class="muted">No apps yet. The app registry, BASIC health tiles, and lifecycle
-      controls arrive in later milestones (M2–M4). This is the M1 security spine:
-      fail-closed config, the allowlist-first request pipeline, argon2id auth, and
-      hashed rotating sessions.</p>
-  </section>
-
-  <section class="panel">
-    <h2>Security spine — live</h2>
-    <ul class="checks">
-      <li>IP allowlist enforced on the real TCP peer (first middleware)</li>
-      <li>Strict CSP, HSTS, frame-deny, nosniff, no-referrer headers</li>
-      <li>argon2id auth with dummy-hash timing parity + login lockout</li>
-      <li>Hashed, rotated, <code>{{.EdgeMode}}</code>-fronted sessions</li>
-      <li>Append-only <a href="/events">audit log</a></li>
-    </ul>
-  </section>
+  <p class="muted">Signed in as {{.Username}}. Edge mode: <strong>{{.EdgeMode}}</strong>.</p>
+  <div data-poll-url="/partials/overview" data-poll-interval="5000">
+    {{template "overview" .}}
+  </div>
 </main>
 {{template "bottom" .}}
