@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -98,6 +99,11 @@ func TestOverlayRejectsXFFForge(t *testing.T) {
 		`[{"match":[{"host":["x.example.com"]}],"handle":[{"handler":"headers","response":{"set":{"X-Forwarded-For":["1.2.3.4"]}}}]}]`,
 		`[{"match":[{"host":["x.example.com"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"web:80"}],"headers":{"request":{"set":{"X-Real-IP":["1.2.3.4"]}}}}]}]`,
 		`[{"match":[{"host":["x.example.com"]}],"handle":[{"handler":"headers","response":{"set":{"forwarded":["for=1.2.3.4"]}}}]}]`,
+		// Defense in depth: a header op placed on a handler type that "shouldn't"
+		// carry it (proxy-style "headers" block on a "headers" handler, or on a
+		// static_response) is still caught — the check is placement-independent.
+		`[{"match":[{"host":["x.example.com"]}],"handle":[{"handler":"headers","headers":{"request":{"set":{"X-Forwarded-For":["1.2.3.4"]}}}}]}]`,
+		`[{"match":[{"host":["x.example.com"]}],"handle":[{"handler":"static_response","status_code":200,"headers":{"request":{"set":{"X-Real-IP":["9.9.9.9"]}}}}]}]`,
 	}
 	for i, raw := range cases {
 		if _, _, err := ParseOverlay([]byte(raw), nil); err == nil {
@@ -132,6 +138,38 @@ func TestOverlayTransportGate(t *testing.T) {
 	ok := `[{"match":[{"host":["x.example.com"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"web:443"}],"transport":{"protocol":"http","tls":{}}}]}]`
 	if _, _, err := ParseOverlay([]byte(ok), nil); err != nil {
 		t.Errorf("an https upstream (empty tls block) should be allowed: %v", err)
+	}
+}
+
+// Structural caps bound the synchronous linter + the pushed config size: too many
+// routes, or too many hosts in a single matcher, is rejected.
+func TestOverlayStructuralCaps(t *testing.T) {
+	// > maxOverlayRoutes routes.
+	var b strings.Builder
+	b.WriteString("[")
+	for i := 0; i < maxOverlayRoutes+1; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"match":[{"host":["h%d.example.com"]}],"handle":[{"handler":"static_response","status_code":200}]}`, i)
+	}
+	b.WriteString("]")
+	if _, _, err := ParseOverlay([]byte(b.String()), nil); err == nil {
+		t.Error("an overlay exceeding maxOverlayRoutes must be rejected")
+	}
+
+	// > maxHostsPerMatcher hosts in one matcher.
+	var hb strings.Builder
+	hb.WriteString(`[{"match":[{"host":[`)
+	for i := 0; i < maxHostsPerMatcher+1; i++ {
+		if i > 0 {
+			hb.WriteString(",")
+		}
+		fmt.Fprintf(&hb, `"h%d.example.com"`, i)
+	}
+	hb.WriteString(`]}],"handle":[{"handler":"static_response","status_code":200}]}]`)
+	if _, _, err := ParseOverlay([]byte(hb.String()), nil); err == nil {
+		t.Error("an overlay matcher exceeding maxHostsPerMatcher must be rejected")
 	}
 }
 

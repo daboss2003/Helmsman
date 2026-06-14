@@ -55,11 +55,21 @@ func (s *OverlayStore) Save(ctx context.Context, overlay []byte, managed map[str
 	if text == nil {
 		text = []byte{}
 	}
-	_, err := s.db.ExecContext(ctx,
+	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO edge_overlay(overlay, hmac, note, created_at) VALUES(?,?,?,?)`,
-		string(text), s.mac(text), note, time.Now().Unix())
+		string(text), s.mac(text), note, time.Now().Unix()); err != nil {
+		return err
+	}
+	// Keep a small version history (only the latest is ever applied) so repeated
+	// saves can't grow the DB unboundedly.
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM edge_overlay WHERE id NOT IN (SELECT id FROM edge_overlay ORDER BY id DESC LIMIT ?)`,
+		overlayHistoryKeep)
 	return err
 }
+
+// overlayHistoryKeep bounds the retained overlay versions.
+const overlayHistoryKeep = 20
 
 // Active returns the latest overlay text, HMAC-verified. No overlay yet → (nil,nil).
 // A failed HMAC → (nil, ErrOverlayTampered) so the caller can drop it fail-closed.

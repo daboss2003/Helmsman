@@ -32,9 +32,18 @@ import (
 	"strings"
 )
 
-// maxOverlayBytes caps the raw overlay (defence against a decode bomb; a real
-// overlay is a handful of routes).
-const maxOverlayBytes = 256 << 10
+// Structural caps on the overlay. A real overlay is a handful of routes; these
+// bound the work the (synchronous) linter does and the size of the config pushed
+// to Caddy, so even an authenticated operator can't wedge the apply path with a
+// pathological-but-byte-legal document.
+const (
+	maxOverlayBytes      = 256 << 10
+	maxOverlayRoutes     = 200
+	maxMatchersPerRoute  = 20
+	maxHostsPerMatcher   = 50
+	maxHandlersPerRoute  = 20
+	maxUpstreamsPerProxy = 20
+)
 
 // overlayHandlers is the allowlist of handler modules an overlay route may use.
 // Anything else (exec, file_server, templates, php_fastcgi, …) is a control-plane
@@ -69,6 +78,9 @@ func ParseOverlay(raw []byte, managed map[string]bool) ([]caddyRoute, []string, 
 	if len(routes) == 0 {
 		return nil, nil, nil
 	}
+	if len(routes) > maxOverlayRoutes {
+		return nil, nil, fmt.Errorf("overlay has too many routes (%d, max %d)", len(routes), maxOverlayRoutes)
+	}
 
 	var hosts []string
 	seen := map[string]bool{}
@@ -98,10 +110,19 @@ func lintOverlayRoute(r *caddyRoute, managed map[string]bool) ([]string, error) 
 	if len(r.Match) == 0 {
 		return nil, fmt.Errorf("must have a host matcher (a matcher-less route is a catch-all)")
 	}
+	if len(r.Match) > maxMatchersPerRoute {
+		return nil, fmt.Errorf("too many matchers (%d, max %d)", len(r.Match), maxMatchersPerRoute)
+	}
+	if len(r.Handle) > maxHandlersPerRoute {
+		return nil, fmt.Errorf("too many handlers (%d, max %d)", len(r.Handle), maxHandlersPerRoute)
+	}
 	var hosts []string
 	for _, m := range r.Match {
 		if len(m.Host) == 0 {
 			return nil, fmt.Errorf("every matcher must scope to a host (no catch-all)")
+		}
+		if len(m.Host) > maxHostsPerMatcher {
+			return nil, fmt.Errorf("too many hosts in one matcher (%d, max %d)", len(m.Host), maxHostsPerMatcher)
 		}
 		for _, h := range m.Host {
 			lh := strings.ToLower(strings.TrimSpace(h))
@@ -156,10 +177,25 @@ func lintOverlayHandler(h caddyHandler) error {
 	if !overlayHandlers[h.Handler] {
 		return fmt.Errorf("handler %q is not permitted in an overlay (only reverse_proxy/headers/static_response)", h.Handler)
 	}
+	// XFF/forwarding headers are Layer-0-owned and checked on EVERY header-bearing
+	// field regardless of handler type — caddyHandler.Headers/Response are shared
+	// struct fields, so an operator could attach a header op to a handler type that
+	// "shouldn't" carry it (e.g. a "headers" handler with a proxy-style "headers"
+	// block). The composite re-marshals the route verbatim, so the check must be
+	// placement-independent, not switch-gated.
+	if h.Headers != nil && (headerOpsTouchXFF(h.Headers.Request) || headerOpsTouchXFF(h.Headers.Response)) {
+		return fmt.Errorf("an overlay may not set X-Forwarded-For/X-Real-IP/Forwarded (Layer 0 owns them)")
+	}
+	if headerOpsTouchXFF(h.Response) {
+		return fmt.Errorf("an overlay may not set X-Forwarded-For/X-Real-IP/Forwarded (Layer 0 owns them)")
+	}
 	switch h.Handler {
 	case "reverse_proxy":
 		if len(h.Upstreams) == 0 {
 			return fmt.Errorf("reverse_proxy needs at least one upstream")
+		}
+		if len(h.Upstreams) > maxUpstreamsPerProxy {
+			return fmt.Errorf("too many upstreams (%d, max %d)", len(h.Upstreams), maxUpstreamsPerProxy)
 		}
 		for _, up := range h.Upstreams {
 			// validateUpstream rejects control-plane ports, loopback/link-local
@@ -171,15 +207,6 @@ func lintOverlayHandler(h caddyHandler) error {
 		}
 		if !transportOK(h.Transport) {
 			return fmt.Errorf("reverse_proxy transport is not permitted (only the default http or http+empty-tls)")
-		}
-		if h.Headers != nil {
-			if headerOpsTouchXFF(h.Headers.Request) || headerOpsTouchXFF(h.Headers.Response) {
-				return fmt.Errorf("an overlay may not set X-Forwarded-For/X-Real-IP/Forwarded (Layer 0 owns them)")
-			}
-		}
-	case "headers":
-		if headerOpsTouchXFF(h.Response) {
-			return fmt.Errorf("an overlay may not set X-Forwarded-For/X-Real-IP/Forwarded (Layer 0 owns them)")
 		}
 	case "static_response":
 		if h.StatusCode != 0 && (h.StatusCode < 100 || h.StatusCode > 599) {

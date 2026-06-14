@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -79,6 +80,7 @@ type Reconciler struct {
 	admin    *Admin
 	base     BaseConfig
 	log      *slog.Logger
+	mu       sync.Mutex // serializes Reconcile/Revert: read→render→Load→lastGood is atomic
 	lastGood []byte
 }
 
@@ -96,6 +98,14 @@ func (r *Reconciler) WithOverlay(o *OverlayStore) *Reconciler { r.overlay = o; r
 // (an unsafe route) it does NOT touch the live config. On an apply error the
 // previous config keeps running (Caddy /load is transactional).
 func (r *Reconciler) Reconcile(ctx context.Context) error {
+	// Serialize the whole read→render→Load→lastGood sequence. Without this, two
+	// concurrent reconciles (e.g. a route save racing an overlay save) could read
+	// different DB snapshots and have their /load calls complete OUT OF ORDER —
+	// landing a stale config (with an overlay that should have been stripped) after
+	// a newer one, breaking the fail-closed promise. With the lock, whichever
+	// reconcile runs last re-reads the current state and wins.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	routes, err := r.store.List()
 	if err != nil {
 		return fmt.Errorf("edge: list routes: %w", err)
@@ -142,6 +152,8 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 // RevertToLastGood re-applies the last successfully-loaded config (SBD-8 recovery
 // path; the typed base render is the floor when there is no last-good yet).
 func (r *Reconciler) RevertToLastGood(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	cfg := r.lastGood
 	if cfg == nil {
 		var err error

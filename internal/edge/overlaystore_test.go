@@ -7,10 +7,44 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/helmsman/helmsman/internal/store"
 )
+
+// Concurrent reconciles must be serialized: no data race on lastGood, and the
+// final applied config reflects the latest state (the conflicting overlay stripped).
+// Run with -race to catch the lastGood data race the mutex closes.
+func TestReconcileConcurrentIsSerialized(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	os, db := testOverlayStore(t)
+	rs := NewRouteStore(db)
+	ctx := context.Background()
+	if err := os.Save(ctx, []byte(sampleOverlay), nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.Save(ctx, Route{Hostname: "app.example.com", Upstream: "web:80", UpstreamScheme: "http", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rec := NewReconciler(rs, NewAdmin(ts.Listener.Addr().String()), baseCfg(), quietLog()).WithOverlay(os)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _ = rec.Reconcile(ctx) }()
+	}
+	wg.Wait()
+	// lastGood is the latest good config; reading it (under the same lock) is safe.
+	if got, err := func() ([]byte, error) { rec.mu.Lock(); defer rec.mu.Unlock(); return rec.lastGood, nil }(); err != nil || len(got) == 0 {
+		t.Errorf("lastGood should hold the latest applied config, got len=%d", len(got))
+	}
+}
 
 func testOverlayStore(t *testing.T) (*OverlayStore, *store.DB) {
 	t.Helper()

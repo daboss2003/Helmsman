@@ -108,10 +108,12 @@ func (s *Server) managedHosts() map[string]bool {
 	if s.edgeAdminHost != "" {
 		managed[strings.ToLower(strings.TrimSpace(s.edgeAdminHost))] = true
 	}
-	if routes, err := s.edgeRoutes.List(); err == nil {
-		for _, rt := range routes {
-			if rt.Enabled {
-				managed[strings.ToLower(strings.TrimSpace(rt.Hostname))] = true
+	if s.edgeRoutes != nil {
+		if routes, err := s.edgeRoutes.List(); err == nil {
+			for _, rt := range routes {
+				if rt.Enabled {
+					managed[strings.ToLower(strings.TrimSpace(rt.Hostname))] = true
+				}
 			}
 		}
 	}
