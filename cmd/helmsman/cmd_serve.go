@@ -17,6 +17,7 @@ import (
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/dockerexec"
+	"github.com/helmsman/helmsman/internal/edge"
 	"github.com/helmsman/helmsman/internal/envstore"
 	"github.com/helmsman/helmsman/internal/gitstore"
 	"github.com/helmsman/helmsman/internal/hostmon"
@@ -142,6 +143,41 @@ func cmdServe(args []string) error {
 		log.Info("alert engine started", "eval_interval", cfg.Alerting.EvalInterval.D())
 	}
 
+	// Managed edge (M11, plan §6): Helmsman owns a child Caddy. The route set is
+	// declarative; the whole Caddy config is rendered from typed structs + pushed
+	// via the admin API. Fail-closed: in external mode, or on a host that can't own
+	// the edge (non-Linux / no caddy), the edge isn't started — routes still save
+	// and apply once the edge is up. The supervisor is joined before db.Close.
+	edgeRoutes := edge.NewRouteStore(db)
+	var edgeRecon *edge.Reconciler
+	edgeReason := ""
+	if cfg.Edge.Mode == config.EdgeManaged {
+		base := edge.BaseConfig{
+			AdminListen:    edgeAdminListen(cfg),
+			ACMEEmail:      cfg.Edge.ACMEEmail,
+			ACMECA:         cfg.Edge.ACMECA,
+			AdminHostname:  cfg.Admin.Hostname,
+			AdminAllowlist: cfg.IPAllowlist,
+			AdminUpstream:  cfg.BindAddr,
+		}
+		if ok, why := edge.Available(""); ok {
+			admin := edge.NewAdmin(base.AdminListen)
+			edgeRecon = edge.NewReconciler(edgeRoutes, admin, base, log)
+			sup := &edge.Supervisor{CaddyBin: "caddy", AdminListen: base.AdminListen, Log: log}
+			if initCfg, rerr := edge.Render(base, nil); rerr == nil {
+				sup.InitialCfg = initCfg
+			}
+			wg.Add(1)
+			go func() { defer wg.Done(); sup.Run(ctx) }()
+			log.Info("managed edge started", "admin", base.AdminListen)
+		} else {
+			edgeReason = why
+			log.Warn("managed edge not owned on this host", "reason", why)
+		}
+	} else {
+		edgeReason = "external edge mode — Helmsman does not own the edge"
+	}
+
 	srv, err := web.New(cfg, web.Deps{
 		DB:         db,
 		ConfigPath: *configPath,
@@ -157,6 +193,9 @@ func cmdServe(args []string) error {
 		ProvStore:  provStore,
 		SetupStore: setupStore,
 		AlertStore: alertStore,
+		EdgeRoutes: edgeRoutes,
+		EdgeRecon:  edgeRecon,
+		EdgeReason: edgeReason,
 		DockerSem:  dockerSem,
 	})
 	if err != nil {
@@ -199,6 +238,16 @@ func cmdServe(args []string) error {
 	}
 	log.Info("helmsman stopped")
 	return nil
+}
+
+// edgeAdminListen returns the Caddy admin listen address — the operator's
+// admin.listen if set (must be a unix socket / loopback, validated at boot), else
+// the preferred unix socket (SBD-2).
+func edgeAdminListen(cfg *config.Config) string {
+	if cfg.Admin.Listen != "" {
+		return cfg.Admin.Listen
+	}
+	return "unix//run/helmsman/caddy-admin.sock"
 }
 
 // toRetentionConfig maps the validated Tier-1 config block to the runner's policy

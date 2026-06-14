@@ -23,6 +23,7 @@ import (
 	"github.com/helmsman/helmsman/internal/crypto"
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/dockerexec"
+	"github.com/helmsman/helmsman/internal/edge"
 	"github.com/helmsman/helmsman/internal/envstore"
 	"github.com/helmsman/helmsman/internal/gitstore"
 	"github.com/helmsman/helmsman/internal/monitor"
@@ -76,6 +77,9 @@ type Deps struct {
 	ProvStore  *provstore.Store
 	SetupStore *setupstore.Store
 	AlertStore *alertstore.Store
+	EdgeRoutes *edge.RouteStore
+	EdgeRecon  *edge.Reconciler      // nil when the edge isn't owned (external/unavailable)
+	EdgeReason string                // why the edge isn't owned (banner), "" when owned
 	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
 }
 
@@ -101,6 +105,9 @@ type Server struct {
 	provStore    *provstore.Store      // provisioned apps (modes 1/2; may be nil)
 	setupStore   *setupstore.Store     // setup scripts (Mode 3; may be nil)
 	alertStore   *alertstore.Store     // alerting channels/rules/state (may be nil)
+	edgeRoutes   *edge.RouteStore      // managed-edge routes (may be nil)
+	edgeRecon    *edge.Reconciler      // edge config reconciler (nil when edge unowned)
+	edgeReason   string                // why the edge isn't owned (banner)
 	dockerSem    *dockerexec.Semaphore // global one-docker-child semaphore (may be nil)
 	setupConfirm *confirmStore         // single-use setup confirm tokens
 	webhookRL    *rateLimiter          // per-token webhook rate limit
@@ -142,6 +149,9 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		provStore:    d.ProvStore,
 		setupStore:   d.SetupStore,
 		alertStore:   d.AlertStore,
+		edgeRoutes:   d.EdgeRoutes,
+		edgeRecon:    d.EdgeRecon,
+		edgeReason:   d.EdgeReason,
 		dockerSem:    d.DockerSem,
 		setupConfirm: newConfirmStore(5 * time.Minute),
 		webhookRL:    newRateLimiter(30, time.Minute),
@@ -277,6 +287,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/git/fetch", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitFetch))))
 	mux.HandleFunc("POST /apps/{project}/git/deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitDeploy))))
 	mux.HandleFunc("POST /apps/{project}/git/webhook-rotate", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitWebhookRotate))))
+	// Managed edge (M11): per-app public routes (Caddy/ACME). The whole config is
+	// re-rendered + pushed on every change; the operator never edits Caddy.
+	mux.HandleFunc("GET /edge", s.requireAuth(s.withCSRFToken(s.handleEdge)))
+	mux.HandleFunc("POST /edge/routes", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEdgeRouteSave))))
+	mux.HandleFunc("POST /edge/routes/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEdgeRouteDelete))))
 	// Alerting (M10): channels + rules + open alerts. Read-and-notify only.
 	mux.HandleFunc("GET /alerts", s.requireAuth(s.withCSRFToken(s.handleAlerts)))
 	mux.HandleFunc("POST /alerts/channels", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleAlertChannelSave))))

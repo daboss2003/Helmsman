@@ -44,6 +44,7 @@ type tmplData struct {
 	Git    *gitView
 	Setup  *setupView
 	Alerts *alertsView
+	Edge   *edgeView
 
 	// Audit-log viewer filters + pagination (M7).
 	EventLevel    string
