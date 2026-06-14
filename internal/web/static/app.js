@@ -80,6 +80,27 @@
     });
   });
 
+  // Config-file preview: POST template+bindings, render with secrets masked
+  // server-side, show as textContent (never innerHTML).
+  var pv = document.getElementById("cfg-preview-btn");
+  if (pv) {
+    pv.addEventListener("click", function () {
+      var form = pv.closest("form");
+      if (!form) return;
+      var body = new URLSearchParams();
+      body.set("template", form.querySelector("[name=template]").value);
+      body.set("bindings", form.querySelector("[name=bindings]").value);
+      var out = document.getElementById("cfg-preview");
+      fetch(form.getAttribute("action") + "/preview", {
+        method: "POST", credentials: "same-origin",
+        headers: { "X-CSRF-Token": token, "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      }).then(function (r) { return r.text(); })
+        .then(function (t) { if (out) { out.hidden = false; out.textContent = t; } })
+        .catch(function () {});
+    });
+  }
+
   // Lightweight live refresh: any element with data-poll-url is periodically
   // refreshed by fetching that fragment and swapping its innerHTML. Same-origin,
   // GET-only, cookie-authenticated; CSP-safe (this file is script-src 'self').

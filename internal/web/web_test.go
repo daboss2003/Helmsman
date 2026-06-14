@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
 	"github.com/helmsman/helmsman/internal/envstore"
@@ -66,7 +67,7 @@ func buildServer(t *testing.T, allowlist []string, trustProxy bool, trustedProxi
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(cfg, Deps{DB: db, EnvStore: envstore.New(db, cipher)})
+	srv, err := New(cfg, Deps{DB: db, EnvStore: envstore.New(db, cipher), CfgStore: cfgstore.New(db, cipher)})
 	if err != nil {
 		t.Fatal(err)
 	}

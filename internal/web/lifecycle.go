@@ -106,6 +106,14 @@ func (s *Server) runLifecycle(w http.ResponseWriter, r *http.Request, project, s
 			}
 			writeln("WARNING (review mode): compose has %d validator finding(s); proceeding.", len(res.Violations))
 		}
+		// Materialize managed config files + enforce the cert-wait gate (M5b),
+		// host-side, before `up`. Any missing binding/cert is a hard failure.
+		if err := s.materializeConfigFiles(app, env); err != nil {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			writeln("redeploy blocked: %v", err)
+			_ = s.audit.Log(ctx, audit.Event{Actor: actor, IP: peer, Action: "redeploy", Target: project, Outcome: audit.Deny, Level: audit.Security, Detail: "config-file materialization failed"})
+			return
+		}
 	}
 
 	depID := s.recordDeployStart(ctx, project, service, action, actor)

@@ -1,0 +1,90 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <p><a href="/apps/{{.Project}}">← {{.Project}}</a></p>
+  <h1>Managed config files — {{.Project}}</h1>
+  <p class="muted">Helmsman fills only its own <code>{{"{{hm.KEY}}"}}</code> delimiter; your app's
+    <code>${…}</code>/<code>{{"{{ }}"}}</code> placeholders survive byte-identical. Rendered host-side at
+    deploy (forced <code>0640</code>, <code>0600</code> when secret-bearing), re-rendered every redeploy.</p>
+  {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+
+  <section class="panel">
+    <h2>Files</h2>
+    {{if .ManagedFiles}}
+    <table class="grid">
+      <thead><tr><th>Name</th><th>Path</th><th>Bindings</th><th>Secret</th><th>Mode</th><th>Drift</th><th></th></tr></thead>
+      <tbody>
+        {{range .ManagedFiles}}
+        <tr>
+          <td>{{.Name}}</td>
+          <td class="mono">{{.RelPath}}</td>
+          <td class="mono">{{range .Bindings}}{{.Key}} {{end}}</td>
+          <td>{{if .SecretBearing}}<span class="badge">secret</span>{{else}}no{{end}}</td>
+          <td class="mono">{{.Mode}}</td>
+          <td class="{{if eq .Drift "host-edited"}}health-unhealthy{{else if eq .Drift "ok"}}health-healthy{{end}}">{{.Drift}}</td>
+          <td>
+            <form method="post" action="/apps/{{$.Project}}/config-files/delete" class="inline" onsubmit="return confirm('Delete {{.Name}}?')">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="name" value="{{.Name}}">
+              <button type="submit" class="link">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="muted">No managed config files.</p>{{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Add / update a config file</h2>
+    <form method="post" action="/apps/{{.Project}}/config-files" class="stack">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label>Name <input type="text" name="name" placeholder="rabbitmq.conf"></label>
+      <label>Output path <span class="muted">(relative to the app directory)</span>
+        <input type="text" name="rel_path" placeholder="config/rabbitmq.conf"></label>
+      <label>Bindings <span class="muted">(one <code>key=source</code> per line; source ∈ env:NAME, secret:NAME, cert:&lt;binding&gt;.crt, app:slug)</span>
+        <textarea name="bindings" rows="3" class="mono" spellcheck="false" placeholder="node_cookie=secret:NODE_COOKIE&#10;host=app:slug"></textarea></label>
+      <label>Template <span class="muted">(use <code>{{"{{hm.key}}"}}</code> for bindings; everything else is copied verbatim)</span>
+        <textarea name="template" rows="10" class="mono" spellcheck="false"></textarea></label>
+      <div class="queue-actions">
+        <button type="submit">Save</button>
+        <button type="button" id="cfg-preview-btn" class="link">Preview (secrets masked)</button>
+      </div>
+    </form>
+    <pre id="cfg-preview" class="stream" hidden></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Cert bindings <span class="muted">(edge cert → app; issuance lands with the managed edge, M11)</span></h2>
+    {{if .CertBindings}}
+    <table class="grid">
+      <thead><tr><th>Name</th><th>Hostname</th><th>Sync dir</th><th>Required</th><th></th></tr></thead>
+      <tbody>
+        {{range .CertBindings}}
+        <tr>
+          <td>{{.BindingName}}</td><td class="mono">{{.Hostname}}</td><td class="mono">{{.SyncDirRel}}</td>
+          <td>{{if .Required}}yes{{else}}no{{end}}</td>
+          <td>
+            <form method="post" action="/apps/{{$.Project}}/cert-bindings/delete" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="binding_name" value="{{.BindingName}}">
+              <button type="submit" class="link">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="muted">No cert bindings.</p>{{end}}
+    <form method="post" action="/apps/{{.Project}}/cert-bindings" class="stack" style="margin-top:1rem">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label>Binding name <input type="text" name="binding_name" placeholder="web"></label>
+      <label>Hostname <input type="text" name="hostname" placeholder="app.example.com"></label>
+      <label>Sync dir <span class="muted">(relative to app dir)</span> <input type="text" name="sync_dir_rel" placeholder="certs/web"></label>
+      <label class="check"><input type="checkbox" name="required" checked> Block deploy until the cert exists</label>
+      <button type="submit">Save cert binding</button>
+    </form>
+  </section>
+</main>
+{{template "bottom" .}}

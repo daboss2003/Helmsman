@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/helmsman/helmsman/internal/audit"
+	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
 	"github.com/helmsman/helmsman/internal/docker"
@@ -66,6 +67,7 @@ type Deps struct {
 	Runner     *dockerexec.Runner
 	Docker     *docker.Client
 	EnvStore   *envstore.Store
+	CfgStore   *cfgstore.Store
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
@@ -85,6 +87,7 @@ type Server struct {
 	runner     *dockerexec.Runner // write-plane exec (may be nil)
 	docker     *docker.Client     // read-plane log streaming (may be nil)
 	envStore   *envstore.Store    // encrypted env store (may be nil)
+	cfgStore   *cfgstore.Store    // managed config files + cert bindings (may be nil)
 	logStreams chan struct{}      // concurrency cap on live log streams
 	sec        atomic.Pointer[secState]
 }
@@ -115,6 +118,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		runner:     d.Runner,
 		docker:     d.Docker,
 		envStore:   d.EnvStore,
+		cfgStore:   d.CfgStore,
 		logStreams: make(chan struct{}, maxConcurrentLogStreams),
 	}
 	sec, err := buildSecState(cfg)
@@ -210,6 +214,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/env/secret/remove", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvRemoveSecret))))
 	mux.HandleFunc("POST /apps/{project}/env/reveal", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvReveal))))
 	mux.HandleFunc("POST /apps/{project}/env/rollback", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvRollback))))
+	// Managed config files + cert bindings (M5b).
+	mux.HandleFunc("GET /apps/{project}/config-files", s.requireAuth(s.withCSRFToken(s.handleConfigFilesGet)))
+	mux.HandleFunc("POST /apps/{project}/config-files", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleConfigFileSave))))
+	mux.HandleFunc("POST /apps/{project}/config-files/preview", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleConfigFilePreview))))
+	mux.HandleFunc("POST /apps/{project}/config-files/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleConfigFileDelete))))
+	mux.HandleFunc("POST /apps/{project}/cert-bindings", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleCertBindingSave))))
+	mux.HandleFunc("POST /apps/{project}/cert-bindings/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleCertBindingDelete))))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.

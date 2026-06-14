@@ -37,6 +37,9 @@ type tmplData struct {
 	EnvLiteralText string
 	EnvVersions    []envstore.Version
 	FileSecrets    []fileSecretView
+
+	ManagedFiles []configFileView
+	CertBindings []certBindingView
 }
 
 type eventRow struct {

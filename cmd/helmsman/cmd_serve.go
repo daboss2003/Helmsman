@@ -11,6 +11,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/dockerexec"
@@ -67,6 +68,7 @@ func cmdServe(args []string) error {
 	opsStore := ops.NewConfigStore(db, cipher)
 	prober := ops.NewProber(opsStore, opsclient.New(), db)
 	envStore := envstore.New(db, cipher)
+	cfgStore := cfgstore.New(db, cipher)
 	mon := monitor.New(db, dockerCli, hostSampler, cfg.Monitor.PollInterval.D(),
 		cfg.Monitor.MetricsRetention.D(), log, prober)
 	var wg sync.WaitGroup
@@ -97,6 +99,7 @@ func cmdServe(args []string) error {
 		Runner:     runner,
 		Docker:     dockerCli,
 		EnvStore:   envStore,
+		CfgStore:   cfgStore,
 	})
 	if err != nil {
 		return err
