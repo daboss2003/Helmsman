@@ -31,7 +31,8 @@ func NewAdmin(listen string) *Admin {
 		return &Admin{
 			base: "http://unix",
 			client: &http.Client{
-				Timeout: 15 * time.Second,
+				Timeout:       15 * time.Second,
+				CheckRedirect: noRedirect,
 				Transport: &http.Transport{
 					DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 						return d.DialContext(ctx, "unix", sock)
@@ -40,8 +41,13 @@ func NewAdmin(listen string) *Admin {
 			},
 		}
 	}
-	return &Admin{base: "http://" + listen, client: &http.Client{Timeout: 15 * time.Second}}
+	return &Admin{base: "http://" + listen, client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: noRedirect}}
 }
+
+// noRedirect refuses to follow any redirect (consistent with every other Helmsman
+// outbound client) — a compromised child Caddy must not be able to 307 the config
+// POST (which carries the whole edge config) to an attacker endpoint.
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // Load POSTs the WHOLE config document to /load (declarative, never incremental).
 // A non-2xx response means Caddy rejected it (the previous config keeps running).

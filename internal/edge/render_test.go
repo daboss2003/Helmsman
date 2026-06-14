@@ -56,6 +56,20 @@ func TestRenderRejectsControlPlaneUpstream(t *testing.T) {
 	}
 }
 
+// SBD-4: an upstream HOSTNAME that resolves to loopback (localhost family) is
+// rejected at validation, not just literal loopback IPs.
+func TestRenderRejectsLoopbackHostnames(t *testing.T) {
+	for _, up := range []string{"localhost:8080", "foo.localhost:8080", "ip6-localhost:8080", "LOCALHOST:8080"} {
+		if _, err := Render(baseCfg(), []Route{{Hostname: "x.example.com", Upstream: up, UpstreamScheme: "http", Enabled: true}}); err == nil {
+			t.Errorf("loopback hostname upstream %q should be rejected", up)
+		}
+	}
+	// A normal container-name upstream is still allowed.
+	if _, err := Render(baseCfg(), []Route{{Hostname: "x.example.com", Upstream: "myapp-web:8080", UpstreamScheme: "http", Enabled: true}}); err != nil {
+		t.Errorf("a container-name upstream should be allowed: %v", err)
+	}
+}
+
 // SBD-4: a wildcard / non-FQDN hostname (catch-all) is rejected.
 func TestRenderRejectsWildcardHost(t *testing.T) {
 	for _, h := range []string{"*.example.com", "*", "localhost", "no-dot", "UPPER.example.com"} {

@@ -81,6 +81,28 @@ func TestReconcileNeverAppliesUnsafe(t *testing.T) {
 	}
 }
 
+// The admin client must NOT follow a redirect (a compromised Caddy could 307 the
+// config POST elsewhere) — it surfaces the 3xx as a non-2xx error instead.
+func TestAdminDoesNotFollowRedirects(t *testing.T) {
+	hit := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit++
+		if r.URL.Path == "/load" {
+			http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
+			return
+		}
+		t.Errorf("redirect was followed to %s", r.URL.Path)
+	}))
+	defer ts.Close()
+	a := NewAdmin(ts.Listener.Addr().String())
+	if err := a.Load(context.Background(), []byte(`{}`)); err == nil {
+		t.Error("a 3xx must surface as an error, not be followed")
+	}
+	if hit != 1 {
+		t.Errorf("expected exactly one request (no redirect follow), got %d", hit)
+	}
+}
+
 func TestAvailableFailClosedOffLinux(t *testing.T) {
 	ok, why := Available("definitely-not-a-real-binary-xyz")
 	if ok {

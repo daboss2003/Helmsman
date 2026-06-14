@@ -94,8 +94,23 @@ func validateUpstream(up string) error {
 		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 			return fmt.Errorf("upstream %q targets a loopback/link-local address (control-plane reachable)", up)
 		}
+	} else if isLoopbackHostname(host) {
+		// A literal-IP check alone misses host NAMES that resolve to loopback
+		// (e.g. localhost) — reject the well-known ones. The DEFINITIVE backstop
+		// for an arbitrary DNS name (or a rebind) that resolves to loopback at dial
+		// time is the edge slice's egress firewall (plan §6, OS layer): 9000/2019/
+		// 2375 + loopback are physically unreachable from the edge.
+		return fmt.Errorf("upstream %q targets a loopback hostname", up)
 	}
 	return nil
+}
+
+// isLoopbackHostname reports whether a (non-literal-IP) host name is a well-known
+// loopback alias.
+func isLoopbackHostname(host string) bool {
+	h := strings.ToLower(host)
+	return h == "localhost" || strings.HasSuffix(h, ".localhost") ||
+		h == "ip6-localhost" || h == "ip6-loopback"
 }
 
 // Render builds the whole Caddy JSON document from the base + the enabled routes.
