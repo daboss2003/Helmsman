@@ -1,8 +1,9 @@
-// Package provstore persists the registry of Helmsman-provisioned apps (plan §7,
-// modes 1 & 2): the source mode, the compose path, and (for generated apps) the
-// typed form spec that is the source of truth for regenerate/drift. It holds NO
-// secrets — env values live in the encrypted env store — so rows are safe at rest
-// without a cipher.
+// Package provstore persists the registry of Helmsman-provisioned apps (plan §7):
+// the compose path and the typed form spec (helmsman.yaml under the hood) that is
+// the source of truth for regenerate/drift. Helmsman GENERATES and owns the
+// compose — there is no raw-compose paste — so source is always "generated". It
+// holds NO secrets (env values live in the encrypted env store), so rows are safe
+// at rest without a cipher.
 package provstore
 
 import (
