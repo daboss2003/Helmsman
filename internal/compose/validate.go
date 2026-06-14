@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -225,6 +226,10 @@ func ValidateBytes(raw []byte, env Env, runDir string, opts Options) Result {
 				}
 			case "env_file":
 				for _, v := range checkEnvFiles(name, field.val, conf) {
+					add(v)
+				}
+			case "ports":
+				for _, v := range checkPorts(name, field.val) {
 					add(v)
 				}
 			}
@@ -483,6 +488,79 @@ func under(x, y string) bool {
 func pathConflicts(a, b string) bool { return under(a, b) || under(b, a) }
 
 func quote(s string) string { return "\"" + s + "\"" }
+
+// reservedHostPorts belong to the managed edge — an app may NEVER publish them
+// (plan §5.6 edge-collision (a): the edge owns 80/443; declare an internal port +
+// an edge route instead).
+var reservedHostPorts = map[int]bool{80: true, 443: true}
+
+// checkPorts rejects any service publishing a reserved host port (80/443). It
+// parses both the short form ("80:8080", "127.0.0.1:443:8080", "80-90:...") and
+// the long mapping form ({published, target, ...}).
+func checkPorts(svc string, node *yaml.Node) []Violation {
+	var vs []Violation
+	if node.Kind != yaml.SequenceNode {
+		return []Violation{{Service: svc, Key: "ports", Message: "ports must be a list", Line: node.Line}}
+	}
+	reject := func(line int) {
+		vs = append(vs, Violation{Service: svc, Key: "ports", Line: line,
+			Message: "publishing host port 80/443 is forbidden — the managed edge owns them; declare an internal port and add an edge route"})
+	}
+	for _, entry := range node.Content {
+		switch entry.Kind {
+		case yaml.ScalarNode:
+			if p, ok := shortFormHostPort(entry.Value); ok && reservedHostPorts[p] {
+				reject(entry.Line)
+			}
+		case yaml.MappingNode:
+			for _, kv := range pairs(entry) {
+				if kv.key.Value == "published" {
+					if p := startPort(kv.val.Value); reservedHostPorts[p] {
+						reject(entry.Line)
+					}
+				}
+			}
+		}
+	}
+	return vs
+}
+
+// shortFormHostPort extracts the HOST port from a short-form ports entry, or
+// ok=false when the entry publishes nothing (bare container port). Forms:
+// "c", "h:c", "ip:h:c" (h/c may be ranges → start of range).
+func shortFormHostPort(s string) (int, bool) {
+	s = strings.TrimSpace(strings.Trim(s, `"'`))
+	if s == "" {
+		return 0, false
+	}
+	// Strip a trailing "/proto".
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		s = s[:i]
+	}
+	parts := strings.Split(s, ":")
+	switch len(parts) {
+	case 1:
+		return 0, false // container-only, no host publish
+	case 2:
+		return startPort(parts[0]), true // host:container
+	case 3:
+		return startPort(parts[1]), true // ip:host:container
+	}
+	return 0, false
+}
+
+// startPort parses a port or the start of a "N-M" range.
+func startPort(s string) int {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '-'); i >= 0 {
+		s = s[:i]
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
+}
 
 // SortViolations orders violations by line for stable display.
 func (r *Result) SortViolations() {

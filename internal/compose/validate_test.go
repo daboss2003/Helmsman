@@ -173,3 +173,33 @@ func TestProtectedHostPathRejected(t *testing.T) {
 		t.Error("bind into a protected Helmsman dir was accepted")
 	}
 }
+
+// Edge-collision (plan §5.6 (a)): an app may never publish host :80/:443.
+func TestRejectsReservedHostPorts(t *testing.T) {
+	reject := []string{`"80:8080"`, `"443:8080"`, `"127.0.0.1:80:8080"`, `"0.0.0.0:443:443"`, `"80-90:8080"`}
+	for _, p := range reject {
+		y := "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - " + p + "\n"
+		if ValidateBytes([]byte(y), Env{}, "/srv/app", Options{}).OK() {
+			t.Errorf("ports entry %s should be rejected (edge owns 80/443)", p)
+		}
+	}
+	allow := []string{`"8080:80"`, `"8080:8080"`, `"127.0.0.1:8443:443"`, `"9000"`}
+	for _, p := range allow {
+		y := "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - " + p + "\n"
+		if !ValidateBytes([]byte(y), Env{}, "/srv/app", Options{}).OK() {
+			t.Errorf("ports entry %s should be allowed (host port not 80/443)", p)
+		}
+	}
+}
+
+// Long-form ports: published 443 is rejected; a high published port is allowed.
+func TestRejectsReservedHostPortsLongForm(t *testing.T) {
+	bad := "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - target: 8080\n        published: 443\n"
+	if ValidateBytes([]byte(bad), Env{}, "/srv/app", Options{}).OK() {
+		t.Error("long-form published:443 should be rejected")
+	}
+	ok := "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - target: 8080\n        published: 8443\n"
+	if !ValidateBytes([]byte(ok), Env{}, "/srv/app", Options{}).OK() {
+		t.Error("long-form published:8443 should be allowed")
+	}
+}

@@ -30,6 +30,7 @@ var (
 
 // Route is one operator-desired edge vhost (Layer 1, from app_routes).
 type Route struct {
+	id              int64 // row id (RouteStore-managed)
 	AppID           string
 	Hostname        string
 	Upstream        string // host:port of the app endpoint
