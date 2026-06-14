@@ -1,0 +1,136 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+{{with .Alerts}}
+  <h1>Alerts</h1>
+  <p class="muted">Read-and-notify only — Helmsman raises alerts, never writes Docker. It defers to an
+    app that already alerts, with a down-only safety net so a dark app still pages on liveness.</p>
+  {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
+
+  <section class="panel">
+    <h2>Open alerts</h2>
+    {{if .Firing}}
+    <table class="grid">
+      <thead><tr><th>Level</th><th>Target</th><th>Detail</th><th>Since (UTC)</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{range .Firing}}
+        <tr class="lvl-{{.Level}}">
+          <td>{{.Level}}{{if .Acked}} <span class="badge">ack</span>{{end}}</td>
+          <td class="mono">{{.Target}}</td>
+          <td>{{.Detail}}</td>
+          <td class="mono">{{.Since}}</td>
+          <td class="queue-actions">
+            <form method="post" action="/alerts/ack" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="rule_id" value="{{.RuleID}}"><input type="hidden" name="target" value="{{.Target}}">
+              <button type="submit" class="link">ack</button>
+            </form>
+            <form method="post" action="/alerts/silence" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="rule_id" value="{{.RuleID}}"><input type="hidden" name="target" value="{{.Target}}">
+              <input type="hidden" name="minutes" value="60">
+              <button type="submit" class="link">silence 1h</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="muted">No open alerts.</p>{{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Channels <span class="muted">(secrets are write-only)</span></h2>
+    {{if .Channels}}
+    <table class="grid">
+      <thead><tr><th>Name</th><th>Kind</th><th>Enabled</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{range .Channels}}
+        <tr>
+          <td>{{.Name}}</td><td>{{.Kind}}</td><td>{{if .Enabled}}yes{{else}}no{{end}}</td>
+          <td class="queue-actions">
+            <button type="button" class="link lc-btn" data-lc-url="/alerts/channels/test?id={{.ID}}">send test</button>
+            <form method="post" action="/alerts/channels/delete" class="inline" data-confirm="Delete channel {{.Name}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="id" value="{{.ID}}">
+              <button type="submit" class="link">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="muted">No channels.</p>{{end}}
+    <pre id="deploy-output" class="stream" hidden></pre>
+    <form method="post" action="/alerts/channels" class="stack" style="margin-top:1rem">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <label>Name <input type="text" name="name" placeholder="ops-email" required></label>
+      <label>Kind
+        <select name="kind">
+          <option value="webhook">webhook</option><option value="smtp">smtp</option>
+          <option value="telegram">telegram</option><option value="slack">slack</option>
+          <option value="discord">discord</option><option value="ntfy">ntfy</option>
+        </select></label>
+      <p class="muted">Fill only the fields for your kind:</p>
+      <label>URL <span class="muted">(webhook / ntfy base)</span> <input type="text" name="url" autocomplete="off"></label>
+      <label>Webhook URL <span class="muted">(slack / discord)</span> <input type="text" name="webhook_url" autocomplete="off"></label>
+      <label>Secret <span class="muted">(webhook HMAC)</span> <input type="password" name="secret" autocomplete="new-password"></label>
+      <label>ntfy topic <input type="text" name="topic" autocomplete="off"></label>
+      <label>ntfy/bot token <input type="password" name="token" autocomplete="new-password"></label>
+      <label>Telegram bot token <input type="password" name="bot_token" autocomplete="new-password"></label>
+      <label>Telegram chat id <input type="text" name="chat_id" autocomplete="off"></label>
+      <fieldset><legend>SMTP</legend>
+        <label>Host <input type="text" name="host" autocomplete="off"></label>
+        <label>Port <input type="text" name="port" placeholder="587"></label>
+        <label>Username <input type="text" name="username" autocomplete="off"></label>
+        <label>Password <input type="password" name="password" autocomplete="new-password"></label>
+        <label>From <input type="text" name="from" placeholder="alerts@example.com"></label>
+        <label>To <input type="text" name="to" placeholder="ops@example.com"></label>
+      </fieldset>
+      <button type="submit">Save channel</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Rules</h2>
+    {{if .Rules}}
+    <table class="grid">
+      <thead><tr><th>Name</th><th>Kind</th><th>Scope</th><th>Threshold</th><th>For (s)</th><th>Level</th><th>Defer</th><th>On</th><th></th></tr></thead>
+      <tbody>
+        {{range .Rules}}
+        <tr>
+          <td>{{.Name}}</td><td class="mono">{{.Kind}}</td><td>{{if .Scope}}{{.Scope}}{{else}}all{{end}}</td>
+          <td>{{.Threshold}}</td><td>{{.ForSeconds}}</td><td>{{.Level}}</td>
+          <td>{{if .DeferWhenSelfManaged}}yes{{else}}no{{end}}</td><td>{{if .Enabled}}yes{{else}}no{{end}}</td>
+          <td>
+            <form method="post" action="/alerts/rules/delete" class="inline" data-confirm="Delete rule {{.Name}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="id" value="{{.ID}}">
+              <button type="submit" class="link">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="muted">No rules.</p>{{end}}
+    <form method="post" action="/alerts/rules" class="stack" style="margin-top:1rem">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <label>Name <input type="text" name="name" placeholder="host cpu high" required></label>
+      <label>Kind
+        <select name="kind">
+          <option value="container_down">container_down</option>
+          <option value="host_cpu">host_cpu</option><option value="host_mem">host_mem</option><option value="host_disk">host_disk</option>
+          <option value="dep_down">dep_down</option><option value="restart_storm">restart_storm</option>
+        </select></label>
+      <label>Scope <span class="muted">(blank = all apps; or a project slug)</span> <input type="text" name="scope" autocomplete="off"></label>
+      <label>Threshold <span class="muted">(% for host_*, count for restart_storm)</span> <input type="text" name="threshold" placeholder="90"></label>
+      <label>For seconds <span class="muted">(sustain window)</span> <input type="text" name="for_seconds" placeholder="60"></label>
+      <label>Level <select name="level"><option value="warning">warning</option><option value="critical">critical</option></select></label>
+      <label>Channel id <span class="muted">(blank/0 = all enabled)</span> <input type="text" name="channel_id" placeholder="0"></label>
+      <label class="check"><input type="checkbox" name="defer" checked> Defer when the app self-alerts (liveness still covers)</label>
+      <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
+      <button type="submit">Save rule</button>
+    </form>
+  </section>
+{{end}}
+</main>
+{{template "bottom" .}}

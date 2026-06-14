@@ -11,6 +11,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/helmsman/helmsman/internal/alertengine"
+	"github.com/helmsman/helmsman/internal/alertstore"
 	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/docker"
@@ -120,6 +122,26 @@ func cmdServe(args []string) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); retentionRunner.Run(ctx) }()
 
+	// Alert engine (M10, plan §8): read-and-notify only. Runs only when enabled;
+	// the evaluator + notifier + heartbeat are joined before the deferred db.Close.
+	alertStore := alertstore.New(db, cipher)
+	if cfg.Alerting.Enabled {
+		eng := alertengine.New(alertStore, mon.Snapshot, alertengine.Config{
+			EvalInterval:      cfg.Alerting.EvalInterval.D(),
+			NotifyMinInterval: cfg.Alerting.NotifyMinInterval.D(),
+			QuietStartHour:    cfg.Alerting.QuietStartHour,
+			QuietEndHour:      cfg.Alerting.QuietEndHour,
+			DeadMansURL:       cfg.Alerting.DeadMansURL,
+			DeadMansInterval:  cfg.Alerting.DeadMansInterval.D(),
+			AdminURL:          cfg.Alerting.AdminURL,
+		}, log)
+		wg.Add(3)
+		go func() { defer wg.Done(); eng.RunEvaluator(ctx) }()
+		go func() { defer wg.Done(); eng.RunNotifier(ctx) }()
+		go func() { defer wg.Done(); eng.RunHeartbeat(ctx) }()
+		log.Info("alert engine started", "eval_interval", cfg.Alerting.EvalInterval.D())
+	}
+
 	srv, err := web.New(cfg, web.Deps{
 		DB:         db,
 		ConfigPath: *configPath,
@@ -134,6 +156,7 @@ func cmdServe(args []string) error {
 		GitStore:   gitStore,
 		ProvStore:  provStore,
 		SetupStore: setupStore,
+		AlertStore: alertStore,
 		DockerSem:  dockerSem,
 	})
 	if err != nil {

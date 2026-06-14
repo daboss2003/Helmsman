@@ -61,6 +61,7 @@ type Config struct {
 	ComposeValidation EditorBlock     `yaml:"compose_validation"`
 	Setup             SetupConfig     `yaml:"setup"`
 	Retention         RetentionConfig `yaml:"retention"`
+	Alerting          AlertingConfig  `yaml:"alerting"`
 
 	DataDir string `yaml:"data_dir"`
 
@@ -152,6 +153,20 @@ type SetupConfig struct {
 	PidsLimit   int      `yaml:"pids_limit"`    // max processes
 	ScratchMB   int      `yaml:"scratch_mb"`    // writable scratch quota
 	OutputCapKB int      `yaml:"output_cap_kb"` // captured stdout/stderr cap
+}
+
+// AlertingConfig is the Tier-1 tuning for the read-and-notify alert engine (plan
+// §8). Channels + rules are operator-managed in the DB; this only tunes the
+// engine. Off by default (no engine goroutines run unless enabled).
+type AlertingConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	EvalInterval      Duration `yaml:"eval_interval"`       // evaluator tick
+	NotifyMinInterval Duration `yaml:"notify_min_interval"` // global rate limit between sends
+	QuietStartHour    int      `yaml:"quiet_start_hour"`    // [0..23], -1 disables (suppresses WARNING; CRITICAL always pages)
+	QuietEndHour      int      `yaml:"quiet_end_hour"`
+	DeadMansURL       string   `yaml:"dead_mans_url"` // outbound heartbeat to an external cron-monitor
+	DeadMansInterval  Duration `yaml:"dead_mans_interval"`
+	AdminURL          string   `yaml:"admin_url"` // dashboard link included in notifications (optional)
 }
 
 // RetentionConfig is the Tier-1 (SSH-only, SIGHUP-reloadable) audit-retention
@@ -247,6 +262,20 @@ func applyDefaults(c *Config) {
 	if c.Retention.ArchiveMaxMB == 0 {
 		c.Retention.ArchiveMaxMB = 64
 	}
+	// Alerting engine defaults (only meaningful when alerting.enabled).
+	if c.Alerting.EvalInterval == 0 {
+		c.Alerting.EvalInterval = Duration(30 * time.Second)
+	}
+	if c.Alerting.NotifyMinInterval == 0 {
+		c.Alerting.NotifyMinInterval = Duration(5 * time.Second)
+	}
+	if c.Alerting.QuietStartHour == 0 && c.Alerting.QuietEndHour == 0 {
+		c.Alerting.QuietStartHour, c.Alerting.QuietEndHour = -1, -1 // disabled
+	}
+	if c.Alerting.DeadMansInterval == 0 {
+		c.Alerting.DeadMansInterval = Duration(5 * time.Minute)
+	}
+
 	// Setup-sandbox defaults (only meaningful when setup.enabled).
 	if c.Setup.WallClock == 0 {
 		c.Setup.WallClock = Duration(5 * time.Minute)

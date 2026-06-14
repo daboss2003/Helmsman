@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/helmsman/helmsman/internal/alertstore"
 	"github.com/helmsman/helmsman/internal/audit"
 	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
@@ -74,6 +75,7 @@ type Deps struct {
 	GitStore   *gitstore.Store
 	ProvStore  *provstore.Store
 	SetupStore *setupstore.Store
+	AlertStore *alertstore.Store
 	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
 }
 
@@ -98,6 +100,7 @@ type Server struct {
 	gitStore     *gitstore.Store       // repo-path GitOps (may be nil)
 	provStore    *provstore.Store      // provisioned apps (modes 1/2; may be nil)
 	setupStore   *setupstore.Store     // setup scripts (Mode 3; may be nil)
+	alertStore   *alertstore.Store     // alerting channels/rules/state (may be nil)
 	dockerSem    *dockerexec.Semaphore // global one-docker-child semaphore (may be nil)
 	setupConfirm *confirmStore         // single-use setup confirm tokens
 	webhookRL    *rateLimiter          // per-token webhook rate limit
@@ -138,6 +141,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		gitStore:     d.GitStore,
 		provStore:    d.ProvStore,
 		setupStore:   d.SetupStore,
+		alertStore:   d.AlertStore,
 		dockerSem:    d.DockerSem,
 		setupConfirm: newConfirmStore(5 * time.Minute),
 		webhookRL:    newRateLimiter(30, time.Minute),
@@ -274,6 +278,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/git/fetch", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitFetch))))
 	mux.HandleFunc("POST /apps/{project}/git/deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitDeploy))))
 	mux.HandleFunc("POST /apps/{project}/git/webhook-rotate", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitWebhookRotate))))
+	// Alerting (M10): channels + rules + open alerts. Read-and-notify only.
+	mux.HandleFunc("GET /alerts", s.requireAuth(s.withCSRFToken(s.handleAlerts)))
+	mux.HandleFunc("POST /alerts/channels", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleAlertChannelSave))))
+	mux.HandleFunc("POST /alerts/channels/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAlertChannelDelete))))
+	mux.HandleFunc("POST /alerts/channels/test", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAlertChannelTest))))
+	mux.HandleFunc("POST /alerts/rules", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleAlertRuleSave))))
+	mux.HandleFunc("POST /alerts/rules/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAlertRuleDelete))))
+	mux.HandleFunc("POST /alerts/ack", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAlertAck))))
+	mux.HandleFunc("POST /alerts/silence", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAlertSilence))))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 	// Operator UI prefs (M7): persisted tile order. UI-only, never Tier-1.
 	mux.HandleFunc("POST /settings/tile-order", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleTileOrder))))
