@@ -113,10 +113,21 @@ func isLoopbackHostname(host string) bool {
 		h == "ip6-localhost" || h == "ip6-loopback"
 }
 
-// Render builds the whole Caddy JSON document from the base + the enabled routes.
-// It re-validates every route (defense in depth) and FAILS if any is unsafe — a
-// bad route can never become a partially-applied config.
+// Render builds the whole Caddy JSON document from the base + the enabled routes
+// (Layer 0 ⊕ 1, no operator overlay). It re-validates every route (defense in
+// depth) and FAILS if any is unsafe — a bad route can never become a
+// partially-applied config.
 func Render(base BaseConfig, routes []Route) ([]byte, error) {
+	return RenderComposite(base, routes, nil)
+}
+
+// RenderComposite builds the whole Caddy JSON document from Layer 0 (base) ⊕ Layer
+// 1 (app routes) ⊕ Layer 2 (the operator overlay, raw JSON — re-parsed + linted as
+// untrusted, never loaded verbatim). The overlay routes are spliced AFTER the
+// managed routes and BEFORE the 404 floor, so a managed vhost always wins; overlay
+// hostnames are added to TLS automation so they get certs. Any unsafe route OR any
+// overlay violation fails the whole render — nothing partial reaches the proxy.
+func RenderComposite(base BaseConfig, routes []Route, overlay []byte) ([]byte, error) {
 	admin := &caddyAdmin{Listen: base.AdminListen, EnforceOrigin: true, Origins: []string{"127.0.0.1", "::1", "localhost"}}
 
 	var httpRoutes []caddyRoute
@@ -181,6 +192,23 @@ func Render(base BaseConfig, routes []Route) ([]byte, error) {
 		if !seen[h] {
 			subjects = append(subjects, h)
 			seen[h] = true
+		}
+	}
+
+	// Layer 2: splice the operator overlay AFTER the managed routes (so a managed
+	// vhost always wins) and BEFORE the 404 floor. The overlay is conflict-checked
+	// against the managed hostnames (`seen`) and linted as untrusted.
+	if len(overlay) > 0 {
+		overlayRoutes, overlayHosts, err := ParseOverlay(overlay, seen)
+		if err != nil {
+			return nil, fmt.Errorf("edge overlay: %w", err)
+		}
+		httpRoutes = append(httpRoutes, overlayRoutes...)
+		for _, h := range overlayHosts {
+			if !seen[h] {
+				subjects = append(subjects, h)
+				seen[h] = true
+			}
 		}
 	}
 
