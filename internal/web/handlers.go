@@ -40,6 +40,8 @@ type tmplData struct {
 
 	ManagedFiles []configFileView
 	CertBindings []certBindingView
+
+	Git *gitView
 }
 
 type eventRow struct {

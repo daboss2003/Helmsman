@@ -23,6 +23,7 @@ import (
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/dockerexec"
 	"github.com/helmsman/helmsman/internal/envstore"
+	"github.com/helmsman/helmsman/internal/gitstore"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/session"
@@ -68,28 +69,34 @@ type Deps struct {
 	Docker     *docker.Client
 	EnvStore   *envstore.Store
 	CfgStore   *cfgstore.Store
+	GitStore   *gitstore.Store
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
 type Server struct {
-	cfg        *config.Config // immutable parts (bind, cookie, edge, session)
-	configPath string
-	db         *store.DB
-	sessions   *session.Manager
-	audit      *audit.Logger
-	limiter    *rateLimiter
-	templates  *template.Template
-	log        *slog.Logger
-	verifySem  chan struct{}
-	mon        *monitor.Monitor   // read-plane snapshots (may be nil)
-	opsStore   *ops.ConfigStore   // ops config (may be nil)
-	prober     *ops.Prober        // ops queue actions (may be nil)
-	runner     *dockerexec.Runner // write-plane exec (may be nil)
-	docker     *docker.Client     // read-plane log streaming (may be nil)
-	envStore   *envstore.Store    // encrypted env store (may be nil)
-	cfgStore   *cfgstore.Store    // managed config files + cert bindings (may be nil)
-	logStreams chan struct{}      // concurrency cap on live log streams
-	sec        atomic.Pointer[secState]
+	cfg          *config.Config // immutable parts (bind, cookie, edge, session)
+	configPath   string
+	db           *store.DB
+	sessions     *session.Manager
+	audit        *audit.Logger
+	limiter      *rateLimiter
+	templates    *template.Template
+	log          *slog.Logger
+	verifySem    chan struct{}
+	mon          *monitor.Monitor      // read-plane snapshots (may be nil)
+	opsStore     *ops.ConfigStore      // ops config (may be nil)
+	prober       *ops.Prober           // ops queue actions (may be nil)
+	runner       *dockerexec.Runner    // write-plane exec (may be nil)
+	docker       *docker.Client        // read-plane log streaming (may be nil)
+	envStore     *envstore.Store       // encrypted env store (may be nil)
+	cfgStore     *cfgstore.Store       // managed config files + cert bindings (may be nil)
+	gitStore     *gitstore.Store       // repo-path GitOps (may be nil)
+	webhookRL    *rateLimiter          // per-token webhook rate limit
+	webhookSeen  *nonceCache           // webhook replay (timestamp+nonce) defense
+	webhookFlash *tokenFlash           // one-time rotated-token hand-off (never in URL)
+	gitDeploy    *dockerexec.Semaphore // single-flight repo deploy (1 at a time)
+	logStreams   chan struct{}         // concurrency cap on live log streams
+	sec          atomic.Pointer[secState]
 }
 
 // New builds a Server from a validated config and its dependencies.
@@ -103,23 +110,28 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &Server{
-		cfg:        cfg,
-		configPath: d.ConfigPath,
-		db:         d.DB,
-		sessions:   session.New(d.DB, cfg.Session.IdleTimeout.D(), cfg.Session.AbsoluteTimeout.D()),
-		audit:      audit.New(d.DB, log),
-		limiter:    newRateLimiter(300, time.Minute),
-		templates:  tmpl,
-		log:        log,
-		verifySem:  make(chan struct{}, loginVerifyConcurrency),
-		mon:        d.Monitor,
-		opsStore:   d.OpsStore,
-		prober:     d.Prober,
-		runner:     d.Runner,
-		docker:     d.Docker,
-		envStore:   d.EnvStore,
-		cfgStore:   d.CfgStore,
-		logStreams: make(chan struct{}, maxConcurrentLogStreams),
+		cfg:          cfg,
+		configPath:   d.ConfigPath,
+		db:           d.DB,
+		sessions:     session.New(d.DB, cfg.Session.IdleTimeout.D(), cfg.Session.AbsoluteTimeout.D()),
+		audit:        audit.New(d.DB, log),
+		limiter:      newRateLimiter(300, time.Minute),
+		templates:    tmpl,
+		log:          log,
+		verifySem:    make(chan struct{}, loginVerifyConcurrency),
+		mon:          d.Monitor,
+		opsStore:     d.OpsStore,
+		prober:       d.Prober,
+		runner:       d.Runner,
+		docker:       d.Docker,
+		envStore:     d.EnvStore,
+		cfgStore:     d.CfgStore,
+		gitStore:     d.GitStore,
+		webhookRL:    newRateLimiter(30, time.Minute),
+		webhookSeen:  newNonceCache(webhookNonceTTL),
+		webhookFlash: newTokenFlash(2 * time.Minute),
+		gitDeploy:    dockerexec.NewSemaphore(),
+		logStreams:   make(chan struct{}, maxConcurrentLogStreams),
 	}
 	sec, err := buildSecState(cfg)
 	if err != nil {
@@ -183,6 +195,9 @@ func (s *Server) Handler() http.Handler {
 
 	// Public (auth-exempt) routes.
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	// Webhook: allowlist-exempt (CI egress) + auth-exempt, but HMAC-gated,
+	// replay-protected, per-token rate-limited, and FETCH-ONLY (plan §5.7).
+	mux.HandleFunc("POST /webhook/{token}", capBody(1<<20, s.handleWebhook))
 	mux.HandleFunc("GET /login", s.withCSRFToken(s.handleLoginGet))
 	// capBody is OUTERMOST so the body is bounded before requireCSRF parses it.
 	mux.HandleFunc("POST /login", capBody(loginBodyLimit, s.requireCSRF(s.handleLoginPost)))
@@ -221,6 +236,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/config-files/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleConfigFileDelete))))
 	mux.HandleFunc("POST /apps/{project}/cert-bindings", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleCertBindingSave))))
 	mux.HandleFunc("POST /apps/{project}/cert-bindings/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleCertBindingDelete))))
+	// Repo-path GitOps (M6).
+	mux.HandleFunc("GET /git/new", s.requireAuth(s.withCSRFToken(s.handleGitNew)))
+	mux.HandleFunc("POST /git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitSave))))
+	mux.HandleFunc("GET /apps/{project}/git", s.requireAuth(s.withCSRFToken(s.handleGitGet)))
+	mux.HandleFunc("POST /apps/{project}/git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitSave))))
+	mux.HandleFunc("POST /apps/{project}/git/fetch", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitFetch))))
+	mux.HandleFunc("POST /apps/{project}/git/deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitDeploy))))
+	mux.HandleFunc("POST /apps/{project}/git/webhook-rotate", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitWebhookRotate))))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.

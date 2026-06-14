@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"path"
 	"strings"
 
 	"github.com/helmsman/helmsman/internal/session"
@@ -62,10 +63,18 @@ func (s *Server) allowlistMiddleware(next http.Handler) http.Handler {
 		// If the peer is NOT trusted, XFF is ignored entirely and the peer itself
 		// is allowlisted — a hostile container forging XFF cannot get in.
 
-		if !prefixesContain(sec.allowlist, client) {
-			s.auditDeny(r, peer, client)
-			notFound(w)
-			return
+		// The webhook endpoint is allowlist-EXEMPT (CI runners have arbitrary
+		// egress IPs) but NOT unprotected: it is HMAC-gated, replay-protected,
+		// per-token rate-limited, and FETCH-ONLY (plan §5.7). We still resolve and
+		// stamp the client IP so the general per-IP rate limiter has a real key.
+		// Match the CLEANED path (what the mux will route) so a traversal like
+		// /webhook/../something cannot ride the exemption to a non-webhook route.
+		if !strings.HasPrefix(path.Clean(r.URL.Path)+"/", "/webhook/") {
+			if !prefixesContain(sec.allowlist, client) {
+				s.auditDeny(r, peer, client)
+				notFound(w)
+				return
+			}
 		}
 
 		r = r.WithContext(withClientIP(r.Context(), client))

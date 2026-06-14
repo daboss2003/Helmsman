@@ -7,7 +7,8 @@
     · <a href="/apps/{{pathEscape .App.Project}}/env">env</a>
     · <a href="/apps/{{pathEscape .App.Project}}/config-files">config files</a>
     · <a href="/apps/{{pathEscape .App.Project}}/ops-config">ops config</a>
-    · <a href="/apps/{{pathEscape .App.Project}}/compose">compose</a></p>
+    · <a href="/apps/{{pathEscape .App.Project}}/compose">compose</a>
+    · <a href="/apps/{{pathEscape .App.Project}}/git">git</a></p>
 
   {{if .WriteDisabledReason}}
   <div class="error" role="alert">Write plane unavailable: {{.WriteDisabledReason}}. Lifecycle actions are disabled.</div>

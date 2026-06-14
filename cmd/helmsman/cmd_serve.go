@@ -16,6 +16,7 @@ import (
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/dockerexec"
 	"github.com/helmsman/helmsman/internal/envstore"
+	"github.com/helmsman/helmsman/internal/gitstore"
 	"github.com/helmsman/helmsman/internal/hostmon"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
@@ -69,6 +70,7 @@ func cmdServe(args []string) error {
 	prober := ops.NewProber(opsStore, opsclient.New(), db)
 	envStore := envstore.New(db, cipher)
 	cfgStore := cfgstore.New(db, cipher)
+	gitStore := gitstore.New(db, cipher)
 	mon := monitor.New(db, dockerCli, hostSampler, cfg.Monitor.PollInterval.D(),
 		cfg.Monitor.MetricsRetention.D(), log, prober)
 	var wg sync.WaitGroup
@@ -100,6 +102,7 @@ func cmdServe(args []string) error {
 		Docker:     dockerCli,
 		EnvStore:   envStore,
 		CfgStore:   cfgStore,
+		GitStore:   gitStore,
 	})
 	if err != nil {
 		return err

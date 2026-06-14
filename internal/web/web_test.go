@@ -15,6 +15,7 @@ import (
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
 	"github.com/helmsman/helmsman/internal/envstore"
+	"github.com/helmsman/helmsman/internal/gitstore"
 	"github.com/helmsman/helmsman/internal/secret"
 	"github.com/helmsman/helmsman/internal/store"
 )
@@ -51,6 +52,7 @@ func buildServer(t *testing.T, allowlist []string, trustProxy bool, trustedProxi
 		fmt.Fprintf(&b, "  totp_secret: %q\n", totpSecret)
 	}
 	fmt.Fprintf(&b, "edge:\n  mode: \"managed\"\n  acme_email: \"ops@example.com\"\n  acme_ca: \"https://acme.example/directory\"\n")
+	fmt.Fprintf(&b, "data_dir: %q\n", t.TempDir())
 
 	cfg, err := config.Parse([]byte(b.String()))
 	if err != nil {
@@ -67,7 +69,7 @@ func buildServer(t *testing.T, allowlist []string, trustProxy bool, trustedProxi
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(cfg, Deps{DB: db, EnvStore: envstore.New(db, cipher), CfgStore: cfgstore.New(db, cipher)})
+	srv, err := New(cfg, Deps{DB: db, EnvStore: envstore.New(db, cipher), CfgStore: cfgstore.New(db, cipher), GitStore: gitstore.New(db, cipher)})
 	if err != nil {
 		t.Fatal(err)
 	}

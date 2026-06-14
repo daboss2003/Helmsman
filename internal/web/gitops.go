@@ -1,0 +1,779 @@
+package web
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/helmsman/helmsman/internal/audit"
+	"github.com/helmsman/helmsman/internal/compose"
+	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/helmsman/helmsman/internal/dockerexec"
+	"github.com/helmsman/helmsman/internal/git"
+	"github.com/helmsman/helmsman/internal/gitstore"
+	"github.com/helmsman/helmsman/internal/monitor"
+)
+
+// M6 repo-path GitOps (plan §7.6). The read plane fetches the configured ref into
+// a per-app bare object store and shows a hostile-data-safe diff; the write plane
+// promotes ONE reviewed commit sha: §5.6-validate the cat-file'd compose bytes,
+// archive-extract the pinned tree into a Helmsman-owned run dir, materialize
+// config files + env, then `docker compose up`. The webhook is FETCH-ONLY: it
+// never reads a ref/sha from the payload and only triggers the same gated promote.
+
+const (
+	// webhookReplayWindow bounds how stale a signed webhook timestamp may be.
+	webhookReplayWindow = 5 * time.Minute
+	// webhookForwardSkew is the allowed clock skew INTO the future (a CI runner
+	// whose clock runs slightly ahead). A timestamp is valid for an arrival window
+	// of [ts-window, ts+window+skew]; the nonce must be remembered for at least
+	// that full span (window+skew) or a skewed timestamp could be replayed in the
+	// sliver after the nonce is forgotten but before the timestamp expires.
+	webhookForwardSkew = 60 * time.Second
+	// webhookNonceTTL keeps a used nonce at least as long as any timestamp signed
+	// with it can remain valid.
+	webhookNonceTTL = webhookReplayWindow + webhookForwardSkew
+	// gitDeployTimeout caps a webhook-triggered background fetch+deploy.
+	gitDeployTimeout = 15 * time.Minute
+	// maxWebhookNonceLen bounds the nonce header so a hostile client can't bloat
+	// the in-memory replay cache key.
+	maxWebhookNonceLen = 128
+)
+
+// --- in-memory webhook replay (nonce) cache ---
+
+// nonceCache remembers recently-seen (token,nonce) pairs to make each signed
+// webhook single-use within the replay window. It is self-sweeping (no background
+// goroutine) and capacity-capped so a flood can't grow it unbounded.
+type nonceCache struct {
+	mu        sync.Mutex
+	ttl       time.Duration
+	seen      map[string]time.Time
+	lastSweep time.Time
+}
+
+func newNonceCache(ttl time.Duration) *nonceCache {
+	return &nonceCache{ttl: ttl, seen: make(map[string]time.Time), lastSweep: time.Now()}
+}
+
+// seenOrAdd records key and reports whether it was already present within the TTL
+// (a replay). Caller must have already verified the signature + timestamp window.
+func (n *nonceCache) seenOrAdd(key string) bool {
+	now := time.Now()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if now.Sub(n.lastSweep) > n.ttl {
+		for k, t := range n.seen {
+			if now.Sub(t) > n.ttl {
+				delete(n.seen, k)
+			}
+		}
+		n.lastSweep = now
+	}
+	if t, ok := n.seen[key]; ok && now.Sub(t) <= n.ttl {
+		return true
+	}
+	if len(n.seen) > 100_000 { // flood backstop: window-based reset
+		n.seen = make(map[string]time.Time)
+	}
+	n.seen[key] = now
+	return false
+}
+
+// --- one-time webhook-token flash ---
+
+// tokenFlash hands the freshly-rotated webhook token to the operator's NEXT page
+// render WITHOUT ever putting the secret in a URL/redirect (which would persist
+// in browser history and any full-URL access log). The redirect carries only an
+// opaque, single-use, short-lived handle; the token lives server-side until the
+// matching GET consumes it once. Bound to (handle, project) — a different page
+// cannot pull it (review: token in redirect query param).
+type tokenFlash struct {
+	mu  sync.Mutex
+	ttl time.Duration
+	m   map[string]flashEntry
+}
+
+type flashEntry struct {
+	token   string
+	project string
+	exp     time.Time
+}
+
+func newTokenFlash(ttl time.Duration) *tokenFlash {
+	return &tokenFlash{ttl: ttl, m: make(map[string]flashEntry)}
+}
+
+// put stores token for project and returns a fresh opaque handle.
+func (f *tokenFlash) put(project, token string) string {
+	handle := crypto.RandomToken(18)
+	now := time.Now()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for k, e := range f.m { // opportunistic sweep
+		if now.After(e.exp) {
+			delete(f.m, k)
+		}
+	}
+	if len(f.m) > 1024 { // flood backstop
+		f.m = make(map[string]flashEntry)
+	}
+	f.m[handle] = flashEntry{token: token, project: project, exp: now.Add(f.ttl)}
+	return handle
+}
+
+// take consumes the token for (handle, project) exactly once.
+func (f *tokenFlash) take(handle, project string) (string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e, ok := f.m[handle]
+	if !ok {
+		return "", false
+	}
+	delete(f.m, handle) // single-use regardless of match/expiry
+	if time.Now().After(e.exp) || e.project != project {
+		return "", false
+	}
+	return e.token, true
+}
+
+// --- repo layout (Helmsman-owned) ---
+
+// gitObjectDir is the per-app bare object store. It lives UNDER DataDir (which the
+// §5.6 validator marks protected): an app bind can never reach it.
+func (s *Server) gitObjectDir(slug string) string {
+	return filepath.Join(s.cfg.DataDir, "git", slug+".git")
+}
+
+// gitRunDir is the per-app checkout/run directory. It lives in a sibling tree
+// OUTSIDE DataDir (so legitimate binds under it don't trip the "DataDir is
+// protected" defense-in-depth check) while still being Helmsman-owned.
+func (s *Server) gitRunDir(slug string) string {
+	return filepath.Join(s.cfg.DataDir+"-apps", slug)
+}
+
+// --- view model ---
+
+type gitDiffView struct {
+	CommitsBehind int
+	Truncated     bool
+	Commits       []git.CommitInfo
+	Files         []git.FileChange
+}
+
+type gitView struct {
+	Configured          bool
+	Project             string
+	RepoURL             string
+	Ref                 string
+	ComposePath         string
+	DockerfilePath      string
+	BuildPolicy         string
+	AutoDeploy          bool
+	CredKind            string
+	HasWebhook          bool
+	WebhookToken        string // shown ONCE, right after a rotate
+	DeployedCommit      string
+	StagedCommit        string
+	UpdateState         string
+	CommitsBehind       int
+	LastFetchAt         string
+	LastFetchError      string
+	Diff                *gitDiffView
+	WriteDisabledReason string
+}
+
+func shortSha(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
+}
+
+func isFullSha40(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// --- config form (GET/POST) ---
+
+func (s *Server) handleGitNew(w http.ResponseWriter, r *http.Request) {
+	if s.gitStore == nil {
+		http.Error(w, "gitops unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	s.render(w, r, "git.html", tmplData{
+		Title:     "Connect a repository",
+		CSRFToken: CSRFToken(r.Context()),
+		Username:  sessionUser(r),
+		Git:       &gitView{Configured: false, BuildPolicy: "never", Ref: "refs/heads/main", ComposePath: "docker-compose.yml"},
+	})
+}
+
+func (s *Server) handleGitGet(w http.ResponseWriter, r *http.Request) {
+	if s.gitStore == nil {
+		http.Error(w, "gitops unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	project := r.PathValue("project")
+	cfg, ok, err := s.gitStore.Get(project)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	gv := &gitView{
+		Project:             project,
+		BuildPolicy:         "never",
+		Ref:                 "refs/heads/main",
+		ComposePath:         "docker-compose.yml",
+		WriteDisabledReason: s.writeDisabledReason(),
+	}
+	if ok {
+		gv.Configured = true
+		gv.RepoURL = cfg.RepoURL
+		gv.Ref = cfg.Ref
+		gv.ComposePath = cfg.ComposePath
+		gv.DockerfilePath = cfg.DockerfilePath
+		gv.BuildPolicy = cfg.BuildPolicy
+		gv.AutoDeploy = cfg.AutoDeploy
+		gv.CredKind = cfg.CredKind
+		gv.HasWebhook = cfg.HasWebhook
+		gv.DeployedCommit = cfg.DeployedCommit
+		gv.StagedCommit = cfg.StagedCommit
+		gv.UpdateState = cfg.UpdateState
+		gv.CommitsBehind = cfg.CommitsBehind
+		gv.LastFetchError = cfg.LastFetchError
+		if cfg.LastFetchAt > 0 {
+			gv.LastFetchAt = time.Unix(cfg.LastFetchAt, 0).UTC().Format("2006-01-02 15:04:05Z")
+		}
+		// Consume the one-time rotated-token flash (opaque handle in the URL, the
+		// secret only ever lived server-side).
+		if h := r.URL.Query().Get("wh"); h != "" {
+			if t, ok := s.webhookFlash.take(h, project); ok {
+				gv.WebhookToken = t
+			}
+		}
+		gv.Diff = s.buildDiff(r.Context(), project, cfg)
+	}
+	s.render(w, r, "git.html", tmplData{
+		Title:     "Repository — " + project,
+		CSRFToken: CSRFToken(r.Context()),
+		Username:  sessionUser(r),
+		Project:   project,
+		Git:       gv,
+	})
+}
+
+// buildDiff renders the sanitized, capped pending-update preview between the
+// deployed and staged commits (best-effort; nil on any read error).
+func (s *Server) buildDiff(ctx context.Context, project string, cfg gitstore.Config) *gitDiffView {
+	if cfg.StagedCommit == "" {
+		return nil
+	}
+	repo, err := git.Open(s.gitObjectDir(project))
+	if err != nil {
+		return nil
+	}
+	deployed := repo.RefSha(ctx, git.DeployedRef)
+	if deployed == "" {
+		deployed = cfg.DeployedCommit
+	}
+	if deployed == cfg.StagedCommit {
+		return nil
+	}
+	d, err := repo.Diff(ctx, deployed, cfg.StagedCommit)
+	if err != nil {
+		return nil
+	}
+	return &gitDiffView{CommitsBehind: d.CommitsBehind, Truncated: d.Truncated, Commits: d.Commits, Files: d.Files}
+}
+
+func (s *Server) handleGitSave(w http.ResponseWriter, r *http.Request) {
+	if s.gitStore == nil {
+		http.Error(w, "gitops unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	project := r.PathValue("project")
+	if project == "" {
+		project = strings.TrimSpace(r.PostFormValue("project"))
+	}
+	if s.cfg.IsProtectedProject(project) {
+		http.Error(w, "protected project", http.StatusForbidden)
+		return
+	}
+	in := gitstore.SaveInput{
+		Project:        project,
+		RepoURL:        r.PostFormValue("repo_url"),
+		Ref:            strings.TrimSpace(r.PostFormValue("git_ref")),
+		ComposePath:    r.PostFormValue("compose_path"),
+		DockerfilePath: r.PostFormValue("dockerfile_path"),
+		AutoDeploy:     r.PostFormValue("auto_deploy") == "on",
+		BuildPolicy:    r.PostFormValue("build_policy"),
+		KnownHosts:     r.PostFormValue("known_hosts"),
+	}
+	// Credential tri-state (plan §7.6): "none" clears; a provided value replaces;
+	// an empty value with a token/ssh kind keeps the stored credential untouched
+	// (so config edits never force re-entry of the PAT/key).
+	kind := r.PostFormValue("cred_kind")
+	cred := r.PostFormValue("cred")
+	switch kind {
+	case "none":
+		empty := ""
+		in.NewCred = &empty
+	case "token", "ssh":
+		if strings.TrimSpace(cred) != "" {
+			in.NewCred = &cred
+			in.CredKind = kind
+		} // else keep existing
+	}
+	if err := s.gitStore.Save(r.Context(), in); err != nil {
+		http.Error(w, "repository config rejected: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "git_save", Target: project, Outcome: audit.OK, Level: audit.Security})
+	http.Redirect(w, r, "/apps/"+project+"/git", http.StatusSeeOther)
+}
+
+func (s *Server) handleGitWebhookRotate(w http.ResponseWriter, r *http.Request) {
+	if s.gitStore == nil {
+		http.Error(w, "gitops unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	_ = r.ParseForm()
+	project := r.PathValue("project")
+	if _, ok, _ := s.gitStore.Get(project); !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	token, err := s.gitStore.RotateWebhook(r.Context(), project)
+	if err != nil {
+		http.Error(w, "could not rotate webhook", http.StatusInternalServerError)
+		return
+	}
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "git_webhook_rotate", Target: project, Outcome: audit.OK, Level: audit.Security})
+	// Hand the token to the next render via a one-time server-side flash; the
+	// redirect carries only an opaque single-use handle (never the secret itself).
+	handle := s.webhookFlash.put(project, token)
+	http.Redirect(w, r, "/apps/"+project+"/git?wh="+handle, http.StatusSeeOther)
+}
+
+// --- fetch flow (read-plane) ---
+
+func (s *Server) handleGitFetch(w http.ResponseWriter, r *http.Request) {
+	if s.gitStore == nil {
+		http.Error(w, "gitops unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	project := r.PathValue("project")
+	if s.cfg.IsProtectedProject(project) {
+		http.Error(w, "protected project", http.StatusForbidden)
+		return
+	}
+	// Single-flight: serialize fetch with any in-progress deploy of any app.
+	if !s.gitDeploy.TryAcquire() {
+		http.Error(w, "a git operation is already in progress; try again shortly", http.StatusConflict)
+		return
+	}
+	defer s.gitDeploy.Release()
+
+	_, _, err := s.doFetch(r.Context(), project)
+	outcome := audit.OK
+	if err != nil {
+		outcome = audit.Error
+	}
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "git_fetch", Target: project, Outcome: outcome, Level: audit.Security})
+	// Redirect either way; the page surfaces last_fetch_error / the new diff.
+	http.Redirect(w, r, "/apps/"+project+"/git", http.StatusSeeOther)
+}
+
+// doFetch performs the read-plane fetch: fetch the configured ref into the staged
+// ref, compute commits-behind, classify the FSM state, and record the result.
+// Credentials never touch the URL argv and a failure records only a CLASSIFIED
+// error (never raw git stderr). It mutates only refs/objects + the DB row.
+func (s *Server) doFetch(ctx context.Context, project string) (gitstore.Config, string, error) {
+	bg := context.Background() // DB bookkeeping must persist even if ctx is cancelled
+	cfg, ok, err := s.gitStore.Get(project)
+	if err != nil || !ok {
+		return gitstore.Config{}, "", errors.New("repository not configured")
+	}
+	creds, err := s.gitStore.Creds(project)
+	if err != nil {
+		s.gitStore.SetFetchError(bg, project, "could not load credentials")
+		return cfg, "", errors.New("could not load credentials")
+	}
+	repo, err := git.Open(s.gitObjectDir(project))
+	if err != nil {
+		return cfg, "", err
+	}
+	stagedSha, ferr := repo.Fetch(ctx, cfg.RepoURL, cfg.Ref, creds)
+	if ferr != nil {
+		s.gitStore.SetFetchError(bg, project, ferr.Error()) // already classified
+		return cfg, "", ferr
+	}
+	deployed := repo.RefSha(ctx, git.DeployedRef)
+	if deployed == "" {
+		deployed = cfg.DeployedCommit
+	}
+	behind, _ := repo.CommitsBehind(ctx, deployed, stagedSha)
+	state := "update_available"
+	switch {
+	case deployed == "":
+		state = "update_available"
+	case stagedSha == deployed:
+		state = "up_to_date"
+	default:
+		if anc, _ := repo.IsAncestor(ctx, deployed, stagedSha); anc {
+			state = "update_available"
+		} else {
+			// The deployed commit is not reachable from the fetched ref — history
+			// was rewritten (e.g. a force-push). Surface it; never auto-deploy it.
+			state = "history_rewritten"
+		}
+	}
+	s.gitStore.SetFetchResult(bg, project, stagedSha, behind, state)
+	cfg.StagedCommit = stagedSha
+	cfg.UpdateState = state
+	cfg.CommitsBehind = behind
+	return cfg, stagedSha, nil
+}
+
+// --- deploy flow (write-plane, sha-pinned promote) ---
+
+func (s *Server) handleGitDeploy(w http.ResponseWriter, r *http.Request) {
+	if s.gitStore == nil || s.runner == nil {
+		http.Error(w, "write plane unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	project := r.PathValue("project")
+	actor := sessionUser(r)
+	peer := ClientIP(r.Context()).String()
+	if s.cfg.IsProtectedProject(project) {
+		_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "git_deploy", Target: project, Outcome: audit.Deny, Level: audit.Security, Detail: "protected project"})
+		http.Error(w, "protected project", http.StatusForbidden)
+		return
+	}
+	if ok, reason := s.runner.WriteAllowed(); !ok {
+		http.Error(w, reason, http.StatusForbidden)
+		return
+	}
+	cfg, ok, err := s.gitStore.Get(project)
+	if err != nil || !ok {
+		http.Error(w, "repository not configured", http.StatusNotFound)
+		return
+	}
+	sha := strings.TrimSpace(r.FormValue("sha"))
+
+	if !s.gitDeploy.TryAcquire() {
+		http.Error(w, "a git operation is already in progress; try again shortly", http.StatusConflict)
+		return
+	}
+	defer s.gitDeploy.Release()
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, _ := w.(http.Flusher)
+	writeln := func(format string, a ...any) {
+		fmt.Fprintf(w, format+"\n", a...)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	writeln("$ deploy %s @ %s", project, shortSha(sha))
+	if err := s.deployRepoApp(r.Context(), cfg, sha, "manual", actor, func(line string) { writeln("%s", line) }); err != nil {
+		writeln("\n[failed: %v]", err)
+		_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "git_deploy", Target: project + "@" + shortSha(sha), Outcome: audit.Error, Level: audit.Security, Detail: err.Error()})
+		return
+	}
+	writeln("\n[done]")
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "git_deploy", Target: project + "@" + shortSha(sha), Outcome: audit.OK, Level: audit.Security})
+}
+
+// deployRepoApp promotes ONE reviewed commit sha. The CALLER must hold the
+// gitDeploy single-flight semaphore. Sequence (plan §7.6):
+//  1. sha-pin: the staged ref must STILL point at exactly the reviewed sha (a
+//     concurrent fetch that moved it aborts the deploy — re-review required).
+//  2. §5.6-validate the cat-file'd compose bytes (the EXACT pinned bytes, not an
+//     on-disk file an in-container app could have raced).
+//  3. archive-extract the pinned tree into the Helmsman-owned run dir (symlinks
+//     rejected, paths confined).
+//  4. materialize managed config files + the 0600 env-file (M5/M5b).
+//  5. `docker compose up -d` under the gate + one-docker-child semaphore (M4).
+//  6. pin deployed_commit (ref + DB) so gc never prunes it (rollback stays valid).
+func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, source, actor string, onLine func(string)) error {
+	bg := context.Background() // FSM/DB writes persist even if the client disconnects
+	slug := cfg.Project
+	rd := filepath.Clean(s.gitRunDir(slug))
+	if !filepath.IsAbs(rd) || rd == "/" || isSensitiveDir(rd) {
+		return fmt.Errorf("app run directory %q is unsafe; refusing to deploy", rd)
+	}
+	if !isFullSha40(sha) {
+		return errors.New("a full staged commit sha is required")
+	}
+
+	repo, err := git.Open(s.gitObjectDir(slug))
+	if err != nil {
+		return fmt.Errorf("open object store: %w", err)
+	}
+
+	// (1) sha-pin: DB + ref + a real commit object must all agree on `sha`.
+	stagedNow := repo.RefSha(ctx, git.StagedRef)
+	if stagedNow != sha || cfg.StagedCommit != sha {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return errors.New("the staged commit moved since it was reviewed; fetch and re-review before deploying")
+	}
+	if _, err := repo.ResolveRef(ctx, sha); err != nil {
+		return fmt.Errorf("staged commit not found: %w", err)
+	}
+
+	// (2) §5.6 on the EXACT pinned compose bytes (cat-file rejects symlinks/gitlinks).
+	composeBytes, err := repo.CatFile(ctx, sha, cfg.ComposePath)
+	if err != nil {
+		return fmt.Errorf("read %s at %s: %w", cfg.ComposePath, shortSha(sha), err)
+	}
+	env := s.repoComposeEnv(ctx, repo, sha, cfg)
+	res := compose.ValidateBytes(composeBytes, env, rd, compose.Options{ProtectedPaths: s.protectedHostPaths()})
+	if !res.OK() {
+		if s.cfg.ComposeValidation.Mode != "review" {
+			res.SortViolations()
+			onLine("compose rejected by the §5.6 validator:")
+			for _, v := range res.Violations {
+				onLine("  - " + v.String())
+			}
+			s.gitStore.SetState(bg, slug, "update_blocked")
+			return fmt.Errorf("compose validation failed (%d finding(s))", len(res.Violations))
+		}
+		onLine(fmt.Sprintf("WARNING (review mode): %d validator finding(s); proceeding.", len(res.Violations)))
+	}
+
+	s.gitStore.SetState(bg, slug, "deploying")
+
+	// (3) archive-extract the pinned tree (Helmsman-owned run dir).
+	if err := os.MkdirAll(rd, 0o700); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return err
+	}
+	onLine("extracting " + shortSha(sha) + " → run dir")
+	if err := repo.ArchiveTo(ctx, sha, rd); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return fmt.Errorf("checkout: %w", err)
+	}
+
+	// (4) materialize config files + the env-file against a synthetic app rooted
+	// at the Helmsman-owned run dir.
+	composeAbs := filepath.Join(rd, filepath.FromSlash(cfg.ComposePath))
+	if !confinedUnder(composeAbs, rd) {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return errors.New("compose path escapes the run dir")
+	}
+	app := &monitor.App{Project: slug, WorkingDir: rd, ConfigFiles: []string{composeAbs}}
+	if err := s.materializeConfigFiles(app, env); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return fmt.Errorf("config-file materialization: %w", err)
+	}
+	envFile, cleanup, ferr := s.renderEnvFile(app, env)
+	defer cleanup()
+	if ferr != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return errors.New("could not render env file")
+	}
+
+	// (5) docker compose up under the gate + one-docker-child semaphore.
+	action := []string{"up", "-d", "--remove-orphans"}
+	if cfg.BuildPolicy != "on_missing" {
+		// build_policy "never": pull/use existing images; never build on-box.
+		action = append(action, "--no-build")
+	}
+	depID := s.recordRepoDeployStart(bg, slug, source, actor, "git_deploy")
+	onLine("$ docker compose " + strings.Join(action, " "))
+	job := dockerexec.Job{Project: slug, Dir: rd, ConfigFiles: app.ConfigFiles, EnvFile: envFile, Action: action}
+	runErr := s.runner.Run(ctx, job, onLine)
+	code, outcome := classifyExit(runErr)
+	s.recordDeployFinish(bg, depID, code, outcome)
+	if runErr != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return fmt.Errorf("docker compose up failed: %w", runErr)
+	}
+
+	// (6) pin the deployed commit (ref keeps gc from pruning it; DB drives the FSM).
+	if err := repo.SetDeployedRef(bg, sha); err != nil {
+		onLine("warning: could not pin deployed ref: " + err.Error())
+	}
+	s.gitStore.SetDeployed(bg, slug, sha)
+	onLine("deployed " + shortSha(sha))
+	return nil
+}
+
+// repoComposeEnv builds the env used for BOTH §5.6 validation and the deploy
+// --env-file from the repo's pinned .env (cat-file, not on-disk) overlaid by the
+// env store, so validate == deploy.
+func (s *Server) repoComposeEnv(ctx context.Context, repo *git.Repo, sha string, cfg gitstore.Config) compose.Env {
+	env := compose.Env{}
+	if b, err := repo.CatFile(ctx, sha, ".env"); err == nil {
+		env = compose.ParseEnvFile(b)
+	}
+	if s.envStore != nil {
+		if rendered, err := s.envStore.Render(cfg.Project); err == nil {
+			for k, v := range rendered {
+				env[k] = v // store overrides repo .env
+			}
+		}
+	}
+	return resolveEnvValues(env)
+}
+
+func (s *Server) recordRepoDeployStart(ctx context.Context, project, source, actor, action string) int64 {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO deploys(project, service, action, source, actor, started_at) VALUES(?, '', ?, ?, ?, ?)`,
+		project, action, source, actor, time.Now().Unix())
+	if err != nil {
+		return 0
+	}
+	id, _ := res.LastInsertId()
+	return id
+}
+
+// --- webhook (trigger-only, plan §5.7) ---
+
+// handleWebhook is allowlist-exempt + auth-exempt but HMAC-gated, replay-protected,
+// per-token rate-limited, and single-flight. It NEVER reads a ref/sha (or anything
+// else) from the request body — the body is capped and ignored. A valid call
+// triggers a read-plane fetch and, only when auto_deploy is on AND the fetch
+// produced a clean fast-forward update, the same gated promote a human would run.
+func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	if s.gitStore == nil || token == "" {
+		notFound(w) // never reveal whether the feature/token exists
+		return
+	}
+	// Per-token rate limit (in addition to the general per-IP limiter).
+	if !s.webhookRL.allow("wh:" + token) {
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+		return
+	}
+	project, hmacSecret, ok := s.gitStore.WebhookLookup(token)
+	if !ok {
+		s.auditWebhook(r, "", audit.Deny, "unknown token")
+		notFound(w)
+		return
+	}
+	ts := r.Header.Get("X-Helmsman-Timestamp")
+	nonce := r.Header.Get("X-Helmsman-Nonce")
+	sig := r.Header.Get("X-Helmsman-Signature")
+	if !verifyWebhookSig(hmacSecret, ts, nonce, sig) {
+		s.auditWebhook(r, project, audit.Deny, "bad signature or stale timestamp")
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// Replay: each (token,nonce) is single-use within the window.
+	if s.webhookSeen.seenOrAdd(token + ":" + nonce) {
+		s.auditWebhook(r, project, audit.Deny, "replayed nonce")
+		http.Error(w, "replay rejected", http.StatusConflict)
+		return
+	}
+	// Single-flight: acquire BEFORE spawning so a webhook flood can't pile up
+	// goroutines (queuing children is the OOM vector, plan §4).
+	if !s.gitDeploy.TryAcquire() {
+		s.auditWebhook(r, project, audit.OK, "busy; another git op in progress")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("busy\n"))
+		return
+	}
+	if _, ok, _ := s.gitStore.Get(project); !ok {
+		s.gitDeploy.Release()
+		notFound(w)
+		return
+	}
+	s.auditWebhook(r, project, audit.OK, "accepted")
+	go func() {
+		defer s.gitDeploy.Release()
+		ctx, cancel := context.WithTimeout(context.Background(), gitDeployTimeout)
+		defer cancel()
+		_, staged, err := s.doFetch(ctx, project)
+		if err != nil {
+			s.log.Warn("webhook fetch failed", "project", project)
+			return
+		}
+		// Re-read the config AFTER the fetch completes so a mid-fetch toggle of
+		// auto_deploy (or any edit) is honored — never auto-deploy against a flag
+		// captured before the (possibly slow) network fetch (review: stale flag).
+		fresh, ok, _ := s.gitStore.Get(project)
+		if !ok || !fresh.AutoDeploy {
+			return // fetch-only; the operator deploys manually
+		}
+		// Only auto-deploy a clean fast-forward update. A history rewrite or
+		// up-to-date state never auto-deploys.
+		if fresh.UpdateState != "update_available" || staged == "" || fresh.StagedCommit != staged {
+			return
+		}
+		if s.runner == nil {
+			return
+		}
+		if ok, _ := s.runner.WriteAllowed(); !ok {
+			return
+		}
+		if err := s.deployRepoApp(ctx, fresh, staged, "webhook", "webhook", func(line string) {
+			s.log.Info("git auto-deploy", "project", project, "line", line)
+		}); err != nil {
+			s.log.Warn("webhook auto-deploy failed", "project", project)
+		}
+	}()
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write([]byte("accepted\n"))
+}
+
+// verifyWebhookSig verifies HMAC-SHA256(secret, "<ts>.<nonce>") in constant time
+// and that ts is within the replay window. The signed message is JUST the
+// timestamp + nonce — the body is never part of the signature, reinforcing that
+// the payload is irrelevant (trigger-only).
+func verifyWebhookSig(secret []byte, tsStr, nonce, sigHex string) bool {
+	if tsStr == "" || nonce == "" || sigHex == "" || len(nonce) > maxWebhookNonceLen {
+		return false
+	}
+	ts, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	now := time.Now().Unix()
+	win := int64(webhookReplayWindow / time.Second)
+	if ts < now-win || ts > now+int64(webhookForwardSkew/time.Second) {
+		return false
+	}
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(tsStr + "." + nonce))
+	expected := mac.Sum(nil)
+	got, err := hex.DecodeString(sigHex)
+	if err != nil || len(got) != len(expected) {
+		return false
+	}
+	return hmac.Equal(got, expected)
+}
+
+func (s *Server) auditWebhook(r *http.Request, project string, outcome audit.Outcome, detail string) {
+	_ = s.audit.Log(r.Context(), audit.Event{
+		Actor: "webhook", IP: ClientIP(r.Context()).String(),
+		Action: "git_webhook", Target: project, Outcome: outcome, Level: audit.Security, Detail: detail,
+	})
+}
