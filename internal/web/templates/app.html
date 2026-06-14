@@ -4,6 +4,7 @@
   <p><a href="/">← Overview</a></p>
   <h1>{{.App.DisplayName}}</h1>
   <p class="muted">{{.App.UpCount}}/{{.App.Total}} services up · Compose project <code>{{.App.Project}}</code>
+    · <a href="/apps/{{pathEscape .App.Project}}/env">env</a>
     · <a href="/apps/{{pathEscape .App.Project}}/ops-config">ops config</a>
     · <a href="/apps/{{pathEscape .App.Project}}/compose">compose</a></p>
 

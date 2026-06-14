@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helmsman/helmsman/internal/envstore"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 )
@@ -29,6 +30,13 @@ type tmplData struct {
 	ComposeOK         bool
 
 	WriteDisabledReason string // non-empty when the §0 write-plane gate is closed
+
+	EnvVersion     int
+	EnvLiterals    []envEntryView
+	EnvSecrets     []envEntryView
+	EnvLiteralText string
+	EnvVersions    []envstore.Version
+	FileSecrets    []fileSecretView
 }
 
 type eventRow struct {

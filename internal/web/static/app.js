@@ -14,9 +14,27 @@
   // response) or data-log-url (GET, SSE). The CSRF token rides the header.
   var logSource = null;
   document.addEventListener("click", function (evt) {
-    var btn = evt.target.closest ? evt.target.closest("[data-lc-url],[data-log-url]") : null;
+    var btn = evt.target.closest ? evt.target.closest("[data-lc-url],[data-log-url],[data-reveal-url]") : null;
     if (!btn) return;
     evt.preventDefault();
+
+    // Reveal a secret: audited POST → text/plain. Set textContent (NEVER
+    // innerHTML) so a secret value can't become markup (plan §5.5).
+    var revURL = btn.getAttribute("data-reveal-url");
+    if (revURL) {
+      var key = btn.getAttribute("data-reveal-key");
+      var body = new URLSearchParams(); body.set("key", key);
+      fetch(revURL, {
+        method: "POST", credentials: "same-origin",
+        headers: { "X-CSRF-Token": token, "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      }).then(function (r) { return r.ok ? r.text() : null; })
+        .then(function (txt) {
+          var span = document.getElementById("reveal-" + key);
+          if (span && txt !== null) span.textContent = txt;
+        }).catch(function () {});
+      return;
+    }
 
     var logURL = btn.getAttribute("data-log-url");
     if (logURL) {

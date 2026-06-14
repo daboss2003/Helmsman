@@ -21,6 +21,7 @@ import (
 	"github.com/helmsman/helmsman/internal/crypto"
 	"github.com/helmsman/helmsman/internal/docker"
 	"github.com/helmsman/helmsman/internal/dockerexec"
+	"github.com/helmsman/helmsman/internal/envstore"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/session"
@@ -64,6 +65,7 @@ type Deps struct {
 	Prober     *ops.Prober
 	Runner     *dockerexec.Runner
 	Docker     *docker.Client
+	EnvStore   *envstore.Store
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
@@ -82,6 +84,7 @@ type Server struct {
 	prober     *ops.Prober        // ops queue actions (may be nil)
 	runner     *dockerexec.Runner // write-plane exec (may be nil)
 	docker     *docker.Client     // read-plane log streaming (may be nil)
+	envStore   *envstore.Store    // encrypted env store (may be nil)
 	logStreams chan struct{}      // concurrency cap on live log streams
 	sec        atomic.Pointer[secState]
 }
@@ -111,6 +114,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		prober:     d.Prober,
 		runner:     d.Runner,
 		docker:     d.Docker,
+		envStore:   d.EnvStore,
 		logStreams: make(chan struct{}, maxConcurrentLogStreams),
 	}
 	sec, err := buildSecState(cfg)
@@ -199,6 +203,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/services/{service}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleServiceAction))))
 	mux.HandleFunc("GET /apps/{project}/services/{service}/logs", s.requireAuth(s.handleServiceLogs))
 	mux.HandleFunc("GET /apps/{project}/compose", s.requireAuth(s.withCSRFToken(s.handleComposeView)))
+	// Env settings (M5): literals + write-only secrets, masked reveal, history.
+	mux.HandleFunc("GET /apps/{project}/env", s.requireAuth(s.withCSRFToken(s.handleEnvGet)))
+	mux.HandleFunc("POST /apps/{project}/env", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEnvSaveLiterals))))
+	mux.HandleFunc("POST /apps/{project}/env/secret", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEnvSetSecret))))
+	mux.HandleFunc("POST /apps/{project}/env/secret/remove", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvRemoveSecret))))
+	mux.HandleFunc("POST /apps/{project}/env/reveal", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvReveal))))
+	mux.HandleFunc("POST /apps/{project}/env/rollback", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvRollback))))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.

@@ -63,6 +63,7 @@ type Job struct {
 	Project     string
 	Dir         string
 	ConfigFiles []string
+	EnvFile     string   // optional 0600 --env-file rendered from the env store
 	Action      []string // e.g. ["up","-d","--force-recreate"]
 	Service     string   // optional; appended after a "--" terminator
 }
@@ -106,6 +107,9 @@ func (j Job) argv() []string {
 	}
 	for _, f := range j.ConfigFiles {
 		argv = append(argv, "-f", f)
+	}
+	if j.EnvFile != "" {
+		argv = append(argv, "--env-file", j.EnvFile) // global flag, before the subcommand action
 	}
 	argv = append(argv, j.Action...)
 	if j.Service != "" {

@@ -24,6 +24,15 @@ func TestJobArgvIsStaticAndTerminated(t *testing.T) {
 	}
 }
 
+func TestJobArgvIncludesEnvFile(t *testing.T) {
+	j := Job{Project: "shop", ConfigFiles: []string{"/c.yml"}, EnvFile: "/run/x.env", Action: []string{"up", "-d"}}
+	got := strings.Join(j.argv(), " ")
+	want := "compose -p shop -f /c.yml --env-file /run/x.env up -d"
+	if got != want {
+		t.Errorf("argv with env-file:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestWritePlaneGate(t *testing.T) {
 	if ok, _ := WritePlaneGate(2 << 30); !ok {
 		t.Error("2 GiB should arm the write plane")

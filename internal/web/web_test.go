@@ -13,6 +13,8 @@ import (
 
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/helmsman/helmsman/internal/envstore"
+	"github.com/helmsman/helmsman/internal/secret"
 	"github.com/helmsman/helmsman/internal/store"
 )
 
@@ -59,7 +61,12 @@ func buildServer(t *testing.T, allowlist []string, trustProxy bool, trustedProxi
 	}
 	t.Cleanup(func() { db.Close() })
 
-	srv, err := New(cfg, Deps{DB: db})
+	keyBytes, _ := config.DecodeKey(cfg.EncryptionKey)
+	cipher, err := secret.NewCipher(keyBytes, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(cfg, Deps{DB: db, EnvStore: envstore.New(db, cipher)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -81,10 +81,20 @@ func (s *Server) runLifecycle(w http.ResponseWriter, r *http.Request, project, s
 		}
 	}
 
+	// Build the env used for BOTH validation and the deploy --env-file, so what
+	// we validate is exactly what `docker compose` renders (validate == deploy).
+	env := s.composeEnv(app)
+	envFile, cleanup, ferr := s.renderEnvFile(app, env)
+	defer cleanup()
+	if ferr != nil {
+		http.Error(w, "could not render env file", http.StatusInternalServerError)
+		return
+	}
+
 	// §5.6 gate before any `up` (redeploy applies the compose). start/stop/restart
 	// only act on existing containers and change no config.
 	if action == "redeploy" {
-		if res := s.validateAppCompose(app); !res.OK() {
+		if res := s.validateAppCompose(app, env); !res.OK() {
 			if s.cfg.ComposeValidation.Mode != "review" {
 				w.WriteHeader(http.StatusUnprocessableEntity)
 				writeln("redeploy blocked by the §5.6 compose validator:")
@@ -105,7 +115,7 @@ func (s *Server) runLifecycle(w http.ResponseWriter, r *http.Request, project, s
 	}
 	writeln("$ docker compose %s%s", strings.Join(args, " "), serviceSuffix(service))
 
-	job := dockerexec.Job{Project: project, Dir: app.WorkingDir, ConfigFiles: app.ConfigFiles, Action: args, Service: service}
+	job := dockerexec.Job{Project: project, Dir: app.WorkingDir, ConfigFiles: app.ConfigFiles, EnvFile: envFile, Action: args, Service: service}
 	runErr := s.runner.Run(ctx, job, func(line string) { writeln("%s", line) })
 
 	code, outcome := classifyExit(runErr)
@@ -138,7 +148,7 @@ func serviceSuffix(service string) string {
 // durable fix (Helmsman-owned run_dir + cat-file of the pinned commit) lands with
 // repo-path provisioning (M6/M8, plan §5.6(e)). Here we add the cheap guards that
 // reduce blast radius now.
-func (s *Server) validateAppCompose(app *monitor.App) compose.Result {
+func (s *Server) validateAppCompose(app *monitor.App, env compose.Env) compose.Result {
 	var res compose.Result
 	reject := func(msg string) compose.Result {
 		res.Violations = append(res.Violations, compose.Violation{Message: msg})
@@ -153,11 +163,6 @@ func (s *Server) validateAppCompose(app *monitor.App) compose.Result {
 	}
 	if rd == "/" || isSensitiveDir(rd) {
 		return reject("app working directory " + rd + " is a sensitive/forbidden path; refusing to deploy")
-	}
-
-	env := compose.Env{}
-	if data, err := os.ReadFile(filepath.Join(rd, ".env")); err == nil {
-		env = compose.ParseEnvFile(data)
 	}
 
 	files := app.ConfigFiles
@@ -260,7 +265,7 @@ func (s *Server) handleComposeView(w http.ResponseWriter, r *http.Request) {
 		}
 		data.ComposeFiles = app.ConfigFiles
 	}
-	res := s.validateAppCompose(app)
+	res := s.validateAppCompose(app, s.composeEnv(app))
 	res.SortViolations()
 	for _, v := range res.Violations {
 		data.ComposeViolations = append(data.ComposeViolations, v.String())
