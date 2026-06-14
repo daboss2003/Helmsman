@@ -6,8 +6,9 @@
   <h1>{{if .Project}}Repository — {{.Project}}{{else}}Connect a repository{{end}}</h1>
   <p class="muted">Helmsman fetches the configured ref into a private object store and shows a
     sanitized diff. Deploys are <strong>sha-pinned</strong>: you promote exactly the commit you
-    reviewed — its compose is validated (§5.6) from the pinned bytes, extracted into a
-    Helmsman-owned run directory, then <code>docker compose up</code>.</p>
+    reviewed — its definition is validated (§5.6) from the pinned bytes and Helmsman runs it.
+    <em>(Repo apps still point at a definition path in the repo; unifying this onto
+    <code>helmsman.yaml</code> lands with M15.)</em></p>
   {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
 
   {{if .Configured}}

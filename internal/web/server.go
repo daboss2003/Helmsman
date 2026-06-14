@@ -241,7 +241,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAppAction))))
 	mux.HandleFunc("POST /apps/{project}/services/{service}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleServiceAction))))
 	mux.HandleFunc("GET /apps/{project}/services/{service}/logs", s.requireAuth(s.handleServiceLogs))
-	mux.HandleFunc("GET /apps/{project}/compose", s.requireAuth(s.withCSRFToken(s.handleComposeView)))
 	// Env settings (M5): literals + write-only secrets, masked reveal, history.
 	mux.HandleFunc("GET /apps/{project}/env", s.requireAuth(s.withCSRFToken(s.handleEnvGet)))
 	mux.HandleFunc("POST /apps/{project}/env", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEnvSaveLiterals))))

@@ -3,18 +3,18 @@
 <main class="wrap">
   <p><a href="/">← Overview</a></p>
   <h1>New app</h1>
-  <p class="muted">You describe the app in a typed form; <strong>Helmsman generates and owns the
-    compose</strong> (and, later, the Dockerfile) from that definition — there is no raw compose to
-    paste. The same definition (<code>helmsman.yaml</code> under the hood) drives the app whether you
-    edit it here or over the CLI, and dangerous compose keys simply cannot be expressed. Everything
-    still passes the §5.6 validator; commit writes to a <code>0700</code> staging dir and atomically
-    renames it into place — never a half-written app.</p>
+  <p class="muted">Describe the app in this form — that <strong>definition</strong> is the only thing
+    you manage (the same <code>helmsman.yaml</code> whether you edit it here or over the CLI).
+    <strong>Helmsman runs it for you</strong>: it generates and owns the entire container runtime from
+    your definition, so you never write or see a container/orchestration file, and unsafe runtime
+    settings simply cannot be expressed. Saving validates the definition and applies it atomically —
+    never a half-applied app.</p>
   {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
-  {{if .WriteDisabledReason}}<div class="error" role="alert">Write plane: {{.WriteDisabledReason}}. You can still commit; deploy is disabled.</div>{{end}}
+  {{if .WriteDisabledReason}}<div class="error" role="alert">Resource gate: {{.WriteDisabledReason}}. You can still save the definition; deploy is disabled.</div>{{end}}
 
   <form method="post" action="/apps/new/commit" class="stack" id="provision-form">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <label>App id <span class="muted">(lowercase; becomes the compose project + directory)</span>
+    <label>App id <span class="muted">(lowercase; becomes the app's name + directory)</span>
       <input type="text" name="slug" placeholder="myapp" pattern="[a-z][a-z0-9-]{1,30}" required></label>
 
     <fieldset>

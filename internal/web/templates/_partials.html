@@ -1,7 +1,7 @@
 {{define "overview"}}
 {{with .Snap}}
   {{if not .DockerOK}}
-  <div class="error" role="alert">Docker read plane: {{.DockerErr}} — is the socket-proxy companion running?</div>
+  <div class="error" role="alert">Read plane unavailable: {{.DockerErr}} — is the read-only companion running?</div>
   {{end}}
   <section class="panel">
     <h2>Host</h2>
@@ -29,11 +29,10 @@
       {{end}}
     </div>
     {{else}}
-    <p class="muted">No Compose apps discovered yet. Helmsman groups containers by their
-      <code>com.docker.compose.project</code> label.</p>
+    <p class="muted">No apps discovered yet. Create one from <a href="/apps/new">New app</a>.</p>
     {{end}}
   </section>
-  <p class="muted small">Updated {{.At.Format "15:04:05 MST"}}{{if .Version}} · docker {{.Version}}{{end}}</p>
+  <p class="muted small">Updated {{.At.Format "15:04:05 MST"}}{{if .Version}} · engine {{.Version}}{{end}}</p>
 {{else}}
   <p class="muted">Collecting metrics…</p>
 {{end}}

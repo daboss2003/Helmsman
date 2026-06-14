@@ -29,11 +29,6 @@ type tmplData struct {
 	OpsCfg      *ops.Config
 	OpsStatus   *ops.Status
 
-	ComposeText       string
-	ComposeFiles      []string
-	ComposeViolations []string
-	ComposeOK         bool
-
 	WriteDisabledReason string // non-empty when the §0 write-plane gate is closed
 
 	EnvVersion     int

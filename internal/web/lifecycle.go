@@ -249,39 +249,6 @@ func (s *Server) recordDeployFinish(ctx context.Context, id int64, code int, out
 		time.Now().Unix(), code, outcome, id)
 }
 
-// handleComposeView shows an app's compose file(s) and the §5.6 validator result.
-func (s *Server) handleComposeView(w http.ResponseWriter, r *http.Request) {
-	project := r.PathValue("project")
-	var app *monitor.App
-	if snap := s.snapshot(); snap != nil {
-		app = snap.AppByProject(project)
-	}
-	if app == nil {
-		http.Error(w, "app not found", http.StatusNotFound)
-		return
-	}
-	data := tmplData{
-		Title:     "Compose — " + project,
-		CSRFToken: CSRFToken(r.Context()),
-		Username:  sessionUser(r),
-		Project:   project,
-	}
-	// Read the primary compose file for display (best-effort) + validate all.
-	if len(app.ConfigFiles) > 0 {
-		if b, err := os.ReadFile(app.ConfigFiles[0]); err == nil {
-			data.ComposeText = string(b)
-		}
-		data.ComposeFiles = app.ConfigFiles
-	}
-	res := s.validateAppCompose(app, s.composeEnv(app))
-	res.SortViolations()
-	for _, v := range res.Violations {
-		data.ComposeViolations = append(data.ComposeViolations, v.String())
-	}
-	data.ComposeOK = res.OK()
-	s.render(w, r, "compose.html", data)
-}
-
 // handleServiceLogs streams a service's container logs over SSE through the
 // read-only socket-proxy (read plane — no semaphore).
 func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request) {

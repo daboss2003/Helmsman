@@ -19,7 +19,7 @@
           <td>{{.Source}}</td>
           <td>{{if .Deployed}}<span class="health-healthy">{{.UpCount}}/{{.Total}} up</span>{{else}}<span class="muted">not deployed</span>{{end}}</td>
           <td class="queue-actions">
-            <button type="button" class="link lc-btn" data-lc-confirm="Deploy {{.Slug}}? This runs docker compose up." data-lc-url="/apps/{{pathEscape .Slug}}/provision-deploy">deploy</button>
+            <button type="button" class="link lc-btn" data-lc-confirm="Deploy {{.Slug}}?" data-lc-url="/apps/{{pathEscape .Slug}}/provision-deploy">deploy</button>
             <form method="post" action="/apps/{{pathEscape .Slug}}/provision-delete" class="inline" data-confirm="Delete {{.Slug}} and its files?">
               <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <button type="submit" class="link">delete</button>
