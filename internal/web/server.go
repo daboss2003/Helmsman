@@ -63,63 +63,59 @@ const loginBodyLimit = 64 << 10
 // degrades gracefully (e.g. nil mon → "collecting…"; nil runner → write plane
 // shown disabled).
 type Deps struct {
-	DB            *store.DB
-	ConfigPath    string // for SIGHUP allowlist+auth reload
-	Log           *slog.Logger
-	Monitor       *monitor.Monitor
-	OpsStore      *ops.ConfigStore
-	Prober        *ops.Prober
-	Runner        *dockerexec.Runner
-	Docker        *docker.Client
-	EnvStore      *envstore.Store
-	CfgStore      *cfgstore.Store
-	GitStore      *gitstore.Store
-	ProvStore     *provstore.Store
-	SetupStore    *setupstore.Store
-	AlertStore    *alertstore.Store
-	EdgeRoutes    *edge.RouteStore
-	EdgeOverlay   *edge.OverlayStore    // Layer-2 operator overlay (may be nil)
-	EdgeRecon     *edge.Reconciler      // nil when the edge isn't owned (external/unavailable)
-	EdgeReason    string                // why the edge isn't owned (banner), "" when owned
-	EdgeAdminHost string                // Layer-0 admin vhost host (for the overlay conflict gate), "" if none
-	DockerSem     *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
+	DB         *store.DB
+	ConfigPath string // for SIGHUP allowlist+auth reload
+	Log        *slog.Logger
+	Monitor    *monitor.Monitor
+	OpsStore   *ops.ConfigStore
+	Prober     *ops.Prober
+	Runner     *dockerexec.Runner
+	Docker     *docker.Client
+	EnvStore   *envstore.Store
+	CfgStore   *cfgstore.Store
+	GitStore   *gitstore.Store
+	ProvStore  *provstore.Store
+	SetupStore *setupstore.Store
+	AlertStore *alertstore.Store
+	EdgeRoutes *edge.RouteStore
+	EdgeRecon  *edge.Reconciler      // nil when the edge isn't owned (external/unavailable)
+	EdgeReason string                // why the edge isn't owned (banner), "" when owned
+	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
 type Server struct {
-	cfg           *config.Config // immutable parts (bind, cookie, edge, session)
-	configPath    string
-	db            *store.DB
-	sessions      *session.Manager
-	audit         *audit.Logger
-	limiter       *rateLimiter
-	templates     *template.Template
-	log           *slog.Logger
-	verifySem     chan struct{}
-	mon           *monitor.Monitor      // read-plane snapshots (may be nil)
-	opsStore      *ops.ConfigStore      // ops config (may be nil)
-	prober        *ops.Prober           // ops queue actions (may be nil)
-	runner        *dockerexec.Runner    // write-plane exec (may be nil)
-	docker        *docker.Client        // read-plane log streaming (may be nil)
-	envStore      *envstore.Store       // encrypted env store (may be nil)
-	cfgStore      *cfgstore.Store       // managed config files + cert bindings (may be nil)
-	gitStore      *gitstore.Store       // repo-path GitOps (may be nil)
-	provStore     *provstore.Store      // provisioned apps (modes 1/2; may be nil)
-	setupStore    *setupstore.Store     // setup scripts (Mode 3; may be nil)
-	alertStore    *alertstore.Store     // alerting channels/rules/state (may be nil)
-	edgeRoutes    *edge.RouteStore      // managed-edge routes (may be nil)
-	edgeOverlay   *edge.OverlayStore    // Layer-2 operator overlay (may be nil)
-	edgeRecon     *edge.Reconciler      // edge config reconciler (nil when edge unowned)
-	edgeReason    string                // why the edge isn't owned (banner)
-	edgeAdminHost string                // Layer-0 admin host (overlay conflict gate)
-	dockerSem     *dockerexec.Semaphore // global one-docker-child semaphore (may be nil)
-	setupConfirm  *confirmStore         // single-use setup confirm tokens
-	webhookRL     *rateLimiter          // per-token webhook rate limit
-	webhookSeen   *nonceCache           // webhook replay (timestamp+nonce) defense
-	webhookFlash  *tokenFlash           // one-time rotated-token hand-off (never in URL)
-	gitDeploy     *dockerexec.Semaphore // single-flight repo deploy (1 at a time)
-	logStreams    chan struct{}         // concurrency cap on live log streams
-	sec           atomic.Pointer[secState]
+	cfg          *config.Config // immutable parts (bind, cookie, edge, session)
+	configPath   string
+	db           *store.DB
+	sessions     *session.Manager
+	audit        *audit.Logger
+	limiter      *rateLimiter
+	templates    *template.Template
+	log          *slog.Logger
+	verifySem    chan struct{}
+	mon          *monitor.Monitor      // read-plane snapshots (may be nil)
+	opsStore     *ops.ConfigStore      // ops config (may be nil)
+	prober       *ops.Prober           // ops queue actions (may be nil)
+	runner       *dockerexec.Runner    // write-plane exec (may be nil)
+	docker       *docker.Client        // read-plane log streaming (may be nil)
+	envStore     *envstore.Store       // encrypted env store (may be nil)
+	cfgStore     *cfgstore.Store       // managed config files + cert bindings (may be nil)
+	gitStore     *gitstore.Store       // repo-path GitOps (may be nil)
+	provStore    *provstore.Store      // provisioned apps (modes 1/2; may be nil)
+	setupStore   *setupstore.Store     // setup scripts (Mode 3; may be nil)
+	alertStore   *alertstore.Store     // alerting channels/rules/state (may be nil)
+	edgeRoutes   *edge.RouteStore      // managed-edge routes (may be nil)
+	edgeRecon    *edge.Reconciler      // edge config reconciler (nil when edge unowned)
+	edgeReason   string                // why the edge isn't owned (banner)
+	dockerSem    *dockerexec.Semaphore // global one-docker-child semaphore (may be nil)
+	setupConfirm *confirmStore         // single-use setup confirm tokens
+	webhookRL    *rateLimiter          // per-token webhook rate limit
+	webhookSeen  *nonceCache           // webhook replay (timestamp+nonce) defense
+	webhookFlash *tokenFlash           // one-time rotated-token hand-off (never in URL)
+	gitDeploy    *dockerexec.Semaphore // single-flight repo deploy (1 at a time)
+	logStreams   chan struct{}         // concurrency cap on live log streams
+	sec          atomic.Pointer[secState]
 }
 
 // New builds a Server from a validated config and its dependencies.
@@ -133,38 +129,36 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &Server{
-		cfg:           cfg,
-		configPath:    d.ConfigPath,
-		db:            d.DB,
-		sessions:      session.New(d.DB, cfg.Session.IdleTimeout.D(), cfg.Session.AbsoluteTimeout.D()),
-		audit:         audit.New(d.DB, log),
-		limiter:       newRateLimiter(300, time.Minute),
-		templates:     tmpl,
-		log:           log,
-		verifySem:     make(chan struct{}, loginVerifyConcurrency),
-		mon:           d.Monitor,
-		opsStore:      d.OpsStore,
-		prober:        d.Prober,
-		runner:        d.Runner,
-		docker:        d.Docker,
-		envStore:      d.EnvStore,
-		cfgStore:      d.CfgStore,
-		gitStore:      d.GitStore,
-		provStore:     d.ProvStore,
-		setupStore:    d.SetupStore,
-		alertStore:    d.AlertStore,
-		edgeRoutes:    d.EdgeRoutes,
-		edgeOverlay:   d.EdgeOverlay,
-		edgeRecon:     d.EdgeRecon,
-		edgeReason:    d.EdgeReason,
-		edgeAdminHost: d.EdgeAdminHost,
-		dockerSem:     d.DockerSem,
-		setupConfirm:  newConfirmStore(5 * time.Minute),
-		webhookRL:     newRateLimiter(30, time.Minute),
-		webhookSeen:   newNonceCache(webhookNonceTTL),
-		webhookFlash:  newTokenFlash(2 * time.Minute),
-		gitDeploy:     dockerexec.NewSemaphore(),
-		logStreams:    make(chan struct{}, maxConcurrentLogStreams),
+		cfg:          cfg,
+		configPath:   d.ConfigPath,
+		db:           d.DB,
+		sessions:     session.New(d.DB, cfg.Session.IdleTimeout.D(), cfg.Session.AbsoluteTimeout.D()),
+		audit:        audit.New(d.DB, log),
+		limiter:      newRateLimiter(300, time.Minute),
+		templates:    tmpl,
+		log:          log,
+		verifySem:    make(chan struct{}, loginVerifyConcurrency),
+		mon:          d.Monitor,
+		opsStore:     d.OpsStore,
+		prober:       d.Prober,
+		runner:       d.Runner,
+		docker:       d.Docker,
+		envStore:     d.EnvStore,
+		cfgStore:     d.CfgStore,
+		gitStore:     d.GitStore,
+		provStore:    d.ProvStore,
+		setupStore:   d.SetupStore,
+		alertStore:   d.AlertStore,
+		edgeRoutes:   d.EdgeRoutes,
+		edgeRecon:    d.EdgeRecon,
+		edgeReason:   d.EdgeReason,
+		dockerSem:    d.DockerSem,
+		setupConfirm: newConfirmStore(5 * time.Minute),
+		webhookRL:    newRateLimiter(30, time.Minute),
+		webhookSeen:  newNonceCache(webhookNonceTTL),
+		webhookFlash: newTokenFlash(2 * time.Minute),
+		gitDeploy:    dockerexec.NewSemaphore(),
+		logStreams:   make(chan struct{}, maxConcurrentLogStreams),
 	}
 	sec, err := buildSecState(cfg)
 	if err != nil {
@@ -298,8 +292,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /edge", s.requireAuth(s.withCSRFToken(s.handleEdge)))
 	mux.HandleFunc("POST /edge/routes", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEdgeRouteSave))))
 	mux.HandleFunc("POST /edge/routes/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEdgeRouteDelete))))
-	mux.HandleFunc("POST /edge/overlay", capBody(512<<10, s.requireAuth(s.requireCSRF(s.handleEdgeOverlaySave))))
-	mux.HandleFunc("POST /edge/overlay/clear", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEdgeOverlayClear))))
 	// Alerting (M10): channels + rules + open alerts. Read-and-notify only.
 	mux.HandleFunc("GET /alerts", s.requireAuth(s.withCSRFToken(s.handleAlerts)))
 	mux.HandleFunc("POST /alerts/channels", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleAlertChannelSave))))

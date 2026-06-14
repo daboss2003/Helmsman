@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/helmsman/helmsman/internal/store"
@@ -100,6 +101,37 @@ func TestAdminDoesNotFollowRedirects(t *testing.T) {
 	}
 	if hit != 1 {
 		t.Errorf("expected exactly one request (no redirect follow), got %d", hit)
+	}
+}
+
+// Concurrent reconciles must be serialized: no data race on lastGood, and the
+// last writer's config is what ends up applied. Run with -race to catch the
+// lastGood data race the mutex closes.
+func TestReconcileConcurrentIsSerialized(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	db, _ := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	rs := NewRouteStore(db)
+	if err := rs.Save(context.Background(), Route{Hostname: "app.example.com", Upstream: "web:80", UpstreamScheme: "http", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rec := NewReconciler(rs, NewAdmin(ts.Listener.Addr().String()), baseCfg(), quietLog())
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _ = rec.Reconcile(context.Background()) }()
+	}
+	wg.Wait()
+	rec.mu.Lock()
+	got := len(rec.lastGood)
+	rec.mu.Unlock()
+	if got == 0 {
+		t.Error("lastGood should hold the latest applied config")
 	}
 }
 

@@ -49,29 +49,9 @@
       <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
       <button type="submit">Save route</button>
     </form>
-  </section>
-
-  <section class="panel">
-    <h2>Advanced — extra config <span class="muted">(optional)</span></h2>
-    <p class="muted">For the rare case the per-app routes above aren't enough, you can add <strong>extra</strong>
-      vhosts, headers, or matchers as a JSON array of routes. This is an <strong>additive overlay</strong>:
-      it can only <em>add</em> on hostnames you own — it can never redefine or shadow a route Helmsman
-      manages, reach the control plane, or set forwarding headers. Anything outside the safe, typed subset
-      (e.g. running a command, serving files, custom TLS) is rejected, not merged. Most operators never need this.</p>
-    {{if .OverlayTampered}}<div class="error" role="alert">The stored overlay failed its integrity check (it was changed outside Helmsman). It is <strong>not applied</strong> — review and re-save, or clear it.</div>{{end}}
-    <form method="post" action="/edge/overlay" class="stack">
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <label>Overlay (JSON array of routes)
-        <textarea name="overlay" rows="12" spellcheck="false" autocomplete="off" class="mono"
-          placeholder='[{"match":[{"host":["docs.example.com"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"docs-web:8080"}]}]}]'>{{.Overlay}}</textarea></label>
-      <button type="submit">Validate &amp; save overlay</button>
-    </form>
-    {{if .Overlay}}
-    <form method="post" action="/edge/overlay/clear" class="inline" data-confirm="Clear the advanced overlay? App routes are kept." style="margin-top:.5rem">
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <button type="submit" class="link">clear overlay</button>
-    </form>
-    {{end}}
+    <p class="muted" style="margin-top:1rem">Helmsman generates and owns the entire edge (Caddy) configuration from these
+      settings — there is no Caddy file to edit and nothing to manage by hand. Everything originates from your
+      Helmsman configuration.</p>
   </section>
 {{end}}
 </main>

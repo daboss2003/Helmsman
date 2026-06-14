@@ -3,7 +3,6 @@ package edge
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -76,7 +75,6 @@ func (a *Admin) Load(ctx context.Context, configJSON []byte) error {
 // caller can revert (SBD-8).
 type Reconciler struct {
 	store    *RouteStore
-	overlay  *OverlayStore // Layer 2 (optional; nil = no operator overlay)
 	admin    *Admin
 	base     BaseConfig
 	log      *slog.Logger
@@ -89,20 +87,14 @@ func NewReconciler(store *RouteStore, admin *Admin, base BaseConfig, log *slog.L
 	return &Reconciler{store: store, admin: admin, base: base, log: log}
 }
 
-// WithOverlay attaches the Layer-2 operator overlay store. The overlay is
-// re-validated as untrusted on every reconcile and stripped fail-closed if it is
-// tampered or now conflicts with the managed routes (the apps stay up regardless).
-func (r *Reconciler) WithOverlay(o *OverlayStore) *Reconciler { r.overlay = o; return r }
-
 // Reconcile renders the current route set and applies it. On a render error
 // (an unsafe route) it does NOT touch the live config. On an apply error the
 // previous config keeps running (Caddy /load is transactional).
 func (r *Reconciler) Reconcile(ctx context.Context) error {
 	// Serialize the whole read→render→Load→lastGood sequence. Without this, two
-	// concurrent reconciles (e.g. a route save racing an overlay save) could read
-	// different DB snapshots and have their /load calls complete OUT OF ORDER —
-	// landing a stale config (with an overlay that should have been stripped) after
-	// a newer one, breaking the fail-closed promise. With the lock, whichever
+	// concurrent reconciles (e.g. two route saves racing) could read different DB
+	// snapshots and have their /load calls complete OUT OF ORDER, landing a stale
+	// config after a newer one (and racing lastGood). With the lock, whichever
 	// reconcile runs last re-reads the current state and wins.
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -110,37 +102,9 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("edge: list routes: %w", err)
 	}
-
-	// Layer 2: load the operator overlay (re-validated as untrusted by
-	// RenderComposite). A tampered overlay is dropped fail-closed here with a
-	// security audit; a DB error aborts (we don't risk applying a wrong config).
-	var overlay []byte
-	if r.overlay != nil {
-		overlay, err = r.overlay.Active(ctx)
-		if errors.Is(err, ErrOverlayTampered) {
-			r.log.Warn("edge overlay tampered — dropping it (serving Layer 0+1 only)", "level", "security")
-			overlay = nil
-		} else if err != nil {
-			return fmt.Errorf("edge: load overlay: %w", err)
-		}
-	}
-
-	cfg, err := RenderComposite(r.base, routes, overlay)
+	cfg, err := Render(r.base, routes)
 	if err != nil {
-		// The composite failed. If the overlay was the cause (it re-validates as
-		// untrusted and may now conflict with a newly-added app route), strip it
-		// and render Layer 0+1 only — apps stay up, the overlay is dropped
-		// fail-closed with a loud audit. If Layer 0+1 ALSO fails, a managed route
-		// is genuinely unsafe → abort (never apply a partial/unsafe config).
-		if overlay == nil {
-			return fmt.Errorf("edge: render: %w", err)
-		}
-		base, berr := Render(r.base, routes)
-		if berr != nil {
-			return fmt.Errorf("edge: render: %w", berr)
-		}
-		r.log.Warn("edge overlay invalid against current routes — stripping it (serving Layer 0+1 only)", "level", "security", "err", err)
-		cfg = base
+		return fmt.Errorf("edge: render: %w", err) // unsafe route → never applied
 	}
 	if err := r.admin.Load(ctx, cfg); err != nil {
 		return err

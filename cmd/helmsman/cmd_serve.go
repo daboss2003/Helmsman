@@ -149,15 +149,6 @@ func cmdServe(args []string) error {
 	// the edge (non-Linux / no caddy), the edge isn't started — routes still save
 	// and apply once the edge is up. The supervisor is joined before db.Close.
 	edgeRoutes := edge.NewRouteStore(db)
-	// The Layer-2 operator overlay (M11b). The HMAC key is derived from the
-	// encryption key (already validated by openCipher above), so a DB tamper of an
-	// overlay row is detectable. The store exists regardless of edge mode (the web
-	// can author it; it applies once the edge is owned).
-	encKey, err := config.DecodeKey(cfg.EncryptionKey)
-	if err != nil {
-		return err
-	}
-	edgeOverlay := edge.NewOverlayStore(db, encKey)
 	var edgeRecon *edge.Reconciler
 	edgeReason := ""
 	if cfg.Edge.Mode == config.EdgeManaged {
@@ -171,7 +162,7 @@ func cmdServe(args []string) error {
 		}
 		if ok, why := edge.Available(""); ok {
 			admin := edge.NewAdmin(base.AdminListen)
-			edgeRecon = edge.NewReconciler(edgeRoutes, admin, base, log).WithOverlay(edgeOverlay)
+			edgeRecon = edge.NewReconciler(edgeRoutes, admin, base, log)
 			sup := &edge.Supervisor{CaddyBin: "caddy", AdminListen: base.AdminListen, Log: log}
 			if initCfg, rerr := edge.Render(base, nil); rerr == nil {
 				sup.InitialCfg = initCfg
@@ -188,26 +179,24 @@ func cmdServe(args []string) error {
 	}
 
 	srv, err := web.New(cfg, web.Deps{
-		DB:            db,
-		ConfigPath:    *configPath,
-		Log:           log,
-		Monitor:       mon,
-		OpsStore:      opsStore,
-		Prober:        prober,
-		Runner:        runner,
-		Docker:        dockerCli,
-		EnvStore:      envStore,
-		CfgStore:      cfgStore,
-		GitStore:      gitStore,
-		ProvStore:     provStore,
-		SetupStore:    setupStore,
-		AlertStore:    alertStore,
-		EdgeRoutes:    edgeRoutes,
-		EdgeOverlay:   edgeOverlay,
-		EdgeRecon:     edgeRecon,
-		EdgeReason:    edgeReason,
-		EdgeAdminHost: cfg.Admin.Hostname,
-		DockerSem:     dockerSem,
+		DB:         db,
+		ConfigPath: *configPath,
+		Log:        log,
+		Monitor:    mon,
+		OpsStore:   opsStore,
+		Prober:     prober,
+		Runner:     runner,
+		Docker:     dockerCli,
+		EnvStore:   envStore,
+		CfgStore:   cfgStore,
+		GitStore:   gitStore,
+		ProvStore:  provStore,
+		SetupStore: setupStore,
+		AlertStore: alertStore,
+		EdgeRoutes: edgeRoutes,
+		EdgeRecon:  edgeRecon,
+		EdgeReason: edgeReason,
+		DockerSem:  dockerSem,
 	})
 	if err != nil {
 		return err

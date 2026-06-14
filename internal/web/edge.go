@@ -27,10 +27,8 @@ type edgeRouteView struct {
 }
 
 type edgeView struct {
-	Reason          string // non-empty when the edge isn't owned (banner)
-	Routes          []edgeRouteView
-	Overlay         string // the Layer-2 overlay JSON (Advanced tab), if any
-	OverlayTampered bool   // the stored overlay's HMAC did not verify (warn)
+	Reason string // non-empty when the edge isn't owned (banner)
+	Routes []edgeRouteView
 }
 
 func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) {
@@ -46,12 +44,6 @@ func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) {
 				UpstreamScheme: rt.UpstreamScheme, PathPrefix: rt.PathPrefix,
 				HSTS: rt.HSTS, SecurityHeaders: rt.SecurityHeaders, Enabled: rt.Enabled,
 			})
-		}
-	}
-	if s.edgeOverlay != nil {
-		if raw, verified, err := s.edgeOverlay.Raw(r.Context()); err == nil {
-			ev.Overlay = string(raw)
-			ev.OverlayTampered = !verified
 		}
 	}
 	s.render(w, r, "edge.html", tmplData{
@@ -96,65 +88,6 @@ func (s *Server) handleEdgeRouteDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
 	_ = s.edgeRoutes.Delete(r.Context(), id)
 	s.reconcileEdge(r, "edge_route_delete", strconv.FormatInt(id, 10))
-	http.Redirect(w, r, "/edge", http.StatusSeeOther)
-}
-
-// managedHosts builds the set of Helmsman-owned hostnames the overlay may not
-// shadow: the Layer-0 admin vhost host + every ENABLED Layer-1 app route host
-// (matching exactly what RenderComposite puts in its `seen` set, so a save-time
-// reject lines up with the apply-time conflict gate).
-func (s *Server) managedHosts() map[string]bool {
-	managed := map[string]bool{}
-	if s.edgeAdminHost != "" {
-		managed[strings.ToLower(strings.TrimSpace(s.edgeAdminHost))] = true
-	}
-	if s.edgeRoutes != nil {
-		if routes, err := s.edgeRoutes.List(); err == nil {
-			for _, rt := range routes {
-				if rt.Enabled {
-					managed[strings.ToLower(strings.TrimSpace(rt.Hostname))] = true
-				}
-			}
-		}
-	}
-	return managed
-}
-
-// handleEdgeOverlaySave validates + persists the Layer-2 operator overlay (the
-// Advanced tab). The text is conflict-checked + linted as untrusted; a violation is
-// a hard reject (operator feedback), never a silent merge. The overlay is NEVER
-// loaded verbatim — the reconcile re-derives the composite from typed structs.
-func (s *Server) handleEdgeOverlaySave(w http.ResponseWriter, r *http.Request) {
-	if s.edgeOverlay == nil {
-		http.Error(w, "edge unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	_ = r.ParseForm()
-	overlay := strings.TrimSpace(r.PostFormValue("overlay"))
-	if err := s.edgeOverlay.Save(r.Context(), []byte(overlay), s.managedHosts(), sessionUser(r)); err != nil {
-		// A rejected overlay must surface loudly — and be audited as a security event
-		// (an operator tried to push edge config that the reject tier refused).
-		_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "edge_overlay_rejected", Target: err.Error(), Outcome: audit.Error, Level: audit.Security})
-		http.Error(w, "overlay rejected: "+err.Error(), http.StatusUnprocessableEntity)
-		return
-	}
-	s.reconcileEdge(r, "edge_overlay_save", "")
-	http.Redirect(w, r, "/edge", http.StatusSeeOther)
-}
-
-// handleEdgeOverlayClear drops the Layer-2 overlay (saves an empty overlay), keeping
-// the app routes — the web equivalent of `helmsman edge restore-default`'s overlay
-// drop.
-func (s *Server) handleEdgeOverlayClear(w http.ResponseWriter, r *http.Request) {
-	if s.edgeOverlay == nil {
-		http.Error(w, "edge unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	if err := s.edgeOverlay.Save(r.Context(), nil, s.managedHosts(), sessionUser(r)); err != nil {
-		http.Error(w, "clear failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.reconcileEdge(r, "edge_overlay_clear", "")
 	http.Redirect(w, r, "/edge", http.StatusSeeOther)
 }
 
