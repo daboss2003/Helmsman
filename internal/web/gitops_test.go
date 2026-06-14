@@ -77,7 +77,7 @@ func configureRepo(t *testing.T, e *testEnv, slug, sha string) gitstore.Config {
 // object store must be INSIDE DataDir (protected — no app can bind it).
 func TestGitRunDirOutsideDataDirObjectStoreInside(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
-	rd := e.srv.gitRunDir("shop")
+	rd := e.srv.appRunDir("shop")
 	od := e.srv.gitObjectDir("shop")
 	if pathUnder(rd, e.srv.cfg.DataDir) {
 		t.Errorf("run dir %q is under DataDir %q — binds under it would be wrongly rejected", rd, e.srv.cfg.DataDir)
@@ -122,7 +122,7 @@ func TestDeployRejectsDangerousComposeFromPinnedBytes(t *testing.T) {
 		t.Errorf("state = %q, want update_blocked", got.UpdateState)
 	}
 	// The run dir must NOT have been populated (rejected before checkout).
-	if _, err := os.Stat(filepath.Join(e.srv.gitRunDir(slug), "docker-compose.yml")); err == nil {
+	if _, err := os.Stat(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml")); err == nil {
 		t.Error("compose was checked out despite validation failure")
 	}
 }
@@ -143,7 +143,7 @@ func TestDeployArchivesBeforeUp(t *testing.T) {
 		t.Fatalf("expected up to fail (write plane disabled), got %v", err)
 	}
 	// The pinned tree must have been checked out into the run dir, confined.
-	out, rerr := os.ReadFile(filepath.Join(e.srv.gitRunDir(slug), "docker-compose.yml"))
+	out, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml"))
 	if rerr != nil || !strings.Contains(string(out), "image: nginx") {
 		t.Errorf("compose not extracted into run dir: %v %q", rerr, out)
 	}

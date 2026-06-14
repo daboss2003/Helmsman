@@ -147,6 +147,33 @@
     if (tile) { e.preventDefault(); }
   }, true);
 
+  // Provisioning wizard: validate (dry preview). Serialize the whole form and
+  // POST it to data-validate-url; show the §5.6 result as text (never innerHTML).
+  var pvb = document.getElementById("provision-validate-btn");
+  if (pvb) {
+    pvb.addEventListener("click", function () {
+      var form = document.getElementById("provision-form");
+      if (!form) return;
+      var out = document.getElementById("provision-preview");
+      var body = new URLSearchParams(new FormData(form));
+      fetch(pvb.getAttribute("data-validate-url"), {
+        method: "POST", credentials: "same-origin",
+        headers: { "X-CSRF-Token": token, "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      }).then(function (r) { return r.text(); })
+        .then(function (t) { if (out) { out.hidden = false; out.textContent = t; } })
+        .catch(function () {});
+    });
+  }
+
+  // Confirm-on-submit for any form carrying data-confirm (CSP-safe; no inline JS).
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (form && form.getAttribute && form.getAttribute("data-confirm")) {
+      if (!window.confirm(form.getAttribute("data-confirm"))) e.preventDefault();
+    }
+  });
+
   // Lightweight live refresh: any element with data-poll-url is periodically
   // refreshed by fetching that fragment and swapping its innerHTML. Same-origin,
   // GET-only, cookie-authenticated; CSP-safe (this file is script-src 'self').

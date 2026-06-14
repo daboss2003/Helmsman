@@ -26,6 +26,7 @@ import (
 	"github.com/helmsman/helmsman/internal/gitstore"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
+	"github.com/helmsman/helmsman/internal/provstore"
 	"github.com/helmsman/helmsman/internal/session"
 	"github.com/helmsman/helmsman/internal/store"
 )
@@ -70,6 +71,7 @@ type Deps struct {
 	EnvStore   *envstore.Store
 	CfgStore   *cfgstore.Store
 	GitStore   *gitstore.Store
+	ProvStore  *provstore.Store
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
@@ -91,6 +93,7 @@ type Server struct {
 	envStore     *envstore.Store       // encrypted env store (may be nil)
 	cfgStore     *cfgstore.Store       // managed config files + cert bindings (may be nil)
 	gitStore     *gitstore.Store       // repo-path GitOps (may be nil)
+	provStore    *provstore.Store      // provisioned apps (modes 1/2; may be nil)
 	webhookRL    *rateLimiter          // per-token webhook rate limit
 	webhookSeen  *nonceCache           // webhook replay (timestamp+nonce) defense
 	webhookFlash *tokenFlash           // one-time rotated-token hand-off (never in URL)
@@ -127,6 +130,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		envStore:     d.EnvStore,
 		cfgStore:     d.CfgStore,
 		gitStore:     d.GitStore,
+		provStore:    d.ProvStore,
 		webhookRL:    newRateLimiter(30, time.Minute),
 		webhookSeen:  newNonceCache(webhookNonceTTL),
 		webhookFlash: newTokenFlash(2 * time.Minute),
@@ -239,6 +243,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/config-files/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleConfigFileDelete))))
 	mux.HandleFunc("POST /apps/{project}/cert-bindings", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleCertBindingSave))))
 	mux.HandleFunc("POST /apps/{project}/cert-bindings/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleCertBindingDelete))))
+	// App provisioning wizard (M8, modes 1 & 2). validate is a dry preview;
+	// commit/deploy are §0-gated write-plane actions.
+	mux.HandleFunc("GET /apps/new", s.requireAuth(s.withCSRFToken(s.handleProvisionNew)))
+	mux.HandleFunc("POST /apps/new/validate", capBody(1<<20, s.requireAuth(s.requireCSRF(s.handleProvisionValidate))))
+	mux.HandleFunc("POST /apps/new/commit", capBody(1<<20, s.requireAuth(s.requireCSRF(s.handleProvisionCommit))))
+	mux.HandleFunc("POST /apps/{project}/provision-deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleProvisionDeploy))))
+	mux.HandleFunc("POST /apps/{project}/provision-delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleProvisionDelete))))
 	// Repo-path GitOps (M6).
 	mux.HandleFunc("GET /git/new", s.requireAuth(s.withCSRFToken(s.handleGitNew)))
 	mux.HandleFunc("POST /git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitSave))))

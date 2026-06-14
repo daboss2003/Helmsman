@@ -6,5 +6,32 @@
   <div data-poll-url="/partials/overview" data-poll-interval="5000">
     {{template "overview" .}}
   </div>
+
+  <section class="panel">
+    <h2>Provisioned apps <span class="muted">(form-generated or pasted)</span> · <a href="/apps/new">+ New app</a></h2>
+    {{if .Provisioned}}
+    <table class="grid">
+      <thead><tr><th>App</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{range .Provisioned}}
+        <tr>
+          <td><a href="/apps/{{pathEscape .Slug}}">{{.Slug}}</a></td>
+          <td>{{.Source}}</td>
+          <td>{{if .Deployed}}<span class="health-healthy">{{.UpCount}}/{{.Total}} up</span>{{else}}<span class="muted">not deployed</span>{{end}}</td>
+          <td class="queue-actions">
+            <button type="button" class="link lc-btn" data-lc-confirm="Deploy {{.Slug}}? This runs docker compose up." data-lc-url="/apps/{{pathEscape .Slug}}/provision-deploy">deploy</button>
+            <form method="post" action="/apps/{{pathEscape .Slug}}/provision-delete" class="inline" data-confirm="Delete {{.Slug}} and its files?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <button type="submit" class="link">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="muted">No provisioned apps yet. <a href="/apps/new">Create one →</a></p>{{end}}
+  </section>
+
+  <pre id="deploy-output" class="stream" hidden></pre>
 </main>
 {{template "bottom" .}}

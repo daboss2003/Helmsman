@@ -1,0 +1,63 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <p><a href="/">← Overview</a></p>
+  <h1>New app</h1>
+  <p class="muted">Everything that reaches <code>docker compose</code> passes the §5.6 allowlist
+    validator. <strong>Mode 1</strong> generates a safe compose from a typed form (dangerous keys
+    cannot be expressed). <strong>Mode 2</strong> imports a compose you paste (validated, not
+    interpreted). Commit writes to a <code>0700</code> staging dir and atomically renames it into
+    place — never a half-written app.</p>
+  {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+  {{if .WriteDisabledReason}}<div class="error" role="alert">Write plane: {{.WriteDisabledReason}}. You can still commit; deploy is disabled.</div>{{end}}
+
+  <form method="post" action="/apps/new/commit" class="stack" id="provision-form">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <label>App id <span class="muted">(lowercase; becomes the compose project + directory)</span>
+      <input type="text" name="slug" placeholder="myapp" pattern="[a-z][a-z0-9-]{1,30}" required></label>
+
+    <fieldset>
+      <legend>Mode</legend>
+      <label class="check"><input type="radio" name="mode" value="generated" checked> Mode 1 — guided form (generate)</label>
+      <label class="check"><input type="radio" name="mode" value="inline"> Mode 2 — paste a compose</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Mode 1 — guided form (single service)</legend>
+      <label>Image <span class="muted">(explicit tag or digest required — no silent :latest)</span>
+        <input type="text" name="image" placeholder="nginx:1.27"></label>
+      <label>Internal ports <span class="muted">(comma-separated container ports)</span>
+        <input type="text" name="ports" placeholder="8080"></label>
+      <label class="check"><input type="checkbox" name="publish"> Publish to host (binds 127.0.0.1)</label>
+      <label class="check"><input type="checkbox" name="public"> Expose publicly (binds 0.0.0.0 — acknowledged)</label>
+      <label>Environment <span class="muted">(KEY=VALUE per line; values stored encrypted, only keys go in the YAML)</span>
+        <textarea name="env" rows="3" class="mono" spellcheck="false" placeholder="LOG_LEVEL=info"></textarea></label>
+      <label>Volumes <span class="muted">(one per line: <code>name:/path</code> or <code>./bind:/path[:ro]</code>)</span>
+        <textarea name="volumes" rows="2" class="mono" spellcheck="false" placeholder="data:/var/lib/app"></textarea></label>
+      <label>Restart
+        <select name="restart">
+          <option value="unless-stopped">unless-stopped</option>
+          <option value="always">always</option>
+          <option value="on-failure">on-failure</option>
+          <option value="no">no</option>
+        </select></label>
+      <label>Healthcheck <span class="muted">(exec form, space-separated; optional)</span>
+        <input type="text" name="healthcheck" placeholder="curl -f http://localhost:8080/health"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Mode 2 — paste compose</legend>
+      <label>docker-compose.yml
+        <textarea name="compose" rows="10" class="mono" spellcheck="false" placeholder="services:&#10;  web:&#10;    image: nginx:1.27"></textarea></label>
+      <label>Dockerfile <span class="muted">(optional; scanned, never built here)</span>
+        <textarea name="dockerfile" rows="4" class="mono" spellcheck="false"></textarea></label>
+    </fieldset>
+
+    <div class="queue-actions">
+      <button type="button" id="provision-validate-btn" class="link" data-validate-url="/apps/new/validate">Validate (preview)</button>
+      <button type="submit">Commit</button>
+    </div>
+  </form>
+  <pre id="provision-preview" class="stream" hidden></pre>
+</main>
+{{template "bottom" .}}

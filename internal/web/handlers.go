@@ -22,7 +22,8 @@ type tmplData struct {
 	EdgeMode    string
 	Events      []eventRow
 	Snap        *monitor.Snapshot
-	OrderedApps []monitor.App // overview tiles in the operator's saved order (M7)
+	OrderedApps []monitor.App     // overview tiles in the operator's saved order (M7)
+	Provisioned []provisionedView // provisioned apps incl. not-yet-deployed (M8)
 	App         *monitor.App
 	Project     string
 	OpsCfg      *ops.Config
@@ -108,6 +109,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		EdgeMode:    string(s.cfg.Edge.Mode),
 		Snap:        snap,
 		OrderedApps: s.orderedApps(snap),
+		Provisioned: s.provisionedApps(),
 	})
 }
 

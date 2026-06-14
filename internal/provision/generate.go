@@ -1,0 +1,96 @@
+package provision
+
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
+// composeFile is the ENTIRE shape the generator can emit. There is deliberately
+// no field for privileged / cap_add / devices / network_mode / pid / ipc / uts /
+// security_opt / host binds / :80:443 — they cannot be expressed, so no input can
+// produce them. yaml.Marshal (never string concatenation) renders it.
+type composeFile struct {
+	Name     string                    `yaml:"name"`
+	Services map[string]composeService `yaml:"services"`
+	Volumes  map[string]nullYAML       `yaml:"volumes,omitempty"`
+}
+
+type composeService struct {
+	Image       string         `yaml:"image"`
+	Restart     string         `yaml:"restart,omitempty"`
+	Ports       []string       `yaml:"ports,omitempty"`
+	Volumes     []string       `yaml:"volumes,omitempty"`
+	Environment []string       `yaml:"environment,omitempty"`
+	Command     []string       `yaml:"command,omitempty"`
+	Healthcheck *composeHealth `yaml:"healthcheck,omitempty"`
+	DependsOn   []string       `yaml:"depends_on,omitempty"`
+}
+
+type composeHealth struct {
+	Test []string `yaml:"test"`
+}
+
+// nullYAML marshals to an empty mapping value (the `volname:` named-volume form).
+type nullYAML struct{}
+
+func (nullYAML) MarshalYAML() (any, error) { return nil, nil }
+
+// Generate validates the spec and renders a deterministic, safe compose document.
+// The result is STILL meant to be run through §5.6 by the caller (defense in
+// depth) — Generate guarantees safety by construction, §5.6 guarantees it again.
+func Generate(spec Spec) ([]byte, error) {
+	if err := spec.Validate(); err != nil {
+		return nil, err
+	}
+	cf := composeFile{Name: spec.Slug, Services: map[string]composeService{}}
+	namedVols := map[string]nullYAML{}
+
+	for _, svc := range spec.Services {
+		cs := composeService{Image: svc.Image, Restart: svc.Restart, DependsOn: svc.DependsOn}
+		for _, p := range svc.Ports {
+			if !p.Publish {
+				continue // internal-only: reachable on the compose network, no host map
+			}
+			host := "127.0.0.1:"
+			if p.Public {
+				host = "" // bind all interfaces (operator-acked; §5.6 still judges it)
+			}
+			cs.Ports = append(cs.Ports, fmt.Sprintf("%s%d:%d", host, p.Internal, p.Internal))
+		}
+		for _, v := range svc.Volumes {
+			src := v.Name
+			if src == "" {
+				src = "./" + v.Source // explicit run_dir-relative bind
+			} else {
+				namedVols[v.Name] = nullYAML{}
+			}
+			entry := src + ":" + v.Target
+			if v.ReadOnly {
+				entry += ":ro"
+			}
+			cs.Volumes = append(cs.Volumes, entry)
+		}
+		for _, k := range svc.EnvKeys {
+			// Reference only — the value is provided by the 0600 --env-file at deploy
+			// (the encrypted env store), never baked into the YAML.
+			cs.Environment = append(cs.Environment, k+"=${"+k+"}")
+		}
+		if len(svc.Command) > 0 {
+			cs.Command = svc.Command
+		}
+		if len(svc.Healthcheck) > 0 {
+			cs.Healthcheck = &composeHealth{Test: append([]string{"CMD"}, svc.Healthcheck...)}
+		}
+		cf.Services[svc.Name] = cs
+	}
+	if len(namedVols) > 0 {
+		cf.Volumes = namedVols
+	}
+
+	out, err := yaml.Marshal(cf)
+	if err != nil {
+		return nil, fmt.Errorf("generate: marshal compose: %w", err)
+	}
+	return out, nil
+}

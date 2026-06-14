@@ -155,11 +155,15 @@ func (s *Server) gitObjectDir(slug string) string {
 	return filepath.Join(s.cfg.DataDir, "git", slug+".git")
 }
 
-// gitRunDir is the per-app checkout/run directory. It lives in a sibling tree
-// OUTSIDE DataDir (so legitimate binds under it don't trip the "DataDir is
-// protected" defense-in-depth check) while still being Helmsman-owned.
-func (s *Server) gitRunDir(slug string) string {
-	return filepath.Join(s.cfg.DataDir+"-apps", slug)
+// appsRoot is the Helmsman-owned tree holding every app's run dir. It is a
+// SIBLING of DataDir (outside it) so legitimate binds under a run dir don't trip
+// the "DataDir is protected" §5.6 defense-in-depth check, while the DB/keys (in
+// DataDir) stay unreachable. Shared by git-backed (M6) and provisioned (M8) apps.
+func (s *Server) appsRoot() string { return s.cfg.DataDir + "-apps" }
+
+// appRunDir is the per-app checkout/run directory under appsRoot.
+func (s *Server) appRunDir(slug string) string {
+	return filepath.Join(s.appsRoot(), slug)
 }
 
 // --- view model ---
@@ -525,7 +529,7 @@ func (s *Server) handleGitDeploy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, source, actor string, onLine func(string)) error {
 	bg := context.Background() // FSM/DB writes persist even if the client disconnects
 	slug := cfg.Project
-	rd := filepath.Clean(s.gitRunDir(slug))
+	rd := filepath.Clean(s.appRunDir(slug))
 	if !filepath.IsAbs(rd) || rd == "/" || isSensitiveDir(rd) {
 		return fmt.Errorf("app run directory %q is unsafe; refusing to deploy", rd)
 	}

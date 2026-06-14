@@ -21,6 +21,8 @@ import (
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/opsclient"
+	"github.com/helmsman/helmsman/internal/provision"
+	"github.com/helmsman/helmsman/internal/provstore"
 	"github.com/helmsman/helmsman/internal/retention"
 	"github.com/helmsman/helmsman/internal/store"
 	"github.com/helmsman/helmsman/internal/web"
@@ -72,6 +74,10 @@ func cmdServe(args []string) error {
 	envStore := envstore.New(db, cipher)
 	cfgStore := cfgstore.New(db, cipher)
 	gitStore := gitstore.New(db, cipher)
+	provStore := provstore.New(db)
+	// Clear any stale staging/aside dirs from an interrupted provision commit
+	// (plan §7 boot-time sweep). The apps root is a sibling of DataDir.
+	provision.SweepStaging(cfg.DataDir + "-apps")
 	mon := monitor.New(db, dockerCli, hostSampler, cfg.Monitor.PollInterval.D(),
 		cfg.Monitor.MetricsRetention.D(), log, prober)
 	var wg sync.WaitGroup
@@ -111,6 +117,7 @@ func cmdServe(args []string) error {
 		EnvStore:   envStore,
 		CfgStore:   cfgStore,
 		GitStore:   gitStore,
+		ProvStore:  provStore,
 	})
 	if err != nil {
 		return err
