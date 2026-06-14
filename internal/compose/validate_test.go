@@ -203,3 +203,17 @@ func TestRejectsReservedHostPortsLongForm(t *testing.T) {
 		t.Error("long-form published:8443 should be allowed")
 	}
 }
+
+// IPv6 host-IP short form must not let a :80/:443 publish slip past checkPorts.
+func TestRejectsReservedHostPortsIPv6(t *testing.T) {
+	bad := `"[::1]:443:8080"`
+	y := "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - " + bad + "\n"
+	if ValidateBytes([]byte(y), Env{}, "/srv/app", Options{}).OK() {
+		t.Error("IPv6 host-IP :443 publish should be rejected")
+	}
+	ok := `"[::1]:8443:8080"`
+	y2 := "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - " + ok + "\n"
+	if !ValidateBytes([]byte(y2), Env{}, "/srv/app", Options{}).OK() {
+		t.Error("IPv6 host-IP :8443 publish should be allowed")
+	}
+}

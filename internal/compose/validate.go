@@ -537,6 +537,14 @@ func shortFormHostPort(s string) (int, bool) {
 	if i := strings.IndexByte(s, '/'); i >= 0 {
 		s = s[:i]
 	}
+	// Strip a bracketed IPv6 host-IP prefix "[....]:" so the colon-split below
+	// sees only "host:container" (a naive split on a raw IPv6 would slip a :80
+	// publish past the check).
+	if strings.HasPrefix(s, "[") {
+		if j := strings.IndexByte(s, ']'); j >= 0 {
+			s = strings.TrimPrefix(s[j+1:], ":")
+		}
+	}
 	parts := strings.Split(s, ":")
 	switch len(parts) {
 	case 1:
