@@ -109,13 +109,49 @@ func litString(e ast.Expr) (string, bool) {
 	return s, true
 }
 
-func isSelector(e ast.Expr, pkg, name string) bool {
-	sel, ok := e.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != name {
+// importAliases maps each file-local package identifier to its import PATH, so the
+// detectors resolve `h.Get` / `t.HTML` (aliased imports) to net/http / html/template
+// instead of matching a hardcoded `http`/`template` identifier — closing the
+// aliased-import bypass.
+func importAliases(f *ast.File) map[string]string {
+	m := map[string]string{}
+	for _, imp := range f.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+		name := path[strings.LastIndexByte(path, '/')+1:]
+		if imp.Name != nil {
+			name = imp.Name.Name // explicit alias (incl. "." / "_")
+		}
+		m[name] = path
+	}
+	return m
+}
+
+// pkgCall reports whether call is `<pkgPath>.<one of names>`, resolving the local
+// import name through aliases.
+func pkgCall(call *ast.CallExpr, aliases map[string]string, pkgPath string, names ...string) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
 		return false
 	}
 	id, ok := sel.X.(*ast.Ident)
-	return ok && id.Name == pkg
+	if !ok || aliases[id.Name] != pkgPath {
+		return false
+	}
+	for _, n := range names {
+		if sel.Sel.Name == n {
+			return true
+		}
+	}
+	return false
+}
+
+// pkgSelector reports whether sel is `<pkgPath>.<name>`, alias-resolved.
+func pkgSelector(sel *ast.SelectorExpr, aliases map[string]string, pkgPath string, names map[string]bool) bool {
+	id, ok := sel.X.(*ast.Ident)
+	return ok && aliases[id.Name] == pkgPath && names[sel.Sel.Name]
 }
 
 func line(gf goFile, pos token.Pos) int { return gf.fset.Position(pos).Line }
@@ -128,18 +164,28 @@ var shellBinaries = map[string]bool{
 	"/usr/bin/bash": true, "cmd": true, "cmd.exe": true, "powershell": true, "powershell.exe": true,
 }
 
-// findShellExec flags an exec.Command/CommandContext call carrying BOTH a shell
-// binary and a "-c"/"/c" arg (the shell-injection shape). git's `-c key=value`
-// config flags carry no shell name, so they are not flagged.
+// dashCSafe are the non-shell binaries that legitimately take a literal "-c" flag
+// (git's `-c key=value` config flags). A "-c" on anything else — including a
+// command name held in a const/var, which we can't prove is safe — is flagged.
+var dashCSafe = map[string]bool{"git": true}
+
+// findShellExec flags shell command construction. A violation is an exec.Command/
+// CommandContext call (alias-resolved) that EITHER names a shell binary as a literal
+// arg, OR carries a "-c"/"/c" flag while its command (arg[0]) is not a known-safe
+// literal binary. The second clause closes the bypass where the shell name is held
+// in a const/var (arg[0] non-literal ⇒ not provably safe ⇒ flagged).
 func findShellExec(gf goFile) []string {
+	aliases := importAliases(gf.file)
 	var v []string
 	ast.Inspect(gf.file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok {
+		if !ok || !pkgCall(call, aliases, "os/exec", "Command", "CommandContext") {
 			return true
 		}
-		if !isSelector(call.Fun, "exec", "Command") && !isSelector(call.Fun, "exec", "CommandContext") {
-			return true
+		var argv0 string
+		hasLit0 := false
+		if len(call.Args) > 0 {
+			argv0, hasLit0 = litString(call.Args[0])
 		}
 		hasShell, hasDashC := false, false
 		for _, a := range call.Args {
@@ -152,7 +198,8 @@ func findShellExec(gf goFile) []string {
 				}
 			}
 		}
-		if hasShell && hasDashC {
+		firstIsSafe := hasLit0 && dashCSafe[argv0]
+		if hasShell || (hasDashC && !firstIsSafe) {
 			v = append(v, gf.rel+":"+strconv.Itoa(line(gf, call.Pos())))
 		}
 		return true
@@ -162,13 +209,14 @@ func findShellExec(gf goFile) []string {
 
 func findUnguardedHTTP(gf goFile) []string {
 	banned := map[string]bool{"Get": true, "Post": true, "Head": true, "PostForm": true, "DefaultClient": true, "DefaultTransport": true}
+	aliases := importAliases(gf.file)
 	var v []string
 	ast.Inspect(gf.file, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok {
 			return true
 		}
-		if id, ok := sel.X.(*ast.Ident); ok && id.Name == "http" && banned[sel.Sel.Name] {
+		if pkgSelector(sel, aliases, "net/http", banned) {
 			v = append(v, gf.rel+":"+strconv.Itoa(line(gf, sel.Pos()))+" http."+sel.Sel.Name)
 		}
 		return true
@@ -188,6 +236,7 @@ func findTextTemplateImport(gf goFile) []string {
 
 func findDynamicTemplateConversion(gf goFile) []string {
 	dangerous := map[string]bool{"HTML": true, "JS": true, "CSS": true, "URL": true, "HTMLAttr": true, "JSStr": true}
+	aliases := importAliases(gf.file)
 	var v []string
 	ast.Inspect(gf.file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -195,10 +244,12 @@ func findDynamicTemplateConversion(gf goFile) []string {
 			return true
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || !dangerous[sel.Sel.Name] {
+		if !ok {
 			return true
 		}
-		if id, ok := sel.X.(*ast.Ident); !ok || id.Name != "template" {
+		// Either template package's []byte→typed conversions bypass escaping.
+		isTmplPkg := pkgSelector(sel, aliases, "html/template", dangerous) || pkgSelector(sel, aliases, "text/template", dangerous)
+		if !isTmplPkg {
 			return true
 		}
 		if _, isLit := litString(call.Args[0]); !isLit {
@@ -267,14 +318,27 @@ func TestDetectorsFireOnKnownBad(t *testing.T) {
 		{"shell-exec", `package p
 import "os/exec"
 func f(x string) { exec.Command("/bin/sh", "-c", x) }`, findShellExec},
+		{"shell-exec-const-name", `package p
+import "os/exec"
+const SHELL = "/bin/sh"
+func f(x string) { exec.Command(SHELL, "-c", x) }`, findShellExec}, // bypass: shell name in a const
+		{"shell-exec-dynamic-name", `package p
+import "os/exec"
+func f(bin, x string) { exec.CommandContext(nil, bin, "-c", x) }`, findShellExec}, // bypass: dynamic command + -c
 		{"unguarded-http", `package p
 import "net/http"
 func f() { http.Get("http://x") }`, findUnguardedHTTP},
+		{"unguarded-http-aliased", `package p
+import h "net/http"
+func f() { _ = h.DefaultClient }`, findUnguardedHTTP}, // bypass: aliased import
 		{"text-template", `package p
 import _ "text/template"`, findTextTemplateImport},
 		{"dynamic-template-conv", `package p
 import "html/template"
 func f(s string) template.HTML { return template.HTML(s) }`, findDynamicTemplateConversion},
+		{"dynamic-template-conv-aliased", `package p
+import t "html/template"
+func f(s string) t.HTML { return t.HTML(s) }`, findDynamicTemplateConversion}, // bypass: aliased import
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -55,6 +56,20 @@ func extractRoutes(t *testing.T) []routeReg {
 	if err != nil {
 		t.Fatalf("parse server.go: %v", err)
 	}
+	routes := extractRoutesFromFile(f, fset)
+	if len(routes) == 0 {
+		t.Fatal("extractRoutes found no mux registrations — parser drift?")
+	}
+	return routes
+}
+
+// extractRoutesFromFile is the pure core of extractRoutes (testable on snippets). It
+// is FAIL-CLOSED: a mux.HandleFunc/Handle whose pattern is NOT a string literal
+// cannot be statically analysed, so instead of being silently skipped (which would
+// let an unauthenticated route exist while the gate passes), it is recorded as an
+// unanalysable route with hasAuth=false — guaranteeing TestRoutePostureFromTable
+// fails until the route is registered with a literal pattern.
+func extractRoutesFromFile(f *ast.File, fset *token.FileSet) []routeReg {
 	var routes []routeReg
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -72,8 +87,18 @@ func extractRoutes(t *testing.T) []routeReg {
 		if (sel.Sel.Name != "HandleFunc" && sel.Sel.Name != "Handle") || len(call.Args) < 2 {
 			return true
 		}
+		ln := fset.Position(call.Pos()).Line
 		lit, ok := call.Args[0].(*ast.BasicLit)
 		if !ok || lit.Kind != token.STRING {
+			// Fail-closed: an un-analysable route registration is recorded as
+			// unauthenticated so the posture gate fails loudly.
+			routes = append(routes, routeReg{
+				key:     "<non-literal pattern at server.go:" + strconv.Itoa(ln) + ">",
+				verb:    "POST", // force BOTH the auth and CSRF checks to apply
+				pattern: "",
+				hasAuth: false,
+				hasCSRF: false,
+			})
 			return true
 		}
 		key := strings.Trim(lit.Value, "`\"")
@@ -96,9 +121,6 @@ func extractRoutes(t *testing.T) []routeReg {
 		routes = append(routes, r)
 		return true
 	})
-	if len(routes) == 0 {
-		t.Fatal("extractRoutes found no mux registrations — parser drift?")
-	}
 	return routes
 }
 
@@ -172,56 +194,38 @@ func TestAnonymousDeniedMatrix(t *testing.T) {
 	}
 }
 
-// Self-test: the extractor + posture rule must FIRE on a route missing requireAuth
-// (guards against the gate rotting into a no-op).
+// Self-test: the real extractor + posture rule must FIRE on a route missing
+// requireAuth, a mutating route missing requireCSRF, AND a non-literal pattern
+// (fail-closed) — guarding against the gate rotting into a no-op or fail-open.
 func TestPostureDetectorFires(t *testing.T) {
 	src := `package web
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /secret", s.handleSecret)
 	mux.HandleFunc("POST /danger", s.requireAuth(s.handleDanger))
+	dyn := "GET /sneaky"
+	mux.HandleFunc(dyn, s.handleSneaky)
 	return mux
 }`
 	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "snippet.go", src, parser.SkipObjectResolution)
-	var got []routeReg
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		if id, ok := sel.X.(*ast.Ident); !ok || id.Name != "mux" || sel.Sel.Name != "HandleFunc" {
-			return true
-		}
-		lit := call.Args[0].(*ast.BasicLit)
-		key := strings.Trim(lit.Value, "`\"")
-		r := routeReg{key: key, verb: strings.SplitN(key, " ", 2)[0]}
-		ast.Inspect(call.Args[1], func(m ast.Node) bool {
-			if s, ok := m.(*ast.SelectorExpr); ok {
-				if s.Sel.Name == "requireAuth" {
-					r.hasAuth = true
-				}
-				if s.Sel.Name == "requireCSRF" {
-					r.hasCSRF = true
-				}
-			}
-			return true
-		})
-		got = append(got, r)
-		return true
-	})
-	// GET /secret has no requireAuth → must be flaggable; POST /danger has no CSRF.
-	var missingAuth, missingCSRF int
+	f, err := parser.ParseFile(fset, "snippet.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := extractRoutesFromFile(f, fset)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 routes (incl. the non-literal one recorded fail-closed), got %d: %+v", len(got), got)
+	}
+	var missingAuth, missingCSRF, nonLiteral int
 	for _, r := range got {
 		if !r.hasAuth {
-			missingAuth++
+			missingAuth++ // /secret AND the non-literal route
 		}
 		if mutatingVerb[r.verb] && !r.hasCSRF {
-			missingCSRF++
+			missingCSRF++ // /danger has auth but no CSRF; the non-literal is verb=POST too
+		}
+		if strings.HasPrefix(r.key, "<non-literal pattern") {
+			nonLiteral++
 		}
 	}
 	if missingAuth == 0 {
@@ -229,5 +233,8 @@ func (s *Server) Handler() http.Handler {
 	}
 	if missingCSRF == 0 {
 		t.Error("posture detector failed to flag a mutating route missing requireCSRF")
+	}
+	if nonLiteral != 1 {
+		t.Error("FAIL-OPEN: a non-literal route pattern was not recorded fail-closed (it would silently escape the gate)")
 	}
 }
