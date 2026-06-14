@@ -1,10 +1,9 @@
-// Package provision is the Mode-1/Mode-2 app provisioning core (plan §7): a typed
-// form spec deterministically GENERATED into a safe compose, and a pasted-compose
-// validating IMPORTER. Both converge on the §5.6 chokepoint. The generator is
-// built so dangerous compose keys (privileged, cap_add, host namespaces, host
-// binds, :80/:443 publishes) SIMPLY DO NOT EXIST in its typed model — no input
-// can produce them — and the generated YAML is still re-run through §5.6 as
-// defense in depth.
+// Package provision is the app provisioning core (plan §7): a typed form spec
+// (helmsman.yaml under the hood) deterministically GENERATED into a safe compose.
+// Helmsman OWNS the compose — there is no raw-compose/Dockerfile paste path — so
+// the dangerous compose keys (privileged, cap_add, host namespaces, host binds,
+// :80/:443 publishes) SIMPLY DO NOT EXIST in its typed model (no input can produce
+// them), and the generated YAML is still re-run through §5.6 as defense in depth.
 package provision
 
 import (

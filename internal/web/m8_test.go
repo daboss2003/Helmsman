@@ -37,24 +37,21 @@ func TestProvisionValidateMode1(t *testing.T) {
 	}
 }
 
-// Mode 2 validate surfaces §5.6 findings for a dangerous paste (no write).
-func TestProvisionValidateMode2Dangerous(t *testing.T) {
+// The generated compose binds publishes to loopback by default (a public publish
+// requires the explicit ack); validate is a dry preview.
+func TestProvisionValidateLoopbackDefault(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
 	hdr := map[string]string{"Origin": "https://example.com"}
 
-	f := provForm("inline", url.Values{
-		"slug":       {"shop"},
-		"compose":    {"services:\n  web:\n    image: nginx:1.27\n    privileged: true\n"},
+	f := provForm("generated", url.Values{
+		"slug": {"shop"}, "image": {"nginx:1.27"}, "ports": {"8080"}, "publish": {"on"},
 		"csrf_token": {csrf.Value},
 	})
 	body := readBody(e.req(t, "POST", "/apps/new/validate", "127.0.0.1:1", hdr, cookies, f))
-	if !strings.Contains(body, "§5.6:") || strings.Contains(body, "§5.6: OK") {
-		t.Fatalf("dangerous paste should report findings:\n%s", body)
-	}
-	if !strings.Contains(body, "privileged") {
-		t.Errorf("expected privileged finding:\n%s", body)
+	if !strings.Contains(body, "127.0.0.1:8080:8080") || !strings.Contains(body, "§5.6: OK") {
+		t.Fatalf("validate preview wrong:\n%s", body)
 	}
 }
 
@@ -89,21 +86,18 @@ func TestProvisionCommitMode1(t *testing.T) {
 	}
 }
 
-// A dangerous paste is rejected at commit (strict mode) and leaves no app.
-func TestProvisionCommitMode2DangerousRejected(t *testing.T) {
+// An invalid image (no explicit tag) is rejected by the generator at commit and
+// leaves no app — there is no raw-compose path to smuggle dangerous keys through.
+func TestProvisionCommitInvalidImageRejected(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
 	hdr := map[string]string{"Origin": "https://example.com"}
 
-	f := provForm("inline", url.Values{
-		"slug":       {"evil"},
-		"compose":    {"services:\n  web:\n    image: nginx:1.27\n    privileged: true\n"},
-		"csrf_token": {csrf.Value},
-	})
+	f := provForm("generated", url.Values{"slug": {"evil"}, "image": {"nginx"}, "csrf_token": {csrf.Value}})
 	resp := e.req(t, "POST", "/apps/new/commit", "127.0.0.1:1", hdr, cookies, f)
 	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("dangerous commit = %d, want 422", resp.StatusCode)
+		t.Fatalf("invalid image commit = %d, want 422", resp.StatusCode)
 	}
 	if _, statErr := os.Stat(e.srv.appRunDir("evil")); statErr == nil {
 		t.Error("run dir created despite rejected commit")

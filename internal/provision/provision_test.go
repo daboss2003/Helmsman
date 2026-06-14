@@ -100,24 +100,6 @@ func TestGenerateNeverEmitsDangerousKeys(t *testing.T) {
 	}
 }
 
-func TestImportRunsValidatorAndCapsSize(t *testing.T) {
-	good := []byte("services:\n  web:\n    image: nginx:1.27\n")
-	res, err := Import(good, compose.Env{}, "/srv/apps/shop", compose.Options{})
-	if err != nil || !res.OK() {
-		t.Fatalf("good paste: err=%v res=%s", err, res.Error())
-	}
-	// A privileged paste is rejected by §5.6.
-	bad := []byte("services:\n  web:\n    image: nginx:1.27\n    privileged: true\n")
-	res2, _ := Import(bad, compose.Env{}, "/srv/apps/shop", compose.Options{})
-	if res2.OK() {
-		t.Error("privileged paste should be rejected")
-	}
-	// Oversize paste is refused before parsing.
-	if _, err := Import(make([]byte, MaxPasteBytes+1), compose.Env{}, "/x", compose.Options{}); err != ErrPasteTooLarge {
-		t.Errorf("oversize paste err = %v, want ErrPasteTooLarge", err)
-	}
-}
-
 // Commit writes atomically and is replaceable; a half-written staging dir never
 // becomes the app, and SweepStaging cleans leftovers.
 func TestCommitAtomicAndSweep(t *testing.T) {

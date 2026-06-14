@@ -20,7 +20,7 @@ var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 // App is one provisioned-app registry row.
 type App struct {
 	Slug        string
-	Source      string // generated | inline
+	Source      string // always "generated" — Helmsman owns the compose (no raw paste)
 	ComposePath string
 	SpecJSON    string
 	CreatedAt   int64
@@ -38,8 +38,8 @@ func (s *Store) Save(ctx context.Context, a App) error {
 	if !slugRe.MatchString(a.Slug) {
 		return errors.New("provstore: invalid slug")
 	}
-	if a.Source != "generated" && a.Source != "inline" {
-		return errors.New("provstore: source must be generated or inline")
+	if a.Source != "generated" {
+		return errors.New("provstore: source must be generated (Helmsman owns the compose)")
 	}
 	if a.ComposePath == "" {
 		a.ComposePath = "docker-compose.yml"
