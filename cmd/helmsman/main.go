@@ -16,6 +16,11 @@ Usage:
 Server:
   serve            Load config, open the DB, and run the loopback admin server.
 
+Edge recovery (run over SSH):
+  edge restore-default
+                   Drop the advanced edge overlay and re-apply the safe base +
+                   app routes — the iron escape hatch when an overlay misbehaves.
+
 Root of trust (run over SSH; secrets read from /dev/tty, never argv):
   gen-key          Generate the AES-256-GCM master key (base64).
   hash-password    Produce an argon2id hash for auth.password_hash.
@@ -42,6 +47,8 @@ func main() {
 	switch cmd {
 	case "serve":
 		err = cmdServe(args)
+	case "edge":
+		err = cmdEdge(args)
 	case "gen-key":
 		err = cmdGenKey(args)
 	case "hash-password":
