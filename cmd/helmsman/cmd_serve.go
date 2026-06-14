@@ -21,6 +21,7 @@ import (
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/opsclient"
+	"github.com/helmsman/helmsman/internal/retention"
 	"github.com/helmsman/helmsman/internal/store"
 	"github.com/helmsman/helmsman/internal/web"
 )
@@ -91,6 +92,13 @@ func cmdServe(args []string) error {
 	}
 	runner := dockerexec.NewRunner(dockerexec.NewSemaphore(), writeAllowed, writeReason)
 
+	// Audit/events retention (M7, plan §16.1): bounds the events table so it can
+	// never wedge the disk, while NEVER silently dropping a security row. Joined
+	// before the deferred db.Close() (review #8).
+	retentionRunner := retention.New(db, log, cfg.DataDir, toRetentionConfig(cfg))
+	wg.Add(1)
+	go func() { defer wg.Done(); retentionRunner.Run(ctx) }()
+
 	srv, err := web.New(cfg, web.Deps{
 		DB:         db,
 		ConfigPath: *configPath,
@@ -121,6 +129,12 @@ func cmdServe(args []string) error {
 					log.Error("config reload rejected; keeping previous", "err", err)
 				} else {
 					log.Info("config reloaded (allowlist + auth)")
+					// srv.Reload already validated the file; re-read it to hot-swap the
+					// Tier-1 retention policy too (plan §16.1 SIGHUP-reloadable).
+					if newCfg, lerr := config.Load(*configPath); lerr == nil {
+						retentionRunner.SetConfig(toRetentionConfig(newCfg))
+						log.Info("retention policy reloaded")
+					}
 				}
 			}
 		}
@@ -138,4 +152,15 @@ func cmdServe(args []string) error {
 	}
 	log.Info("helmsman stopped")
 	return nil
+}
+
+// toRetentionConfig maps the validated Tier-1 config block to the runner's policy
+// (durations unwrapped, archive cap converted MB→bytes).
+func toRetentionConfig(cfg *config.Config) retention.Config {
+	return retention.Config{
+		Interval:        cfg.Retention.Interval.D(),
+		EventsMaxAge:    cfg.Retention.EventsMaxAge.D(),
+		EventsMaxRows:   cfg.Retention.EventsMaxRows,
+		ArchiveMaxBytes: int64(cfg.Retention.ArchiveMaxMB) << 20,
+	}
 }

@@ -2,7 +2,29 @@
 {{template "nav" .}}
 <main class="wrap">
   <h1>Audit log</h1>
-  <p class="muted">Most recent 200 events. Append-only; secret values are never recorded.</p>
+  <p class="muted">Append-only; secret values are never recorded. Old rows are pruned by retention,
+    but a <code>level=security</code> row is always archived to NDJSON before it is dropped.</p>
+
+  <form method="get" action="/events" class="filters">
+    <label>Level
+      <select name="level">
+        <option value="">any</option>
+        <option value="info" {{if eq .EventLevel "info"}}selected{{end}}>info</option>
+        <option value="security" {{if eq .EventLevel "security"}}selected{{end}}>security</option>
+      </select></label>
+    <label>Outcome
+      <select name="outcome">
+        <option value="">any</option>
+        <option value="ok" {{if eq .EventOutcome "ok"}}selected{{end}}>ok</option>
+        <option value="deny" {{if eq .EventOutcome "deny"}}selected{{end}}>deny</option>
+        <option value="error" {{if eq .EventOutcome "error"}}selected{{end}}>error</option>
+      </select></label>
+    <label>Search <span class="muted">(action/target)</span>
+      <input type="text" name="q" value="{{.EventQuery}}" placeholder="git_deploy"></label>
+    <button type="submit">Filter</button>
+    <a href="/events" class="link">reset</a>
+  </form>
+
   <table class="grid">
     <thead>
       <tr><th>When (UTC)</th><th>Actor</th><th>IP</th><th>Action</th><th>Target</th><th>Outcome</th><th>Level</th><th>Detail</th></tr>
@@ -20,9 +42,13 @@
         <td>{{.Detail}}</td>
       </tr>
       {{else}}
-      <tr><td colspan="8" class="muted">No events yet.</td></tr>
+      <tr><td colspan="8" class="muted">No events match.</td></tr>
       {{end}}
     </tbody>
   </table>
+
+  {{if .EventOlderURL}}
+  <p><a href="{{.EventOlderURL}}">Older →</a></p>
+  {{end}}
 </main>
 {{template "bottom" .}}

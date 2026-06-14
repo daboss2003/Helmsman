@@ -57,9 +57,10 @@ type Config struct {
 	Docker  DockerConfig  `yaml:"docker"`
 	Monitor MonitorConfig `yaml:"monitor"`
 
-	CaddyEditor       EditorBlock `yaml:"caddy_editor"`
-	ComposeValidation EditorBlock `yaml:"compose_validation"`
-	Setup             SetupConfig `yaml:"setup"`
+	CaddyEditor       EditorBlock     `yaml:"caddy_editor"`
+	ComposeValidation EditorBlock     `yaml:"compose_validation"`
+	Setup             SetupConfig     `yaml:"setup"`
+	Retention         RetentionConfig `yaml:"retention"`
 
 	DataDir string `yaml:"data_dir"`
 
@@ -141,6 +142,17 @@ type SetupConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// RetentionConfig is the Tier-1 (SSH-only, SIGHUP-reloadable) audit-retention
+// block (plan §16.1). It bounds the events/audit table so it can never become
+// the disk-wedge that kills the write plane — while NEVER silently dropping a
+// security row (those are archived to NDJSON first, fail-closed).
+type RetentionConfig struct {
+	Interval      Duration `yaml:"interval"`        // how often the retention pass runs
+	EventsMaxAge  Duration `yaml:"events_max_age"`  // audit rows older than this are prunable
+	EventsMaxRows int      `yaml:"events_max_rows"` // hard cap on audit rows (oldest trimmed)
+	ArchiveMaxMB  int      `yaml:"archive_max_mb"`  // rotate the security-archive NDJSON past this
+}
+
 // String redacts the secret-bearing fields so a Config can never be logged in
 // the clear (plan §5.5 / §15 lint).
 func (c Config) String() string {
@@ -210,6 +222,18 @@ func applyDefaults(c *Config) {
 	}
 	if c.Monitor.MetricsRetention == 0 {
 		c.Monitor.MetricsRetention = Duration(7 * 24 * time.Hour)
+	}
+	if c.Retention.Interval == 0 {
+		c.Retention.Interval = Duration(6 * time.Hour)
+	}
+	if c.Retention.EventsMaxAge == 0 {
+		c.Retention.EventsMaxAge = Duration(365 * 24 * time.Hour)
+	}
+	if c.Retention.EventsMaxRows == 0 {
+		c.Retention.EventsMaxRows = 200_000
+	}
+	if c.Retention.ArchiveMaxMB == 0 {
+		c.Retention.ArchiveMaxMB = 64
 	}
 }
 
@@ -425,6 +449,20 @@ func (c *Config) Validate() error {
 	}
 	if c.ComposeValidation.Mode != EditorStrict && c.ComposeValidation.Mode != EditorReview {
 		add("compose_validation.mode: must be strict or review")
+	}
+
+	// --- retention (Tier-1; plan §16.1) ---
+	if c.Retention.Interval.D() < time.Minute {
+		add("retention.interval: must be >= 1m (got %s)", c.Retention.Interval.D())
+	}
+	if c.Retention.EventsMaxAge.D() < 24*time.Hour {
+		add("retention.events_max_age: must be >= 24h so audit history is not lost (got %s)", c.Retention.EventsMaxAge.D())
+	}
+	if c.Retention.EventsMaxRows < 1000 {
+		add("retention.events_max_rows: must be >= 1000 (got %d)", c.Retention.EventsMaxRows)
+	}
+	if c.Retention.ArchiveMaxMB < 1 {
+		add("retention.archive_max_mb: must be >= 1 (got %d)", c.Retention.ArchiveMaxMB)
 	}
 
 	if len(errs) > 0 {

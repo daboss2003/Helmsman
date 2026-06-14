@@ -20,9 +20,9 @@
   <section class="panel">
     <h2>Apps <span class="muted">({{len .Apps}})</span></h2>
     {{if .Apps}}
-    <div class="tiles">
-      {{range .Apps}}
-      <a class="tile {{if .Degraded}}tile-degraded{{else}}tile-ok{{end}}" href="/apps/{{pathEscape .Project}}">
+    <div class="tiles" data-tile-grid>
+      {{range $.OrderedApps}}
+      <a class="tile {{if .Degraded}}tile-degraded{{else}}tile-ok{{end}}" href="/apps/{{pathEscape .Project}}" draggable="true" data-project="{{.Project}}">
         <div class="tile-name">{{.DisplayName}}{{if .Rich}} <span class="badge">RICH</span>{{end}}</div>
         <div class="tile-stat">{{.UpCount}}/{{.Total}} up</div>
       </a>

@@ -101,6 +101,52 @@
     });
   }
 
+  // Draggable tile grid (M7). Tiles carry data-project; on drop we persist the
+  // new order to the server (CSRF via header). Delegated so it survives the live
+  // poll re-render. Dragging never navigates (we cancel the click after a drag).
+  var dragEl = null;
+  var didDrag = false;
+  document.addEventListener("dragstart", function (e) {
+    var tile = e.target.closest ? e.target.closest(".tile[data-project]") : null;
+    if (!tile) return;
+    dragEl = tile;
+    didDrag = true;
+    try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", tile.getAttribute("data-project")); } catch (_) {}
+  });
+  document.addEventListener("dragover", function (e) {
+    if (!dragEl) return;
+    var grid = dragEl.parentNode;
+    var over = e.target.closest ? e.target.closest(".tile[data-project]") : null;
+    if (!over || over === dragEl || over.parentNode !== grid) return;
+    e.preventDefault();
+    var tiles = Array.prototype.slice.call(grid.children);
+    if (tiles.indexOf(dragEl) < tiles.indexOf(over)) grid.insertBefore(dragEl, over.nextSibling);
+    else grid.insertBefore(dragEl, over);
+  });
+  document.addEventListener("drop", function (e) {
+    if (!dragEl) return;
+    e.preventDefault();
+    var grid = dragEl.parentNode;
+    dragEl = null;
+    var order = Array.prototype.map.call(grid.querySelectorAll(".tile[data-project]"), function (t) {
+      return t.getAttribute("data-project");
+    }).join(",");
+    var body = new URLSearchParams(); body.set("order", order);
+    fetch("/settings/tile-order", {
+      method: "POST", credentials: "same-origin",
+      headers: { "X-CSRF-Token": token, "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    }).catch(function () {});
+  });
+  // Swallow the click that fires at the end of a drag so a reorder doesn't also
+  // navigate into the app.
+  document.addEventListener("click", function (e) {
+    if (!didDrag) return;
+    didDrag = false;
+    var tile = e.target.closest ? e.target.closest(".tile[data-project]") : null;
+    if (tile) { e.preventDefault(); }
+  }, true);
+
   // Lightweight live refresh: any element with data-poll-url is periodically
   // refreshed by fetching that fragment and swapping its innerHTML. Same-origin,
   // GET-only, cookie-authenticated; CSP-safe (this file is script-src 'self').

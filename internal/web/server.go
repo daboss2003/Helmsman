@@ -204,6 +204,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /logout", capBody(loginBodyLimit, s.requireCSRF(s.handleLogout)))
 
 	// Static assets (behind the allowlist, but no auth — the login page needs CSS).
+	// The operator theme overlay (M7) is a more-specific route that takes
+	// precedence over the embedded FileServer; it reads a fixed data-dir file.
+	mux.HandleFunc("GET /static/theme.css", s.handleThemeCSS)
 	staticFS, _ := fs.Sub(embeddedAssets, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheControl(http.FileServer(http.FS(staticFS)))))
 
@@ -245,6 +248,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/git/deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitDeploy))))
 	mux.HandleFunc("POST /apps/{project}/git/webhook-rotate", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitWebhookRotate))))
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
+	// Operator UI prefs (M7): persisted tile order. UI-only, never Tier-1.
+	mux.HandleFunc("POST /settings/tile-order", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleTileOrder))))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.
 	// (auth + CSRF are applied per-route inside the mux.)
