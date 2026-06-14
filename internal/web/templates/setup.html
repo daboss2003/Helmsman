@@ -1,0 +1,76 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+{{with .Setup}}
+  <p><a href="/apps/{{pathEscape .Project}}">← {{.Project}}</a></p>
+  <h1>Setup script — {{.Project}} <span class="badge">Mode 3 · advanced</span></h1>
+  <div class="error" role="alert">
+    ⚠ A setup script runs operator-supplied code. Helmsman runs it ONLY in a throwaway, unprivileged,
+    no-network, no-docker.sock, read-only jail whose posture is self-tested before every run, and treats
+    all output as hostile data. It still bootstraps an APP only — it can never stand up the edge or reach
+    the host. Off by default.
+  </div>
+  {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
+
+  <section class="panel">
+    <h2>Status</h2>
+    <table class="grid"><tbody>
+      <tr><td>setup.enabled (config)</td><td>{{if .Enabled}}<span class="health-healthy">enabled</span>{{else}}<span class="muted">disabled — set setup.enabled over SSH to run</span>{{end}}</td></tr>
+      <tr><td>Sandbox backend</td><td>{{if .Available}}<span class="health-healthy">available</span>{{else}}<span class="health-unhealthy">unavailable</span> — {{.Unavailable}}{{end}}</td></tr>
+      {{if .WriteDisabled}}<tr><td>Write plane</td><td class="health-unhealthy">{{.WriteDisabled}}</td></tr>{{end}}
+      {{if .Checksum}}<tr><td>Script checksum</td><td class="mono">{{.Checksum}}</td></tr>{{end}}
+    </tbody></table>
+  </section>
+
+  <section class="panel">
+    <h2>Script</h2>
+    <form method="post" action="/apps/{{pathEscape .Project}}/setup" class="stack">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <label>Script <span class="muted">(runs with /bin/sh in the jail)</span>
+        <textarea name="script" rows="12" class="mono" spellcheck="false" placeholder="#!/bin/sh&#10;# bootstrap app config/secrets into /work">{{.Script}}</textarea></label>
+      <label>Trigger
+        <select name="trigger">
+          <option value="never" {{if eq .Trigger "never"}}selected{{end}}>never</option>
+          <option value="on_demand" {{if eq .Trigger "on_demand"}}selected{{end}}>on_demand</option>
+          <option value="on_first_deploy" {{if eq .Trigger "on_first_deploy"}}selected{{end}}>on_first_deploy</option>
+          <option value="before_each_deploy" {{if eq .Trigger "before_each_deploy"}}selected{{end}}>before_each_deploy</option>
+        </select></label>
+      <label>Produces <span class="muted">(one per line: <code>env:NAME</code> or <code>file:relpath</code> — only declared outputs are captured)</span>
+        <textarea name="produces" rows="3" class="mono" spellcheck="false" placeholder="env:DB_PASSWORD&#10;file:certs/tls.pem">{{.Produces}}</textarea></label>
+      <div class="queue-actions">
+        <button type="submit">Save script</button>
+        <form method="post" action="/apps/{{pathEscape .Project}}/setup/delete" class="inline" data-confirm="Delete the setup script for {{.Project}}?">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button type="submit" class="link">delete</button>
+        </form>
+      </div>
+    </form>
+  </section>
+
+  {{if .PlanFindings}}
+  <section class="panel">
+    <h2>Static analysis <span class="muted">(no execution)</span></h2>
+    <ul>{{range .PlanFindings}}<li>{{.}}</li>{{end}}</ul>
+  </section>
+  {{end}}
+
+  {{if .ConfirmToken}}
+  <section class="panel">
+    <h2>Run in the sandbox</h2>
+    <p class="muted">This executes the script above in the jail. The sandbox posture is self-tested
+      immediately before the run; if any assertion fails, nothing runs. Type the app id to confirm.</p>
+    <form method="post" action="/apps/{{pathEscape .Project}}/setup/run" class="stack" data-confirm="Run the setup script for {{.Project}} in the sandbox?">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <input type="hidden" name="confirm_token" value="{{.ConfirmToken}}">
+      <label>Type the app id (<code>{{.Project}}</code>) to confirm
+        <input type="text" name="confirm_app_id" autocomplete="off" placeholder="{{.Project}}"></label>
+      <button type="submit">Run setup script</button>
+    </form>
+  </section>
+  {{else if .Script}}
+  <p class="muted">Running is unavailable (see Status above). Authoring is always allowed; a run needs
+    setup.enabled + a working sandbox + the write plane armed.</p>
+  {{end}}
+{{end}}
+</main>
+{{template "bottom" .}}

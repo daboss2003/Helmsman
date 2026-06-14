@@ -28,6 +28,7 @@ import (
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/provstore"
 	"github.com/helmsman/helmsman/internal/session"
+	"github.com/helmsman/helmsman/internal/setupstore"
 	"github.com/helmsman/helmsman/internal/store"
 )
 
@@ -72,6 +73,8 @@ type Deps struct {
 	CfgStore   *cfgstore.Store
 	GitStore   *gitstore.Store
 	ProvStore  *provstore.Store
+	SetupStore *setupstore.Store
+	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
@@ -94,6 +97,9 @@ type Server struct {
 	cfgStore     *cfgstore.Store       // managed config files + cert bindings (may be nil)
 	gitStore     *gitstore.Store       // repo-path GitOps (may be nil)
 	provStore    *provstore.Store      // provisioned apps (modes 1/2; may be nil)
+	setupStore   *setupstore.Store     // setup scripts (Mode 3; may be nil)
+	dockerSem    *dockerexec.Semaphore // global one-docker-child semaphore (may be nil)
+	setupConfirm *confirmStore         // single-use setup confirm tokens
 	webhookRL    *rateLimiter          // per-token webhook rate limit
 	webhookSeen  *nonceCache           // webhook replay (timestamp+nonce) defense
 	webhookFlash *tokenFlash           // one-time rotated-token hand-off (never in URL)
@@ -131,6 +137,9 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		cfgStore:     d.CfgStore,
 		gitStore:     d.GitStore,
 		provStore:    d.ProvStore,
+		setupStore:   d.SetupStore,
+		dockerSem:    d.DockerSem,
+		setupConfirm: newConfirmStore(5 * time.Minute),
 		webhookRL:    newRateLimiter(30, time.Minute),
 		webhookSeen:  newNonceCache(webhookNonceTTL),
 		webhookFlash: newTokenFlash(2 * time.Minute),
@@ -250,6 +259,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/new/commit", capBody(1<<20, s.requireAuth(s.requireCSRF(s.handleProvisionCommit))))
 	mux.HandleFunc("POST /apps/{project}/provision-deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleProvisionDeploy))))
 	mux.HandleFunc("POST /apps/{project}/provision-delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleProvisionDelete))))
+	// Setup-script sandbox (M9, Mode 3 — OFF by default, hard-gated). The run is
+	// confirm-token-gated and fail-closed; it never runs from an auto path.
+	mux.HandleFunc("GET /apps/{project}/setup", s.requireAuth(s.withCSRFToken(s.handleSetupGet)))
+	mux.HandleFunc("POST /apps/{project}/setup", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleSetupSave))))
+	mux.HandleFunc("POST /apps/{project}/setup/plan", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleSetupPlan))))
+	mux.HandleFunc("POST /apps/{project}/setup/run", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSetupRun))))
+	mux.HandleFunc("POST /apps/{project}/setup/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSetupDelete))))
 	// Repo-path GitOps (M6).
 	mux.HandleFunc("GET /git/new", s.requireAuth(s.withCSRFToken(s.handleGitNew)))
 	mux.HandleFunc("POST /git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitSave))))

@@ -24,6 +24,8 @@ import (
 	"github.com/helmsman/helmsman/internal/provision"
 	"github.com/helmsman/helmsman/internal/provstore"
 	"github.com/helmsman/helmsman/internal/retention"
+	"github.com/helmsman/helmsman/internal/sandbox"
+	"github.com/helmsman/helmsman/internal/setupstore"
 	"github.com/helmsman/helmsman/internal/store"
 	"github.com/helmsman/helmsman/internal/web"
 )
@@ -96,7 +98,20 @@ func cmdServe(args []string) error {
 	} else if writeReason != "" {
 		log.Info("write plane armed", "note", writeReason)
 	}
-	runner := dockerexec.NewRunner(dockerexec.NewSemaphore(), writeAllowed, writeReason)
+	// The global one-docker-child semaphore is SHARED by the write-plane runner and
+	// the setup sandbox (plan §4: one docker child across poller+deploy+sandbox).
+	dockerSem := dockerexec.NewSemaphore()
+	runner := dockerexec.NewRunner(dockerSem, writeAllowed, writeReason)
+
+	// Setup sandbox (M9, Mode 3 — OFF by default, hard-gated). Fail-closed boot
+	// precondition: if setup is enabled the host MUST provide a working sandbox
+	// (plan §5.1) or we refuse to boot.
+	setupStore := setupstore.New(db, cipher)
+	if cfg.Setup.Enabled {
+		if ok, why := sandbox.Available(); !ok {
+			return fmt.Errorf("setup.enabled but no working sandbox: %s", why)
+		}
+	}
 
 	// Audit/events retention (M7, plan §16.1): bounds the events table so it can
 	// never wedge the disk, while NEVER silently dropping a security row. Joined
@@ -118,6 +133,8 @@ func cmdServe(args []string) error {
 		CfgStore:   cfgStore,
 		GitStore:   gitStore,
 		ProvStore:  provStore,
+		SetupStore: setupStore,
+		DockerSem:  dockerSem,
 	})
 	if err != nil {
 		return err

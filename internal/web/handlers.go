@@ -46,7 +46,8 @@ type tmplData struct {
 	ManagedFiles []configFileView
 	CertBindings []certBindingView
 
-	Git *gitView
+	Git   *gitView
+	Setup *setupView
 
 	// Audit-log viewer filters + pagination (M7).
 	EventLevel    string

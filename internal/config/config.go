@@ -137,9 +137,21 @@ type EditorBlock struct {
 	Mode EditorMode `yaml:"mode"`
 }
 
-// SetupConfig gates the setup-script sandbox (plan §7, off by default).
+// SetupConfig gates the Mode-3 setup-script sandbox (plan §7/§9, OFF by default,
+// hard-gated). When enabled, scripts run in a throwaway jail with the limits
+// below; the binary refuses to boot if the host can't provide a working sandbox
+// (plan §5.1), and a live self-test runs before EVERY execution.
 type SetupConfig struct {
 	Enabled bool `yaml:"enabled"`
+	// Image is the digest-pinned jail base image (the throwaway container backend).
+	Image string `yaml:"image"`
+	// Resource limits — counted against the global one-docker-child semaphore.
+	WallClock   Duration `yaml:"wall_clock"`    // hard wall-clock timeout
+	CPUs        string   `yaml:"cpus"`          // docker --cpus value, e.g. "1.0"
+	MemoryMB    int      `yaml:"memory_mb"`     // hard memory cap (MemorySwapMax=0)
+	PidsLimit   int      `yaml:"pids_limit"`    // max processes
+	ScratchMB   int      `yaml:"scratch_mb"`    // writable scratch quota
+	OutputCapKB int      `yaml:"output_cap_kb"` // captured stdout/stderr cap
 }
 
 // RetentionConfig is the Tier-1 (SSH-only, SIGHUP-reloadable) audit-retention
@@ -234,6 +246,25 @@ func applyDefaults(c *Config) {
 	}
 	if c.Retention.ArchiveMaxMB == 0 {
 		c.Retention.ArchiveMaxMB = 64
+	}
+	// Setup-sandbox defaults (only meaningful when setup.enabled).
+	if c.Setup.WallClock == 0 {
+		c.Setup.WallClock = Duration(5 * time.Minute)
+	}
+	if c.Setup.CPUs == "" {
+		c.Setup.CPUs = "1.0"
+	}
+	if c.Setup.MemoryMB == 0 {
+		c.Setup.MemoryMB = 512
+	}
+	if c.Setup.PidsLimit == 0 {
+		c.Setup.PidsLimit = 256
+	}
+	if c.Setup.ScratchMB == 0 {
+		c.Setup.ScratchMB = 512
+	}
+	if c.Setup.OutputCapKB == 0 {
+		c.Setup.OutputCapKB = 256
 	}
 }
 
@@ -449,6 +480,30 @@ func (c *Config) Validate() error {
 	}
 	if c.ComposeValidation.Mode != EditorStrict && c.ComposeValidation.Mode != EditorReview {
 		add("compose_validation.mode: must be strict or review")
+	}
+
+	// --- setup sandbox (Mode 3; plan §7/§9, hard-gated) ---
+	if c.Setup.Enabled {
+		// A digest-pinned jail image is mandatory (no mutable :tag for the thing
+		// that runs hostile scripts).
+		if !strings.Contains(c.Setup.Image, "@sha256:") {
+			add("setup.image: must be digest-pinned (name@sha256:...) when setup.enabled")
+		}
+		if c.Setup.WallClock.D() < time.Second || c.Setup.WallClock.D() > time.Hour {
+			add("setup.wall_clock: must be between 1s and 1h")
+		}
+		if c.Setup.MemoryMB < 16 || c.Setup.MemoryMB > 8192 {
+			add("setup.memory_mb: must be between 16 and 8192")
+		}
+		if c.Setup.PidsLimit < 1 || c.Setup.PidsLimit > 4096 {
+			add("setup.pids_limit: must be between 1 and 4096")
+		}
+		if c.Setup.ScratchMB < 1 {
+			add("setup.scratch_mb: must be >= 1")
+		}
+		if c.Setup.OutputCapKB < 1 {
+			add("setup.output_cap_kb: must be >= 1")
+		}
 	}
 
 	// --- retention (Tier-1; plan §16.1) ---
