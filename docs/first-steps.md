@@ -17,7 +17,9 @@ ssh -L 9000:127.0.0.1:9000 operator@your-host
 
 Sign in with the `operator` username and the password you hashed during [installation](./installation.md) (plus your TOTP code if you enabled it).
 
-> Later, you can front the dashboard through the edge by setting `admin.hostname` — it stays behind the IP allowlist and HTTPS. The SSH tunnel always remains as the recovery floor.
+> **From here on, the dashboard is your control surface.** You used SSH once at [install](./installation.md) for the root of trust (the master key + password); day-to-day — apps, secrets, edge routes, repos, scaling, alerts — is all done in the browser. (A couple of advanced/bulk operations have optional CLI equivalents, called out where they apply.)
+>
+> Later you can front the dashboard through the edge by setting `admin.hostname` (it stays behind the IP allowlist and HTTPS), so you don't even need the tunnel. The SSH tunnel always remains as the recovery floor.
 
 You'll land on **Overview**: host CPU/memory/disk, a live tile per app, and (once apps exist) their health. Nothing is here yet — let's fix that.
 
@@ -25,12 +27,12 @@ You'll land on **Overview**: host CPU/memory/disk, a live tile per app, and (onc
 
 ## 2. Deploy your first app (dashboard)
 
-Click **New app**. You have two ways in, both of which converge on the *same* validated, gated write path:
+There are two ways to add an app, and **you never paste raw Docker/compose** — Helmsman *owns* the compose and generates it for you, so a dangerous key (`privileged`, `cap_add`, host namespaces) is literally not expressible:
 
-- **Guided form (Mode 1)** — fill a typed form; Helmsman generates the compose deterministically from a vetted template. No form input can ever emit `privileged`, `cap_add`, or host namespaces. *Recommended for a new stack.*
-- **Paste existing (Mode 2)** — paste an existing `docker-compose.yml`. Helmsman runs it through a **validating importer** (not an interpreter): size-capped, `${VAR}` resolved first, with line-anchored rejections for anything unsafe.
+- **Guided form** — click **New app**, fill a typed form (image, ports, volumes, env). Helmsman generates the compose deterministically from a vetted template. *Recommended for a new stack.*
+- **Connect a git repo** — for a repo-backed app, click **Connect repo** instead (see step 5). Helmsman reads the compose from your repository.
 
-Then:
+This page uses the guided form. Click **New app**, fill it in, then:
 
 1. **Validate** — click *Validate* for a dry, read-plane preview. Your bytes go through the **§5.6 chokepoint** (the one validator every path shares) and the edge-conflict gate. Nothing is written. Fix anything it flags.
 2. **Commit** — Helmsman writes the app's files atomically and records it as a provisioned app.
@@ -44,17 +46,11 @@ When it's up, the app appears on **Overview** with a live health tile and a per-
 
 ## 3. Set a secret
 
-Never put plaintext credentials in compose or env. Helmsman uses **secrets by reference**: you declare a name in config and provide the value out-of-band, encrypted at rest (AES-256-GCM) and shown only via an audited reveal.
+Never put plaintext credentials in compose or env. Helmsman uses **secrets by reference**: you set a value in the dashboard, it's encrypted at rest (AES-256-GCM), and it's rendered into the app's live `.env` at deploy and shown only via an audited reveal.
 
-**From the dashboard:** open your app → **Env** → add a write-only secret value. It's masked immediately and rendered into the app's live `.env` on the next deploy.
+Open your app → **Env** → add a write-only secret value. It's masked immediately. Add your literal (non-secret) env there too. That's it — no files, no SSH.
 
-**From the CLI** (values read from the file, never argv):
-
-```bash
-helmsman secret import --slug my-app --from ./prod.env
-```
-
-The importer classifies each key, **hard-stops** if a value looks like a literal secret that should be by-reference, diffs against what's stored, and ingests by reference. Your uploaded file is an *import source* — never the live file Helmsman runs. See [Env import-and-own](./env-import.md) and [Config files & secrets](./config-files-and-secrets.md).
+> **Optional — bulk import a `.env` over SSH.** If you already have a big `.env`, `helmsman secret import --slug my-app --from ./prod.env` ingests it (classifying each key, hard-stopping on literal secrets that should be by-reference). It's a convenience for the first big import — the dashboard is the day-to-day surface. See [Env import-and-own](./env-import.md) and [Config files & secrets](./config-files-and-secrets.md).
 
 ---
 
@@ -71,18 +67,31 @@ Save. Helmsman re-renders the **whole** edge config from typed structs (you neve
 
 ---
 
-## 5. Optional: the declarative path (`helmsman.yaml`)
+## 5. Run from a git repo (connect once — no webhook setup)
 
-The dashboard is one front door; the definition file is the other, and they're the *same trust path*. `helmsman.yaml` is the **source of truth** for an app's managed surface — and the **dashboard writes back to it** on every change, so the file and live state never drift.
+For a repo-backed app, click **Connect repo** in the dashboard and give it:
 
-Author it in your repo and validate it from the CLI (read-plane, safe in CI):
+- the **repository URL** and **branch**,
+- the **path to your compose** in the repo (e.g. `docker-compose.yml`),
+- for a private repo, a **deploy key or token** (the form shows you what it needs).
+
+That's the whole setup. **You don't register a webhook or hand it a config file** — Helmsman checks each connected repo for new commits on its own (it fetches on a cadence in the background). When a new commit lands you see an **"update available"** with a diff; click **Deploy** to ship that exact reviewed commit (sha-pinned). Prefer hands-off? Turn on **auto-deploy** and Helmsman ships clean fast-forward updates for you.
+
+> Want *instant* deploys instead of waiting for the next check? There's an optional webhook you can add — but it's not required; connecting the repo is enough.
+
+This is the "I just connected it online and it works" flow — no SSH, no webhook plumbing.
+
+---
+
+## 6. Optional: author `helmsman.yaml` directly
+
+Everything above is stored in a per-app `helmsman.yaml` that the **dashboard writes for you** — you never have to touch it. But it *is* the source of truth, so you can also author it in your repo and let the dashboard manage it from there (the file and live state never drift; the dashboard writes back on every change).
+
+If you go this route, two read-plane CLI helpers exist (safe in CI, no writes):
 
 ```bash
-# Scaffold one from an existing compose:
-helmsman init --from-compose ./docker-compose.yml > helmsman.yaml
-
-# Validate it through the same §5.6 + edge-conflict chokepoints (no DB, no writes):
-helmsman validate ./helmsman.yaml
+helmsman init --from-compose ./docker-compose.yml > helmsman.yaml  # scaffold one
+helmsman validate ./helmsman.yaml                                   # check it
 ```
 
 A minimal example:
@@ -111,8 +120,6 @@ spec:
 ```
 
 Three rules to internalize: **unknown keys are a hard reject**, **secrets are by reference only** (the file is safe to commit), and a reference resolves **only within its own app's namespace**. Full schema, the 3-way merge, conflict review, and rollback are in the [definition file reference](./definition-file.md).
-
-For repo-backed apps, connect the repo and let Helmsman **auto-fetch** new commits while keeping every **deploy manual and sha-pinned** — see [Git integration & GitOps](./gitops.md).
 
 ---
 

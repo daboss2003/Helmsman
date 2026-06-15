@@ -296,18 +296,17 @@ On an undersized box the default **stays** `managed` (the edge runs in its memor
 
 ### Provisioning modes
 
-All four converge on the same stored artifacts and the same §5.6 chokepoint. See [./docs/provisioning.md](./docs/gitops.md).
+You configure apps **through Helmsman** — there is **no raw-compose/Dockerfile paste path**. Helmsman owns and generates the compose, so a dangerous key (`privileged`, `cap_add`, host namespaces) is not expressible. Every mode converges on the same stored artifacts and the same §5.6 chokepoint. See [the GitOps guide](./docs/gitops.md).
 
 | Mode | What it is | Notes |
 |---|---|---|
-| **1 — Guided form** | A typed form → compose generated deterministically from a vetted template via typed structs. | Recommended default for new stacks. No code path can emit `privileged`/`cap_add`/host namespaces; generated YAML is re-validated anyway. |
-| **2 — Paste existing** | A *validating importer* (not an interpreter) for an existing compose / Dockerfile. | Size-capped, `${VAR}` resolved first, line-anchored rejections. A pasted Dockerfile is scanned, not built here. |
-| **3 — Setup scripts** | Operator-supplied provisioning scripts that bootstrap *app* stacks (files + env + secrets — never the edge). | **OFF by default, ≥ 1 GB.** Designed assuming the script is hostile: a throwaway, no-`docker.sock`, network-restricted, resource-capped jail with one writable mount. Never auto-runs from git/webhook/boot. |
-| **4 — Repo-path GitOps** | Connect a repo and point at `compose_path`; Helmsman reads it from the object store. | **Recommended for repo-backed apps.** Auto-fetch + manual-deploy (see below). |
+| **Guided form** | A typed form → compose generated deterministically from a vetted template via typed structs. | Recommended default for new stacks. No code path can emit `privileged`/`cap_add`/host namespaces; generated YAML is re-validated anyway. |
+| **Connect a repo (GitOps)** | Connect a repo in the dashboard and point at `compose_path`; Helmsman reads the compose from the object store. | **Recommended for repo-backed apps.** Auto-fetch (no webhook needed) + manual or opt-in auto-deploy (see below). |
+| **Setup scripts** *(advanced)* | Operator-supplied provisioning scripts that bootstrap *app* stacks (files + env + secrets — never the edge). | **OFF by default, ≥ 1 GB.** Designed assuming the script is hostile: a throwaway, no-`docker.sock`, network-restricted, resource-capped jail with one writable mount. Never auto-runs from git/webhook/boot. |
 
-### GitOps: auto-fetch, manual-deploy
+### GitOps: connect once, auto-fetch, manual-deploy
 
-For Mode 4, a git event no longer auto-deploys. **Fetch** is automatic and read-plane: a webhook does *only* `git fetch` into a staged ref, computes "N commits behind" + a diff preview, sets `update_available`, and touches nothing live — so a CI push can never trigger a surprise on-box build (the old OOM vector). **Deploy** is manual, write-plane, and fully gated: you click Deploy, the live checkout advances to the **exact reviewed commit**, §5.6 re-validates *those bytes*, and the resource gate runs before `docker compose up/pull/build`. Full auto-deploy-on-push remains an explicit per-app opt-in (`auto_deploy`, default false) that simply auto-clicks the same gated promote path.
+You **connect a repo in the dashboard and you're done** — no webhook to register, no config file to hand it. **Fetch is automatic and read-plane:** Helmsman polls every connected repo on a cadence (default 2 min), does *only* `git fetch` into a staged ref, computes "N commits behind" + a diff preview, sets `update_available`, and touches nothing live — so a CI push can never trigger a surprise on-box build (the old OOM vector). **Deploy is manual, write-plane, and fully gated:** you click Deploy, the live checkout advances to the **exact reviewed commit**, §5.6 re-validates *those bytes*, and the resource gate runs before `docker compose up/pull/build`. Prefer hands-off? `auto_deploy` (default false) auto-clicks the same gated promote path for clean fast-forward updates. An **optional** webhook is available for *instant* fetches, but it is not required.
 
 ---
 

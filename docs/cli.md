@@ -2,6 +2,8 @@
 
 The `helmsman` binary is both the long-running server (the dashboard + managed edge) **and** a set of operator commands you run over SSH on the host. This page documents every command, what plane it touches (read vs write), how it relates to the dashboard, and the trust and parity guarantees that make the CLI safe to use as a first-class control surface.
 
+> **You rarely need this page.** The **dashboard is the day-to-day surface** — apps, secrets, edge routes, repos, scaling, and alerts are all managed there. The CLI exists for (a) the **install-time root of trust** (`gen-key`, `hash-password`, `gen-totp`, `verify-key` — secrets must be generated over SSH, never in a browser), and (b) **optional automation/bulk** helpers (`secret import`, `validate`, `init`, `token mint`) for people who want them. If you just want to run apps, you can stop after [installation](./installation.md) + [first steps](./first-steps.md).
+
 > **One-line mental model:** the CLI is not a back door around Helmsman's safety — it is a **second front door** onto the *same* reconciler. Everything you do with `helmsman apply`, `deploy`, `secret set`, etc. passes the **same single compose-validation chokepoint**, the **same edge-conflict gate**, the **same secure-by-default edge baseline**, the **same host-capacity guard**, and the **same fail-closed posture** the web UI does. The only thing the CLI skips is the *web transport* gates (IP allowlist, session, CSRF) — because it isn't on the web.
 
 See also: [README](../README.md) · [Configuration / root of trust](./architecture.md) · [Definition file (`helmsman.yaml`)](./definition-file.md) · [Managed edge](./edge-and-tls.md) · [Security model](./security.md).

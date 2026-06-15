@@ -183,9 +183,9 @@ In short: reviewing a diff from an attacker-controlled repo is a *read*, and it 
 
 ---
 
-## The webhook
+## The webhook (optional)
 
-The webhook lets your CI tell Helmsman "there is something new to fetch" without putting Helmsman's admin UI on the public internet.
+**You do not need a webhook.** By default Helmsman polls every connected repo on a cadence (`git.poll_interval`, default 2 min), so connecting a repo in the dashboard "just works" — change detection needs no provider setup. The webhook is an **optional** add-on for teams that want *instant* fetches instead of waiting for the next poll: it lets your CI tell Helmsman "there is something new to fetch" without putting Helmsman's admin UI on the public internet.
 
 ```
 POST /webhook/:token
