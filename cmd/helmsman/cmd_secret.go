@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 
 	"github.com/helmsman/helmsman/internal/config"
@@ -13,6 +14,8 @@ import (
 	"github.com/helmsman/helmsman/internal/envstore"
 	"github.com/helmsman/helmsman/internal/store"
 )
+
+var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 // cmdSecret is the SSH-only secret/env surface (values never on argv).
 func cmdSecret(args []string) error {
@@ -42,6 +45,9 @@ func cmdSecretImport(args []string) error {
 	}
 	if *slug == "" || *from == "" {
 		return fmt.Errorf("usage: helmsman secret import --slug <slug> --from <.env> [--confirm-rotations]")
+	}
+	if !slugRe.MatchString(*slug) {
+		return fmt.Errorf("slug must match [a-z][a-z0-9-]{1,30} (got %q)", *slug)
 	}
 
 	cfg, err := config.Load(*configPath)

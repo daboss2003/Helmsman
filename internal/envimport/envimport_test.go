@@ -35,6 +35,30 @@ func TestParseClassifiesBiasedToSecret(t *testing.T) {
 	}
 }
 
+// Regression (M17 review): secret shapes that previously slipped the classifier —
+// a 2-class 40-char token, a Stripe key, and a URL with inline credentials — all
+// classify as secret now, even with GENERIC keys (so the value lint is what catches).
+func TestParseCatchesPreviouslyMissedSecrets(t *testing.T) {
+	raw := []byte("GENERIC_VAL=AAAAAAAAAAAAAAAAAAAA1111111111111111111\n" +
+		"STRIPE_VAL=STRIPE_TEST_KEY_REMOVED\n" +
+		"DB_CONN=postgres://user:s3cretpw@db.example/app\n")
+	m := byKey(mustParse(t, raw))
+	for _, k := range []string{"GENERIC_VAL", "STRIPE_VAL", "DB_CONN"} {
+		if !m[k].Secret {
+			t.Errorf("%s must classify as secret (was a classification miss)", k)
+		}
+	}
+}
+
+func mustParse(t *testing.T, raw []byte) []Entry {
+	t.Helper()
+	e, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
 func TestParseHygiene(t *testing.T) {
 	cases := map[string][]byte{
 		"lowercase key": []byte("foo=bar\n"),

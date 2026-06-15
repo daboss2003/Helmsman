@@ -19,11 +19,19 @@ func LiteralSecretLint(body []byte) (string, bool) {
 			return "looks like a " + m.what + " — bind it as {{hm.secret:KEY}}", true
 		}
 	}
+	if urlCredsRe.MatchString(s) {
+		return "is a URL with inline credentials (scheme://user:pass@…) — bind the secret part as {{hm.secret:KEY}}", true
+	}
 	if highEntropyRun(s) {
 		return "contains a long high-entropy token — bind secrets as {{hm.secret:KEY}}", true
 	}
 	return "", false
 }
+
+// urlCredsRe matches a connection string carrying inline credentials
+// (scheme://user:password@host) — a DB/AMQP/Redis URL with an embedded password is
+// almost always a secret, even when it isn't high-entropy.
+var urlCredsRe = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`)
 
 var privKeyRe = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
 
@@ -35,11 +43,14 @@ var tokenMarkers = []struct{ needle, what string }{
 	{"xoxb-", "Slack token"},
 	{"xoxp-", "Slack token"},
 	{"eyJ", "JWT"},
+	{"sk_live_", "Stripe secret key"},
+	{"sk_test_", "Stripe secret key"},
 	{"-----BEGIN OPENSSH PRIVATE KEY-----", "SSH private key"},
 }
 
-// b64run matches a run of base64/hex-ish characters.
-var b64run = regexp.MustCompile(`[A-Za-z0-9+/=_-]{40,}`)
+// b64run matches a run of base64/hex-ish characters (32+ catches shorter 2-class
+// API/hex keys that a 40-char floor would miss).
+var b64run = regexp.MustCompile(`[A-Za-z0-9+/=_-]{32,}`)
 
 // highEntropyRun reports whether the body has a long token with mixed character
 // classes (a crude high-entropy signal for pasted credentials).
@@ -62,7 +73,9 @@ func highEntropyRun(s string) bool {
 				classes++
 			}
 		}
-		if classes >= 3 && len(tok) >= 40 {
+		// A 2-class token of 32+ chars (hex/base32 API keys, AWS STS, etc.) is as much
+		// a credential as a 3-class 40+ one — both are flagged.
+		if (classes >= 2 && len(tok) >= 32) || (classes >= 3 && len(tok) >= 40) {
 			return true
 		}
 	}
