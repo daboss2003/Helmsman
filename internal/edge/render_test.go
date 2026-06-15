@@ -82,6 +82,37 @@ func TestRenderRejectsWildcardHost(t *testing.T) {
 	}
 }
 
+// M14: a scaled route renders a least-conn pool with passive health checks, and
+// every pool member is validated (a control-plane member is refused).
+func TestRenderScaledPool(t *testing.T) {
+	out, err := Render(baseCfg(), []Route{
+		{Hostname: "app.example.com", Pool: []string{"app-web-1:8080", "app-web-2:8080", "app-web-3:8080"}, UpstreamScheme: "http", Enabled: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, want := range []string{"app-web-1:8080", "app-web-2:8080", "app-web-3:8080", "least_conn", "passive", "max_fails"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("scaled pool render missing %q:\n%s", want, s)
+		}
+	}
+	// A pool member targeting a control-plane port is refused (SBD-4 over the pool).
+	if _, err := Render(baseCfg(), []Route{
+		{Hostname: "x.example.com", Pool: []string{"app-web-1:8080", "127.0.0.1:9000"}, UpstreamScheme: "http", Enabled: true},
+	}); err == nil {
+		t.Error("a pool member targeting a control-plane port must be refused")
+	}
+}
+
+// A single-upstream route does NOT get LB/health-check blocks (no pool).
+func TestRenderSingleNoPoolMachinery(t *testing.T) {
+	out, _ := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true}})
+	if strings.Contains(string(out), "least_conn") || strings.Contains(string(out), "load_balancing") {
+		t.Error("a single upstream must not render pool load-balancing machinery")
+	}
+}
+
 // SBD-1: no admin vhost unless admin.hostname is set; when set it requires the IP
 // allowlist as a matcher and pins the loopback admin upstream.
 func TestRenderAdminVhostGating(t *testing.T) {

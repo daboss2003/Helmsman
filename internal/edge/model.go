@@ -49,13 +49,31 @@ type caddyRemoteIP struct {
 type caddyHandler struct {
 	Handler string `json:"handler"`
 	// reverse_proxy
-	Upstreams []caddyUpstream    `json:"upstreams,omitempty"`
-	Transport map[string]any     `json:"transport,omitempty"`
-	Headers   *caddyProxyHeaders `json:"headers,omitempty"`
+	Upstreams     []caddyUpstream     `json:"upstreams,omitempty"`
+	Transport     map[string]any      `json:"transport,omitempty"`
+	Headers       *caddyProxyHeaders  `json:"headers,omitempty"`
+	LoadBalancing *caddyLoadBalancing `json:"load_balancing,omitempty"`
+	HealthChecks  *caddyHealthChecks  `json:"health_checks,omitempty"`
 	// headers handler
 	Response *caddyHeaderOps `json:"response,omitempty"`
 	// static_response
 	StatusCode int `json:"status_code,omitempty"`
+}
+
+// caddyLoadBalancing selects across a replica pool (least_conn for M14 edge pools).
+type caddyLoadBalancing struct {
+	SelectionPolicy map[string]any `json:"selection_policy,omitempty"`
+}
+
+// caddyHealthChecks holds the passive health policy applied to a pool — a replica
+// that fails repeatedly is taken out until it recovers.
+type caddyHealthChecks struct {
+	Passive *caddyPassiveHealth `json:"passive,omitempty"`
+}
+
+type caddyPassiveHealth struct {
+	FailDuration string `json:"fail_duration,omitempty"`
+	MaxFails     int    `json:"max_fails,omitempty"`
 }
 
 type caddyUpstream struct {

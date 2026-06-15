@@ -33,8 +33,9 @@ type Route struct {
 	id              int64 // row id (RouteStore-managed)
 	AppID           string
 	Hostname        string
-	Upstream        string // host:port of the app endpoint
-	UpstreamScheme  string // http | https
+	Upstream        string   // host:port of the app endpoint (single-replica)
+	Pool            []string // host:port of each live replica (M14 auto-scaling); overrides Upstream when set
+	UpstreamScheme  string   // http | https
 	PathPrefix      string
 	RedirectHTTP    bool
 	HSTS            bool
@@ -53,6 +54,18 @@ type BaseConfig struct {
 	AdminUpstream  string   // the ONLY loopback upstream, identity-pinned (e.g. 127.0.0.1:9000)
 }
 
+// dials returns the upstream host:port set for this route: the live replica pool
+// when set (M14 auto-scaling), else the single upstream.
+func (r Route) dials() []string {
+	if len(r.Pool) > 0 {
+		return r.Pool
+	}
+	if r.Upstream != "" {
+		return []string{r.Upstream}
+	}
+	return nil
+}
+
 // ValidateRoute enforces every route-level safety rule (SBD-4). Returns the first
 // violation. A wildcard/catch-all hostname is rejected; an upstream targeting a
 // control-plane port or a loopback/link-local literal IP is rejected.
@@ -64,8 +77,12 @@ func ValidateRoute(r Route) error {
 	if r.UpstreamScheme != "http" && r.UpstreamScheme != "https" {
 		return fmt.Errorf("upstream_scheme must be http or https")
 	}
-	if err := validateUpstream(r.Upstream); err != nil {
-		return err
+	// Every dial — the single upstream AND every pool member — is validated, so a
+	// scaled replica can never resolve to a control-plane port either (SBD-4).
+	for _, d := range r.dials() {
+		if err := validateUpstream(d); err != nil {
+			return err
+		}
 	}
 	if r.PathPrefix != "" && (!pathRe.MatchString(r.PathPrefix) || strings.Contains(r.PathPrefix, "..")) {
 		return fmt.Errorf("path_prefix %q is invalid", r.PathPrefix)
@@ -171,10 +188,20 @@ func Render(base BaseConfig, routes []Route) ([]byte, error) {
 		if r.SecurityHeaders || r.HSTS {
 			handlers = append(handlers, caddyHandler{Handler: "headers", Response: &caddyHeaderOps{Set: securityHeaderBundle(r)}})
 		}
+		var ups []caddyUpstream
+		for _, d := range r.dials() {
+			ups = append(ups, caddyUpstream{Dial: d})
+		}
 		rp := caddyHandler{
 			Handler:   "reverse_proxy",
-			Upstreams: []caddyUpstream{{Dial: r.Upstream}},
+			Upstreams: ups,
 			Headers:   xffOverwrite(),
+		}
+		// A replica pool (M14): least-conn LB + passive health checks so a sick
+		// replica is taken out until it recovers. A single upstream needs neither.
+		if len(ups) > 1 {
+			rp.LoadBalancing = &caddyLoadBalancing{SelectionPolicy: map[string]any{"policy": "least_conn"}}
+			rp.HealthChecks = &caddyHealthChecks{Passive: &caddyPassiveHealth{FailDuration: "30s", MaxFails: 3}}
 		}
 		if r.UpstreamScheme == "https" {
 			rp.Transport = map[string]any{"protocol": "http", "tls": map[string]any{}}
