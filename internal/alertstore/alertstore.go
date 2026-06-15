@@ -91,6 +91,48 @@ func (s *Store) channel(id int64) (alert.Channel, error) {
 // ChannelByID builds a single channel (for the "send test" button).
 func (s *Store) ChannelByID(id int64) (alert.Channel, error) { return s.channel(id) }
 
+// AllChannels builds every enabled channel. Used for Helmsman-originated infra
+// alerts (plan §8.4), which are never deferred and route to all channels. A channel
+// that fails to build is skipped (a broken channel can't block the others).
+func (s *Store) AllChannels() ([]alert.Channel, error) {
+	rows, err := s.db.Query(`SELECT id FROM alert_channels WHERE enabled=1 ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var out []alert.Channel
+	for _, id := range ids {
+		if ch, err := s.channel(id); err == nil {
+			out = append(out, ch)
+		}
+	}
+	return out, nil
+}
+
+// EnqueueInfra appends a Helmsman-originated infra notification (rule_id=0 sentinel,
+// never deferred). It is deduped against pending rows so a re-paged condition each
+// tick can't pile up — at most one un-sent row per (dedupe_key, transition).
+func (s *Store) EnqueueInfra(ctx context.Context, o alert.Outbox) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO alert_outbox(rule_id, target, kind, level, transition, summary, dedupe_key, created_at)
+		 SELECT 0, ?, ?, ?, ?, ?, ?, ?
+		 WHERE NOT EXISTS (SELECT 1 FROM alert_outbox WHERE dedupe_key=? AND transition=? AND sent_at=0)`,
+		o.Target, o.Kind, o.Level, o.Transition, o.Summary, o.DedupeKey, time.Now().Unix(),
+		o.DedupeKey, o.Transition)
+	return err
+}
+
 // ChannelsForRule returns the channels a rule routes to (its channel_id, or all
 // enabled channels when channel_id is NULL/0).
 func (s *Store) ChannelsForRule(channelID int64) ([]alert.Channel, error) {

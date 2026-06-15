@@ -264,13 +264,22 @@ func Decide(prev FSM, o Observation, p Policy, now int64) Decision {
 		return Decision{Next: f, Act: ActPage, Kind: capKind(o), Reason: "remediation ladder exhausted"}
 	}
 
-	// Propose the rung. The watcher applies the four safety gates; only if they pass
-	// does it execute and commit this Next (attempt consumed, backoff armed).
+	// Propose the rung. The attempt is NOT consumed here: the watcher applies the
+	// four safety gates, and only if the action actually EXECUTES does it call
+	// CommitRemediation (attempt consumed, backoff armed). A gate-deferred action
+	// persists this Next as-is, so a deferral never burns an attempt.
 	f.Phase = Remediating
-	f.LastRung = rung
-	f.Attempts++
-	f.BackoffUntil = backoff(now, f.Attempts, p)
 	return Decision{Next: f, Act: ActRemediate, Rung: rung, Reason: "remediating: " + string(rung)}
+}
+
+// CommitRemediation advances the FSM after a rung has actually been executed: it
+// consumes an attempt, records the rung, and arms the backoff. The watcher calls
+// it ONLY when the safety gates passed and the action ran.
+func CommitRemediation(f FSM, rung Rung, p Policy, now int64) FSM {
+	f.Attempts++
+	f.LastRung = rung
+	f.BackoffUntil = backoff(now, f.Attempts, p)
+	return f
 }
 
 // capKind maps a capped failure to its can't-fix taxonomy kind (plan §8.4).

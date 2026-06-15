@@ -128,6 +128,17 @@ func (e *Engine) drain(ctx context.Context) {
 			e.store.MarkSent(ctx, row.ID, true, maxNotifyAttempts)
 			continue
 		}
+		// Helmsman-originated infra alert (plan §8.4): rule_id=0, NEVER deferred to an
+		// app and not tied to a rule/silence — route straight to ALL channels.
+		if row.RuleID == 0 {
+			channels, err := e.store.AllChannels()
+			if err != nil || len(channels) == 0 {
+				e.store.MarkSent(ctx, row.ID, false, maxNotifyAttempts)
+				continue
+			}
+			e.store.MarkSent(ctx, row.ID, e.sendAll(ctx, channels, e.render(row), row.Kind), maxNotifyAttempts)
+			continue
+		}
 		// Silenced (operator) → drop.
 		if e.store.IsSilenced(row.RuleID, row.Target, now.Unix()) {
 			e.store.MarkSent(ctx, row.ID, true, maxNotifyAttempts)
@@ -143,24 +154,28 @@ func (e *Engine) drain(ctx context.Context) {
 			e.store.MarkSent(ctx, row.ID, false, maxNotifyAttempts)
 			continue
 		}
-		n := e.render(row)
-		allOK := true
-		for _, ch := range channels {
-			sctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-			if err := ch.Send(sctx, n); err != nil {
-				allOK = false
-				e.log.Warn("alert: channel send failed", "kind", row.Kind, "err", err)
-			}
-			cancel()
-			// Global rate limit between sends (a slow channel can't spam-cannon).
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(e.cfg.NotifyMinInterval):
-			}
-		}
-		e.store.MarkSent(ctx, row.ID, allOK, maxNotifyAttempts)
+		e.store.MarkSent(ctx, row.ID, e.sendAll(ctx, channels, e.render(row), row.Kind), maxNotifyAttempts)
 	}
+}
+
+// sendAll delivers n to every channel, rate-limited between sends so a slow channel
+// can't spam-cannon the box. Returns whether every send succeeded.
+func (e *Engine) sendAll(ctx context.Context, channels []alert.Channel, n alert.Notification, kind string) bool {
+	allOK := true
+	for _, ch := range channels {
+		sctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+		if err := ch.Send(sctx, n); err != nil {
+			allOK = false
+			e.log.Warn("alert: channel send failed", "kind", kind, "err", err)
+		}
+		cancel()
+		select {
+		case <-ctx.Done():
+			return allOK
+		case <-time.After(e.cfg.NotifyMinInterval):
+		}
+	}
+	return allOK
 }
 
 func (e *Engine) render(row alertstore.OutboxRow) alert.Notification {

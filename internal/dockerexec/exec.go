@@ -130,7 +130,21 @@ func (r *Runner) Run(ctx context.Context, job Job, onLine func(string)) error {
 		return err
 	}
 	defer r.sem.Release()
+	return r.runHeld(ctx, job, onLine)
+}
 
+// RunHeld is Run for a caller that ALREADY HOLDS the one-docker-child semaphore
+// (the self-healing supervisor, which acquires it non-blocking via its safety gate
+// so it never queues a docker child). It must not be called without holding the
+// semaphore.
+func (r *Runner) RunHeld(ctx context.Context, job Job, onLine func(string)) error {
+	if !r.writeAllowed {
+		return ErrWritePlaneDisabled
+	}
+	return r.runHeld(ctx, job, onLine)
+}
+
+func (r *Runner) runHeld(ctx context.Context, job Job, onLine func(string)) error {
 	cmd := exec.CommandContext(ctx, r.binary, job.argv()...)
 	cmd.Dir = job.Dir
 	cmd.Env = minimalEnv()

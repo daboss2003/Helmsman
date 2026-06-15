@@ -71,6 +71,7 @@ type ContainerInspect struct {
 		Status     string `json:"Status"`
 		Running    bool   `json:"Running"`
 		ExitCode   int    `json:"ExitCode"`
+		OOMKilled  bool   `json:"OOMKilled"`
 		StartedAt  string `json:"StartedAt"`
 		FinishedAt string `json:"FinishedAt"`
 		Health     *struct {

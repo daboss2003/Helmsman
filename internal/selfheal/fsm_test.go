@@ -14,6 +14,16 @@ var down = Observation{Running: false, ExitCode: 1}
 var healthy = Observation{Running: true, Health: "healthy"}
 var unhealthy = Observation{Running: true, Health: "unhealthy"}
 
+// step simulates one watcher tick: Decide, and (when a remediation is proposed and
+// would pass its gates) commit the attempt — i.e. the action actually executed.
+func step(prev FSM, o Observation, p Policy, now int64) Decision {
+	d := Decide(prev, o, p, now)
+	if d.Act == ActRemediate {
+		d.Next = CommitRemediation(d.Next, d.Rung, p, now)
+	}
+	return d
+}
+
 func TestHealthyStaysHealthyNoAction(t *testing.T) {
 	d := Decide(FSM{Phase: Healthy}, healthy, testPolicy(), 0)
 	if d.Act != ActNone || d.Next.Phase != Healthy {
@@ -53,8 +63,14 @@ func TestSustainWindowBeforeActing(t *testing.T) {
 	if d.Act != ActRemediate || d.Rung != RungRestart {
 		t.Fatalf("sustained failure should remediate with restart, got act=%s rung=%s", d.Act, d.Rung)
 	}
-	if d.Next.Attempts != 1 || d.Next.BackoffUntil <= 10 {
-		t.Errorf("a remediation must consume an attempt and arm backoff, got attempts=%d backoff=%d", d.Next.Attempts, d.Next.BackoffUntil)
+	// Decide must NOT consume the attempt (a deferred action mustn't burn the budget).
+	if d.Next.Attempts != 0 {
+		t.Errorf("Decide must not consume an attempt before the action executes, got %d", d.Next.Attempts)
+	}
+	// The watcher commits the attempt only after the gates pass and the rung runs.
+	committed := CommitRemediation(d.Next, d.Rung, p, 10)
+	if committed.Attempts != 1 || committed.BackoffUntil <= 10 || committed.LastRung != RungRestart {
+		t.Errorf("CommitRemediation must consume an attempt + arm backoff, got %+v", committed)
 	}
 }
 
@@ -69,9 +85,9 @@ func TestBackoffHoldsBetweenAttempts(t *testing.T) {
 
 func TestLadderEscalatesThenCircuitOpens(t *testing.T) {
 	p := testPolicy() // RedeployEnabled=false → ladder tops out at recreate
-	// After restart, past backoff → recreate.
+	// After restart, past backoff → recreate (and the watcher executes it).
 	f := FSM{Phase: Degraded, UnhealthyStreak: 3, Attempts: 1, LastRung: RungRestart, BackoffUntil: 40, WindowStart: 1, DegradedSince: 0}
-	d := Decide(f, down, p, 100)
+	d := step(f, down, p, 100)
 	if d.Act != ActRemediate || d.Rung != RungRecreate {
 		t.Fatalf("second rung should be recreate, got act=%s rung=%s", d.Act, d.Rung)
 	}

@@ -30,6 +30,8 @@ type ServiceStatus struct {
 	MemBytes     uint64
 	MemLimit     uint64
 	RestartCount int
+	ExitCode     int  // last exit code (137 ≈ OOM/at-limit kill — used by the supervisor)
+	OOMKilled    bool // the container's last stop was an OOM kill
 	StatusText   string
 }
 
@@ -224,6 +226,8 @@ func (m *Monitor) pollOnce(parent context.Context) *Snapshot {
 		if ci, err := m.cli.InspectContainer(ctx, c.ID); err == nil {
 			svc.RestartCount = ci.RestartCount
 			svc.Health = ci.HealthStatus()
+			svc.ExitCode = ci.State.ExitCode
+			svc.OOMKilled = ci.State.OOMKilled
 		}
 		if c.State == "running" {
 			if st, err := m.cli.StatsOneShot(ctx, c.ID); err == nil {
