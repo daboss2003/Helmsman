@@ -8,6 +8,7 @@ import (
 
 	"github.com/helmsman/helmsman/internal/apitoken"
 	"github.com/helmsman/helmsman/internal/audit"
+	"github.com/helmsman/helmsman/internal/crypto"
 )
 
 // The scoped machine API (/api/v1, plan §17.1) is a SEPARATE auth surface from the
@@ -81,17 +82,26 @@ func (s *Server) requireToken(scopeFn func(*http.Request) string, h http.Handler
 		}
 		rec, err := s.apiTokens.Get(r.Context(), id)
 		if err != nil {
-			// ErrNotFound and any store error look identical to a wrong secret.
+			// ErrNotFound and any store error must be INDISTINGUISHABLE from a wrong
+			// secret — including by latency. Pay one decoy argon2id verify (same params
+			// a real token uses) so a present-and-active id can't be told from an
+			// unknown/expired/revoked one by timing (mirrors the login dummy-hash
+			// parity; M19 review). VerifySecret itself always runs argon2 before the
+			// active check, so expired/revoked existing ids cost the same too.
+			s.apiVerifySem <- struct{}{}
+			_, _ = crypto.VerifyPassword(s.apiDummyHash, []byte(secret))
+			<-s.apiVerifySem
 			s.auditAPI(r, id, audit.Deny, "unknown token")
 			apiErr(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
 		now := time.Now()
-		// Bound concurrent argon2id verifications (shared with login) so a flood of
-		// known-id/wrong-secret attempts from an admitted IP can't exhaust memory.
-		s.verifySem <- struct{}{}
+		// Bound concurrent argon2id verifications (its OWN pool, never starves login) so
+		// a flood of known-id/wrong-secret attempts from an admitted IP can't exhaust
+		// memory.
+		s.apiVerifySem <- struct{}{}
 		valid := rec.VerifySecret(secret, now.Unix())
-		<-s.verifySem
+		<-s.apiVerifySem
 		if !valid {
 			s.auditAPI(r, id, audit.Deny, "invalid or expired token")
 			apiErr(w, http.StatusUnauthorized, "invalid token")

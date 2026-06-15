@@ -161,14 +161,18 @@ func SplitBearer(bearer string) (id, secret string, ok bool) {
 func ValidID(s string) bool { return idRe.MatchString(s) }
 
 // VerifySecret constant-time-checks the presented secret against the record and its
-// active window. The argon2id verify runs at most ONCE per request (the id already
-// selected the single record).
+// active window. The argon2id verify ALWAYS runs first (even for an expired/revoked
+// record) so the cost is identical whether or not the token is active — an
+// expired/revoked id must not be distinguishable by latency from a live one (the
+// active() check used to short-circuit before argon2, which leaked a revocation/expiry
+// timing oracle; M19 review). The id already selected the single record, so the verify
+// still runs at most ONCE per request.
 func (r Record) VerifySecret(secret string, now int64) bool {
-	if !r.active(now) {
+	ok, err := crypto.VerifyPassword(r.Hash, []byte(secret))
+	if err != nil || !ok {
 		return false
 	}
-	ok, err := crypto.VerifyPassword(r.Hash, []byte(secret))
-	return err == nil && ok
+	return r.active(now)
 }
 
 // CIDRUnion returns the union of every ACTIVE token's CIDR set — the precomputed set

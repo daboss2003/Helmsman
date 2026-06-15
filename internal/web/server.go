@@ -67,6 +67,11 @@ type secState struct {
 // concurrent logins can't OOM a tiny box (plan §5.1; review #10).
 const loginVerifyConcurrency = 2
 
+// apiVerifyConcurrency caps simultaneous API-token argon2id verifications. It is a
+// SEPARATE pool from login so that a flood of junk-bearer API requests (each of which
+// now pays a decoy verify for timing parity) can never starve operator logins.
+const apiVerifyConcurrency = 2
+
 // loginBodyLimit bounds the POST /login + logout request body — username +
 // password + totp + csrf_token never approach this (review #11).
 const loginBodyLimit = 64 << 10
@@ -109,6 +114,8 @@ type Server struct {
 	templates      *template.Template
 	log            *slog.Logger
 	verifySem      chan struct{}
+	apiVerifySem   chan struct{}                 // separate argon2 pool for /api/v1 (never starves login)
+	apiDummyHash   string                        // decoy argon2id hash (token params) for timing parity
 	mon            *monitor.Monitor              // read-plane snapshots (may be nil)
 	opsStore       *ops.ConfigStore              // ops config (may be nil)
 	prober         *ops.Prober                   // ops queue actions (may be nil)
@@ -157,6 +164,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		templates:    tmpl,
 		log:          log,
 		verifySem:    make(chan struct{}, loginVerifyConcurrency),
+		apiVerifySem: make(chan struct{}, apiVerifyConcurrency),
 		mon:          d.Monitor,
 		opsStore:     d.OpsStore,
 		prober:       d.Prober,
@@ -188,6 +196,14 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 	}
 	sec.tokenCIDRUnion = s.activeTokenUnion(context.Background())
 	s.sec.Store(sec)
+	// A decoy argon2id hash with the SAME params a real token uses, so the not-found
+	// path can pay an equal-cost verify (timing parity — an unknown/expired/revoked id
+	// must be latency-indistinguishable from a live one; M19 review).
+	apiDummy, err := crypto.HashPassword([]byte("\x00helmsman-api-decoy"), crypto.DefaultArgon2Params)
+	if err != nil {
+		return nil, fmt.Errorf("web: build api decoy hash: %w", err)
+	}
+	s.apiDummyHash = apiDummy
 	return s, nil
 }
 

@@ -186,6 +186,39 @@ func TestAPIRevokedTokenRejectedLive(t *testing.T) {
 	}
 }
 
+// Timing parity (M19 review fix): an unknown id, an expired/revoked id, and a
+// valid-id/wrong-secret must all be latency-indistinguishable — each pays exactly one
+// argon2 verify. We can't assert wall-clock timing reliably in a unit test, but we CAN
+// assert the behavioural contract that makes them equal: all four failure shapes
+// return the identical 401 "invalid token" and none short-circuits to a different
+// status. (The cost-parity itself is enforced by VerifySecret always running argon2
+// and requireToken's decoy verify on the not-found path.)
+func TestAPIFailuresAreUniform(t *testing.T) {
+	e, ts, pt := buildAPIServer(t, true, seedToken{[]string{"status:read"}, []string{"198.51.100.0/24"}})
+	goodID, goodSecret, _ := apitoken.SplitBearer(pt[0])
+
+	// 1. unknown id, well-formed shape
+	unknown := "hmt_" + strings.Repeat("a", 24) + "_" + strings.Repeat("b", 43)
+	// 2. valid id, wrong secret
+	wrongSecret := "hmt_" + goodID + "_" + strings.Repeat("c", 43)
+	_ = goodSecret
+
+	for name, tok := range map[string]string{"unknown-id": unknown, "valid-id-wrong-secret": wrongSecret} {
+		resp := e.req(t, "GET", "/api/v1/status", "198.51.100.5:1", bearer(tok), nil, nil)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s = %d, want 401", name, resp.StatusCode)
+		}
+	}
+	// 3. revoked id (existing row, inactive) — also 401, and VerifySecret still runs argon2.
+	if err := ts.Revoke(context.Background(), goodID); err != nil {
+		t.Fatal(err)
+	}
+	resp := e.req(t, "GET", "/api/v1/status", "198.51.100.5:1", bearer(pt[0]), nil, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("revoked = %d, want 401", resp.StatusCode)
+	}
+}
+
 func TestAPIMalformedBearerRejected(t *testing.T) {
 	e, _, _ := buildAPIServer(t, true, seedToken{[]string{"status:read"}, []string{"198.51.100.0/24"}})
 	for _, h := range []map[string]string{
