@@ -4,11 +4,11 @@
 #   deploy/apt/publish.sh v1.2.3
 #
 # Requires: aptly, gh (GitHub CLI, authenticated), gpg with the signing key present.
-# Env: GPG_KEY_ID (the signing key id/fingerprint); REPO defaults to helmsman/helmsman.
+# Env: GPG_KEY_ID (the signing key id/fingerprint); REPO defaults to daboss2003/helmsman.
 set -euo pipefail
 
 VERSION="${1:?usage: publish.sh <vX.Y.Z>}"
-REPO="${REPO:-helmsman/helmsman}"
+REPO="${REPO:-daboss2003/helmsman}"
 DIST="${DIST:-stable}"
 COMPONENT="${COMPONENT:-main}"
 GPG_KEY_ID="${GPG_KEY_ID:?set GPG_KEY_ID to the signing key fingerprint}"

@@ -21,9 +21,9 @@ echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://apt.helmsman.sh s
 sudo apt update && sudo apt install helmsman
 ```
 
-The package creates the `helmsman` service user and installs the systemd unit; skip the user/dir setup in Step 4. (Fedora/RHEL: a matching `.rpm` is on each [release](https://github.com/helmsman/helmsman/releases).)
+The package creates the `helmsman` service user and installs the systemd unit; skip the user/dir setup in Step 4. (Fedora/RHEL: a matching `.rpm` is on each [release](https://github.com/daboss2003/helmsman/releases).)
 
-**Any Linux (manual)** — download the binary for your architecture from the [releases page](https://github.com/helmsman/helmsman/releases) and install it:
+**Any Linux (manual)** — download the binary for your architecture from the [releases page](https://github.com/daboss2003/helmsman/releases) and install it:
 
 ```bash
 install -m0755 helmsman /usr/local/bin/helmsman

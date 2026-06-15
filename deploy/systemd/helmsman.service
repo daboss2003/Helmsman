@@ -15,7 +15,7 @@
 
 [Unit]
 Description=Helmsman ops dashboard (control plane)
-Documentation=https://github.com/helmsman/helmsman
+Documentation=https://github.com/daboss2003/helmsman
 After=network-online.target docker.service
 Wants=network-online.target
 

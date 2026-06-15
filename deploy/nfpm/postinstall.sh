@@ -33,5 +33,5 @@ Helmsman installed. Next steps (over SSH):
                          (template at /usr/share/helmsman/config.example.yaml)
   3. Start it:           systemctl enable --now helmsman
 
-Docs: https://github.com/helmsman/helmsman/tree/main/docs
+Docs: https://github.com/daboss2003/helmsman/tree/main/docs
 EOF
