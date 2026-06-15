@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // Config is the live, SIGHUP-reloadable retention policy (plan §16.1 Tier-1).

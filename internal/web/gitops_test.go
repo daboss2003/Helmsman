@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/dockerexec"
-	"github.com/helmsman/helmsman/internal/gitstore"
+	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/gitstore"
 )
 
 // gitObjStoreFixture builds a real git commit and clones it --bare into objDir,

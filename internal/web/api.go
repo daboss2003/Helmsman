@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/apitoken"
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/apitoken"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/crypto"
 )
 
 // The scoped machine API (/api/v1, plan §17.1) is a SEPARATE auth surface from the

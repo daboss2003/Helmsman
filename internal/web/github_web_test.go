@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/crypto"
-	"github.com/helmsman/helmsman/internal/gitstore"
-	"github.com/helmsman/helmsman/internal/secret"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // buildGitHubServer builds a server with "Connect with GitHub" enabled (an OAuth App

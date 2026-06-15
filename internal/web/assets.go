@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/monitor"
-	"github.com/helmsman/helmsman/internal/ops"
+	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/ops"
 )
 
 // All operator-facing assets are embedded in the binary (plan §2): no asset

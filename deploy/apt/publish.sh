@@ -4,11 +4,11 @@
 #   deploy/apt/publish.sh v1.2.3
 #
 # Requires: aptly, gh (GitHub CLI, authenticated), gpg with the signing key present.
-# Env: GPG_KEY_ID (the signing key id/fingerprint); REPO defaults to daboss2003/helmsman.
+# Env: GPG_KEY_ID (the signing key id/fingerprint); REPO defaults to daboss2003/Helmsman.
 set -euo pipefail
 
 VERSION="${1:?usage: publish.sh <vX.Y.Z>}"
-REPO="${REPO:-daboss2003/helmsman}"
+REPO="${REPO:-daboss2003/Helmsman}"
 DIST="${DIST:-stable}"
 COMPONENT="${COMPONENT:-main}"
 GPG_KEY_ID="${GPG_KEY_ID:?set GPG_KEY_ID to the signing key fingerprint}"
@@ -38,4 +38,4 @@ mkdir -p "$OUT"
 rsync -a --delete "$(aptly config show | sed -n 's/.*"rootDir": "\(.*\)".*/\1/p')/public/" "$OUT/"
 gpg --armor --export "$GPG_KEY_ID" > "$OUT/gpg.key"
 
-echo ">> done. Serve ./$OUT/ at your apt domain (e.g. https://apt.helmsman.sh)."
+echo ">> done. Serve ./$OUT/ at your apt domain (e.g. https://daboss2003.github.io/Helmsman)."

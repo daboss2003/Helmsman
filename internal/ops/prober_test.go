@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/opsclient"
-	"github.com/helmsman/helmsman/internal/secret"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/opsclient"
+	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // fakeDoer returns canned responses keyed by relative path, and records the

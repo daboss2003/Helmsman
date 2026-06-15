@@ -42,7 +42,7 @@ nfpms:
     ids: [helmsman]
     package_name: helmsman
     vendor: Samson Olawale Oluwafemi
-    homepage: https://github.com/daboss2003/helmsman
+    homepage: https://github.com/daboss2003/Helmsman
     maintainer: Samson Olawale Oluwafemi <samsonoluwafemi203@gmail.com>
     description: |-
       Security-first self-hosted ops dashboard. Run your apps on your own server
@@ -87,7 +87,7 @@ signs:
 release:
   github:
     owner: daboss2003
-    name: helmsman
+    name: Helmsman
   draft: false
   prerelease: auto
 

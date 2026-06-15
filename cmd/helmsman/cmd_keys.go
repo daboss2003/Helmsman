@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/crypto"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/store"
 	"golang.org/x/term"
 )
 

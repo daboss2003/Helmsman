@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/compose"
 )
 
 func TestValidateGeneratedHappyPath(t *testing.T) {

@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/alert"
-	"github.com/helmsman/helmsman/internal/alertstore"
-	"github.com/helmsman/helmsman/internal/dockerexec"
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/alert"
+	"github.com/daboss2003/Helmsman/internal/alertstore"
+	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 // Actioner executes a remediation rung for one service. The watcher calls it ONLY

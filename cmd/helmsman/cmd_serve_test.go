@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/socketproxy"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/socketproxy"
 )
 
 // The managed socket-proxy is the read-plane security boundary; it must be protected

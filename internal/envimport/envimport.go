@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/cfgfile"
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/cfgfile"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/secret"
 )
 
 // maxImportBytes caps an uploaded .env (a decode-bomb defence).

@@ -16,14 +16,14 @@ This is the one part you do over SSH. It takes about five minutes: put the progr
 **Debian / Ubuntu (recommended)** — install from the APT repo and get `apt upgrade` updates:
 
 ```bash
-curl -fsSL https://apt.helmsman.sh/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
-echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://apt.helmsman.sh stable main" | sudo tee /etc/apt/sources.list.d/helmsman.list
+curl -fsSL https://daboss2003.github.io/Helmsman/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
+echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github.io/Helmsman stable main" | sudo tee /etc/apt/sources.list.d/helmsman.list
 sudo apt update && sudo apt install helmsman
 ```
 
-The package creates the `helmsman` service user and installs the systemd unit; skip the user/dir setup in Step 4. (Fedora/RHEL: a matching `.rpm` is on each [release](https://github.com/daboss2003/helmsman/releases).)
+The package creates the `helmsman` service user and installs the systemd unit; skip the user/dir setup in Step 4. (Fedora/RHEL: a matching `.rpm` is on each [release](https://github.com/daboss2003/Helmsman/releases).)
 
-**Any Linux (manual)** — download the binary for your architecture from the [releases page](https://github.com/daboss2003/helmsman/releases) and install it:
+**Any Linux (manual)** — download the binary for your architecture from the [releases page](https://github.com/daboss2003/Helmsman/releases) and install it:
 
 ```bash
 install -m0755 helmsman /usr/local/bin/helmsman

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 func newStore(t *testing.T) *Store {

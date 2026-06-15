@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/edge"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/edge"
 )
 
 // M11 managed-edge UI: per-app public routes. The operator manages routes only —

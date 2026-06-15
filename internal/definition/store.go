@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // ErrTampered means a stored definition's HMAC did not verify (changed outside

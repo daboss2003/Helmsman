@@ -3,8 +3,8 @@ package web
 import (
 	"net/http"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/ops"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/ops"
 )
 
 // handleOpsConfigGet renders the per-app App Ops Interface configuration form.

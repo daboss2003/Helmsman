@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)

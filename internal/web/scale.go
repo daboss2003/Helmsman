@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/dockerexec"
-	"github.com/helmsman/helmsman/internal/monitor"
-	"github.com/helmsman/helmsman/internal/scale"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/scale"
 )
 
 // Scale makes *Server the auto-scaler's Scaler: it changes a service's replica count

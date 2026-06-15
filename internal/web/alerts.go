@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/alert"
-	"github.com/helmsman/helmsman/internal/alertstore"
-	"github.com/helmsman/helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/alert"
+	"github.com/daboss2003/Helmsman/internal/alertstore"
+	"github.com/daboss2003/Helmsman/internal/audit"
 )
 
 // M10 alerting UI. Channels are write-only (secrets never rendered back); rules

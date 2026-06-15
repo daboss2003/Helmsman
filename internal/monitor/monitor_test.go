@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/docker"
-	"github.com/helmsman/helmsman/internal/hostmon"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/docker"
+	"github.com/daboss2003/Helmsman/internal/hostmon"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 func fakeEngine(t *testing.T) *docker.Client {

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/crypto"
 )
 
 // totpLastStepKey holds the last consumed TOTP time step (single-operator), so a

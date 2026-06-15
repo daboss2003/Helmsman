@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/cfgfile"
-	"github.com/helmsman/helmsman/internal/cfgstore"
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/cfgfile"
+	"github.com/daboss2003/Helmsman/internal/cfgstore"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 func TestMaterializeRendersChmodsAndPreservesAppPlaceholders(t *testing.T) {

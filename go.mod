@@ -1,4 +1,4 @@
-module github.com/helmsman/helmsman
+module github.com/daboss2003/Helmsman
 
 go 1.25.7
 

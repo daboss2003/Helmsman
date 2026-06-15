@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/gitstore"
-	"github.com/helmsman/helmsman/internal/sandbox"
+	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/Helmsman/internal/sandbox"
 )
 
 func TestSetupSaveAndGet(t *testing.T) {

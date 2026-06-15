@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/alert"
-	"github.com/helmsman/helmsman/internal/secret"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/alert"
+	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 func newStore(t *testing.T) *Store {

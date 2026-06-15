@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/secret"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // The key-check sentinel: a known plaintext sealed under the master key so a

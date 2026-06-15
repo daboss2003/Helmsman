@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/cfgfile"
-	"github.com/helmsman/helmsman/internal/cfgstore"
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/cfgfile"
+	"github.com/daboss2003/Helmsman/internal/cfgstore"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 type configFileView struct {

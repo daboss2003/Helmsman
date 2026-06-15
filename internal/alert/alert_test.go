@@ -3,9 +3,9 @@ package alert
 import (
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/hostmon"
-	"github.com/helmsman/helmsman/internal/monitor"
-	"github.com/helmsman/helmsman/internal/ops"
+	"github.com/daboss2003/Helmsman/internal/hostmon"
+	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/ops"
 )
 
 func hostSnap(cpu float64) *monitor.Snapshot {

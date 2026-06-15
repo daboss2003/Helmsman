@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/dockerexec"
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 // actionArgs maps a lifecycle action to its static `docker compose` argv. Only

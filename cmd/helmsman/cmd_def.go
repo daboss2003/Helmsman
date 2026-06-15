@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/definition"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/definition"
 )
 
 // cmdValidate is the read-plane `helmsman validate` — parse + reconcile a

@@ -3,7 +3,7 @@ package envimport
 import (
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/secret"
 )
 
 // a high-entropy token-shaped value the §7.4 lint flags.

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 // settings is the free-form operator-UI key/value store (never Tier-1 / security

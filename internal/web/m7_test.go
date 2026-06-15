@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 func insertEvt(t *testing.T, e *testEnv, ts int64, action, outcome, level string) {

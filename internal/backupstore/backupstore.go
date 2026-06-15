@@ -20,8 +20,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/backup"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/backup"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 var idRe = regexp.MustCompile(`^[a-f0-9]{24}$`)

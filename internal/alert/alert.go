@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/monitor"
-	"github.com/helmsman/helmsman/internal/ops"
+	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/ops"
 )
 
 // Phase is the per-(rule,target) state-machine phase.

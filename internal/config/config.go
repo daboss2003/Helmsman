@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/crypto"
 	"gopkg.in/yaml.v3"
 )
 

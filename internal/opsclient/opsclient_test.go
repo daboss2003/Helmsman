@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/secret"
 )
 
 func TestValidateRelPath(t *testing.T) {

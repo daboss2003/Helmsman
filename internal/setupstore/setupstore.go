@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/sandbox"
-	"github.com/helmsman/helmsman/internal/secret"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/sandbox"
+	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)

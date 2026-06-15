@@ -14,7 +14,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/opsclient"
+	"github.com/daboss2003/Helmsman/internal/opsclient"
 )
 
 // ValidateRepoURL enforces the §15 SSRF allowlist on a git remote: scheme ∈

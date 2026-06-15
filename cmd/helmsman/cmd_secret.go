@@ -9,10 +9,10 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/envimport"
-	"github.com/helmsman/helmsman/internal/envstore"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/envimport"
+	"github.com/daboss2003/Helmsman/internal/envstore"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)

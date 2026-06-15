@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // Prober runs discovery + probe for one app per call (the monitor drives the

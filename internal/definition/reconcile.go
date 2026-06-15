@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/edge"
-	"github.com/helmsman/helmsman/internal/provision"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/edge"
+	"github.com/daboss2003/Helmsman/internal/provision"
 )
 
 // reconcile.go is the shared validation core (plan §7.7): a definition is fanned out

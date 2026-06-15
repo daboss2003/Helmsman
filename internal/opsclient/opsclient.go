@@ -32,7 +32,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/secret"
 )
 
 // relPathRe is the §4.1 relative-path grammar: a single leading slash then a

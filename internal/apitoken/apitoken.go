@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/crypto"
 )
 
 // readScopes are the read-only capabilities a token may carry.

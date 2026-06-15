@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/apitoken"
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/crypto"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/apitoken"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // seedToken describes a token to mint + insert BEFORE the server is constructed, so

@@ -11,10 +11,10 @@ Once the repo is live, installing is three lines:
 
 ```bash
 # 1. Trust the signing key
-curl -fsSL https://apt.helmsman.sh/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
+curl -fsSL https://daboss2003.github.io/Helmsman/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
 
 # 2. Add the repo
-echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://apt.helmsman.sh stable main" \
+echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github.io/Helmsman stable main" \
   | sudo tee /etc/apt/sources.list.d/helmsman.list
 
 # 3. Install (and `apt upgrade` from then on)
@@ -27,10 +27,25 @@ The repo is built with [`aptly`](https://www.aptly.info) and signed with the sam
 key used for release checksums. Run `deploy/apt/publish.sh <version>` after a release:
 it downloads that release's `.deb`s, adds them to the `helmsman` aptly repo, publishes
 a signed `stable` distribution to `./public/`, and exports the public key to
-`./public/gpg.key`. Serve `./public/` from any static host (S3, GitHub Pages, nginx)
-at the domain in the snippet above.
+`./public/gpg.key`.
 
-Hosting alternatives, if you'd rather not run aptly yourself:
+### Hosting on GitHub Pages (this project's setup)
+
+The repo is served at `https://daboss2003.github.io/Helmsman/` via GitHub Pages.
+Publish `./public/` to the `gh-pages` branch:
+
+```bash
+GPG_KEY_ID=<your-fingerprint> deploy/apt/publish.sh vX.Y.Z   # writes ./public
+cd public
+git init -b gh-pages && git remote add origin git@github.com:daboss2003/Helmsman.git
+git add -A && git commit -m "apt repo vX.Y.Z" && git push -f origin gh-pages
+```
+
+Then, in the repo's **Settings → Pages**, set the source to the `gh-pages` branch
+(root). Pages serves `dists/`, `pool/`, and `gpg.key` at the URL above, which is what
+the user snippet points at. (You can automate this as a CI step after release.)
+
+Hosting alternatives, if you'd rather not use Pages/aptly:
 
 - **deb-s3** — push the `.deb`s straight to an S3 bucket as an apt repo (one command,
   no repo state to keep).

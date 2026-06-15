@@ -11,14 +11,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/dockerexec"
-	"github.com/helmsman/helmsman/internal/envstore"
-	"github.com/helmsman/helmsman/internal/monitor"
-	"github.com/helmsman/helmsman/internal/provision"
-	"github.com/helmsman/helmsman/internal/provstore"
-	"github.com/helmsman/helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/envstore"
+	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/provision"
+	"github.com/daboss2003/Helmsman/internal/provstore"
+	"github.com/daboss2003/Helmsman/internal/secret"
 )
 
 // M8 app provisioning (plan §7). Helmsman GENERATES and owns the compose from a

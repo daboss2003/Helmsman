@@ -15,7 +15,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/helmsman/helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/dockerexec"
 )
 
 //go:embed docker-compose.yml

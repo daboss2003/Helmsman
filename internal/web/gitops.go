@@ -15,13 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/compose"
-	"github.com/helmsman/helmsman/internal/crypto"
-	"github.com/helmsman/helmsman/internal/dockerexec"
-	"github.com/helmsman/helmsman/internal/git"
-	"github.com/helmsman/helmsman/internal/gitstore"
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/git"
+	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 // M6 repo-path GitOps (plan §7.6). The read plane fetches the configured ref into

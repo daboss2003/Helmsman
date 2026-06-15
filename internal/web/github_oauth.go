@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/github"
-	"github.com/helmsman/helmsman/internal/gitstore"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/github"
+	"github.com/daboss2003/Helmsman/internal/gitstore"
 )
 
 // "Connect with GitHub": a standard OAuth web flow that lets the operator pick a repo

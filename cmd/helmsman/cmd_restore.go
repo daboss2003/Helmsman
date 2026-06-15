@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/backup"
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/backup"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // cmdRestore restores Helmsman's database from an encrypted .hmbk backup archive. It

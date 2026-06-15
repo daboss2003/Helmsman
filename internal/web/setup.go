@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/audit"
-	"github.com/helmsman/helmsman/internal/crypto"
-	"github.com/helmsman/helmsman/internal/envstore"
-	"github.com/helmsman/helmsman/internal/sandbox"
-	"github.com/helmsman/helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/envstore"
+	"github.com/daboss2003/Helmsman/internal/sandbox"
+	"github.com/daboss2003/Helmsman/internal/secret"
 )
 
 // M9 setup-script sandbox (plan §7/§9, Mode 3). OFF by default; every run is

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/envstore"
-	"github.com/helmsman/helmsman/internal/monitor"
-	"github.com/helmsman/helmsman/internal/ops"
+	"github.com/daboss2003/Helmsman/internal/envstore"
+	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/ops"
 )
 
 // tmplData is the view model passed to every template render.

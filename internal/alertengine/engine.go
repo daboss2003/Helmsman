@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/alert"
-	"github.com/helmsman/helmsman/internal/alertstore"
-	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/alert"
+	"github.com/daboss2003/Helmsman/internal/alertstore"
+	"github.com/daboss2003/Helmsman/internal/monitor"
 )
 
 // Config tunes the engine (from config.AlertingConfig).

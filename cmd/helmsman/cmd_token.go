@@ -10,9 +10,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/helmsman/helmsman/internal/apitoken"
-	"github.com/helmsman/helmsman/internal/config"
-	"github.com/helmsman/helmsman/internal/store"
+	"github.com/daboss2003/Helmsman/internal/apitoken"
+	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/store"
 )
 
 // cmdToken is the SSH-only scoped-API-token surface (plan §17.1). Minting lives ONLY
