@@ -24,6 +24,48 @@
   </section>
   {{end}}
 
+  {{with .Git}}{{if .Configured}}
+  <section class="panel">
+    <h2><span>Repository &amp; updates</span> <a href="/apps/{{pathEscape .Project}}/git" class="btn btn-sm btn-ghost">Repository settings →</a></h2>
+    <p class="muted small mono">{{.RepoURL}} · {{.Ref}}</p>
+    <table class="grid">
+      <tbody>
+        <tr><td>Status</td><td>
+          {{if eq .UpdateState "up_to_date"}}<span class="pill pill-ok">up to date</span>
+          {{else if eq .UpdateState "update_available"}}<span class="pill pill-warn">update available — {{.CommitsBehind}} commit(s) behind</span>
+          {{else if eq .UpdateState "history_rewritten"}}<span class="pill pill-down">history rewritten</span>
+          {{else}}<span class="pill">{{if .UpdateState}}{{.UpdateState}}{{else}}not fetched{{end}}</span>{{end}}
+        </td></tr>
+        <tr><td>Deployed commit</td><td class="mono">{{if .DeployedCommit}}{{.DeployedCommit}}{{else}}— (never deployed){{end}}</td></tr>
+        <tr><td>Last checked</td><td>{{if .LastFetchAt}}{{.LastFetchAt}}{{else}}never{{end}}</td></tr>
+        {{if .LastFetchError}}<tr><td>Last error</td><td class="health-unhealthy">{{.LastFetchError}}</td></tr>{{end}}
+      </tbody>
+    </table>
+
+    {{if and .Diff .Diff.Commits}}
+    <h3>What changed</h3>
+    <table class="grid">
+      <thead><tr><th>Commit</th><th>Author</th><th>Subject</th></tr></thead>
+      <tbody>{{range .Diff.Commits}}<tr><td class="mono">{{.Sha}}</td><td>{{.Author}}</td><td>{{.Subject}}</td></tr>{{end}}</tbody>
+    </table>
+    {{end}}
+
+    <div class="queue-actions mt1">
+      <form method="post" action="/apps/{{pathEscape .Project}}/git/fetch" class="inline">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+        <button type="submit" class="btn btn-sm">Check for updates</button>
+      </form>
+      {{if not .WriteDisabledReason}}
+      {{if and (or (eq .UpdateState "update_available") (eq .UpdateState "history_rewritten")) .StagedCommit}}
+      <button type="button" class="btn btn-sm btn-primary lc-btn" data-lc-confirm="Deploy commit {{.StagedCommit}} to {{.Project}}?" data-lc-url="/apps/{{pathEscape .Project}}/git/deploy?sha={{.StagedCommit}}">Deploy update</button>
+      {{else if .DeployedCommit}}
+      <button type="button" class="btn btn-sm lc-btn" data-lc-confirm="Redeploy {{.Project}} at the current commit?" data-lc-url="/apps/{{pathEscape .Project}}/redeploy">Redeploy current</button>
+      {{end}}
+      {{end}}
+    </div>
+  </section>
+  {{end}}{{end}}
+
   <pre id="deploy-output" class="stream" hidden></pre>
 
   <section class="panel" data-poll-url="/partials/app/{{pathEscape .App.Project}}" data-poll-interval="5000">

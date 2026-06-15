@@ -46,6 +46,9 @@ type tmplData struct {
 	Alerts *alertsView
 	Edge   *edgeView
 
+	// Apps list (table view).
+	AppsRows []appsRow
+
 	// Incidents screen: aggregated open alerts / unhealthy apps / circuit-open / fails.
 	Incidents *incidentsView
 
@@ -151,6 +154,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		WriteDisabledReason: s.writeDisabledReason(),
 		Supervisor:          s.supervisorStates(project),
 		Scaling:             s.scalingDesired(project),
+		Git:                 s.gitViewFor(r.Context(), project),
 	})
 }
 

@@ -1,0 +1,33 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <h1><span>Apps</span></h1>
+  <p class="muted">Every app Helmsman manages. Open one to view logs and start, stop, restart, or redeploy it.</p>
+
+  <section class="panel">
+    <h2><span>All apps {{if .AppsRows}}<span class="muted">({{len .AppsRows}})</span>{{end}}</span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
+    {{if .AppsRows}}
+    <table class="grid">
+      <thead><tr><th>App</th><th>Status</th><th>Services</th><th>Source</th><th></th></tr></thead>
+      <tbody>
+        {{range .AppsRows}}
+        <tr>
+          <td><a href="/apps/{{pathEscape .Project}}">{{if .DisplayName}}{{.DisplayName}}{{else}}{{.Project}}{{end}}</a></td>
+          <td>
+            {{if not .Deployed}}<span class="pill">not deployed</span>
+            {{else if .Degraded}}<span class="pill pill-down">degraded</span>
+            {{else}}<span class="pill pill-ok">healthy</span>{{end}}
+          </td>
+          <td>{{if .Deployed}}{{.Up}}/{{.Total}} up{{else}}—{{end}}</td>
+          <td class="muted">{{if .Source}}{{.Source}}{{else}}—{{end}}</td>
+          <td><a href="/apps/{{pathEscape .Project}}">Open →</a></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="muted">No apps yet. Create one with <a href="/apps/new">New app</a> or <a href="/git/new">connect a repo</a>.</p>
+    {{end}}
+  </section>
+</main>
+{{template "bottom" .}}

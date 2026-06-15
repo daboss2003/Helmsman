@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -57,6 +58,28 @@ func TestIncidentsScreen(t *testing.T) {
 	body := readBody(resp)
 	if !strings.Contains(body, "Incidents") || !strings.Contains(body, "All clear") {
 		t.Error("incidents page should render with an all-clear state when nothing is wrong")
+	}
+}
+
+func TestAppsListScreen(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, _ := e.login(t, "127.0.0.1:1", testPassword, "")
+	resp := e.req(t, "GET", "/apps", "127.0.0.1:1", nil, []*http.Cookie{sess}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /apps = %d, want 200", resp.StatusCode)
+	}
+	body := readBody(resp)
+	if !strings.Contains(body, "All apps") || !strings.Contains(body, `href="/apps"`) {
+		t.Error("apps list page should render the table and the sidebar Apps link")
+	}
+}
+
+// gitViewFor returns nil when no repo is connected (so the app-detail repo panel only
+// appears for repo-backed apps).
+func TestGitViewForUnconfigured(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	if gv := e.srv.gitViewFor(context.Background(), "no-such-app"); gv != nil {
+		t.Errorf("gitViewFor on an unconnected app should be nil, got %+v", gv)
 	}
 }
 

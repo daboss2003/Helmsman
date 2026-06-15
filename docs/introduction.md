@@ -52,8 +52,6 @@ That's a running app with a public HTTPS address. Helmsman pulls the image, star
 3. Add an app — from a form, or by connecting a Git repo.
 4. Give it a domain.
 
-From step 2 on, you work entirely in the dashboard.
-
 ---
 
 Ready to set it up?

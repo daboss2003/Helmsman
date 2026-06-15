@@ -237,6 +237,32 @@ func (s *Server) handleGitNew(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// gitViewFor returns the repo status (with diff) for an app, or nil if no repo is
+// connected. It surfaces "what changed / deploy" on the app detail page, reusing the
+// same data the dedicated git page shows.
+func (s *Server) gitViewFor(ctx context.Context, project string) *gitView {
+	if s.gitStore == nil {
+		return nil
+	}
+	cfg, ok, err := s.gitStore.Get(project)
+	if err != nil || !ok {
+		return nil
+	}
+	gv := &gitView{
+		Configured: true, Project: project,
+		RepoURL: cfg.RepoURL, Ref: cfg.Ref, ComposePath: cfg.ComposePath,
+		BuildPolicy: cfg.BuildPolicy, AutoDeploy: cfg.AutoDeploy, CredKind: cfg.CredKind,
+		HasWebhook: cfg.HasWebhook, DeployedCommit: cfg.DeployedCommit, StagedCommit: cfg.StagedCommit,
+		UpdateState: cfg.UpdateState, CommitsBehind: cfg.CommitsBehind, LastFetchError: cfg.LastFetchError,
+		WriteDisabledReason: s.writeDisabledReason(),
+	}
+	if cfg.LastFetchAt > 0 {
+		gv.LastFetchAt = time.Unix(cfg.LastFetchAt, 0).UTC().Format("2006-01-02 15:04:05Z")
+	}
+	gv.Diff = s.buildDiff(ctx, project, cfg)
+	return gv
+}
+
 func (s *Server) handleGitGet(w http.ResponseWriter, r *http.Request) {
 	if s.gitStore == nil {
 		http.Error(w, "gitops unavailable", http.StatusServiceUnavailable)
