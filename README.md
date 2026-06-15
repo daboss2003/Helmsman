@@ -25,6 +25,11 @@ Helmsman is a single static Go binary (~12–18 MB on disk, ~10–15 MB idle RSS
 
 ## Documentation
 
+📖 **[Read the full documentation →](./docs/README.md)** — start with the three-page on-ramp:
+**[Introduction](./docs/introduction.md) → [Installation](./docs/installation.md) → [First steps](./docs/first-steps.md)**.
+
+The reference pages:
+
 | Document | What it covers |
 |---|---|
 | [docs/security.md](./docs/security.md) | The threat model, the request pipeline, the §5.6 validator, secrets at rest, the SSRF/XFF invariants, the SBD-1..8 baseline, and the assurance program. |
