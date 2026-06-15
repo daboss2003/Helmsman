@@ -83,8 +83,14 @@ func (w *Watcher) drainClears(ctx context.Context, now int64) {
 // state from SQLite) and ticks the supervisor until ctx is cancelled.
 func (w *Watcher) Run(ctx context.Context) {
 	// Fail-closed: a deploy that crashed without releasing its lease must not be able
-	// to suppress a crash-loop alert across a restart.
-	_ = w.cfg.Store.ClearAllExpectedDown(ctx)
+	// to suppress a crash-loop alert across a restart. If we can't GUARANTEE the
+	// stale leases are cleared, refuse to run rather than risk silent suppression —
+	// the M10 rule-based alert engine still covers crash loops independently.
+	if err := w.cfg.Store.ClearAllExpectedDown(ctx); err != nil {
+		w.cfg.Log.Error("selfheal: refusing to start — could not clear stale expected_down leases on boot",
+			"level", "security", "err", err)
+		return
+	}
 	if all, err := w.cfg.Store.LoadAll(); err == nil {
 		w.fsms = all
 	}

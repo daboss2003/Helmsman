@@ -241,6 +241,9 @@ func (s *Server) handleProvisionDeploy(w http.ResponseWriter, r *http.Request) {
 	depID := s.recordRepoDeployStart(context.Background(), slug, "provision", actor, "deploy")
 	writeln("$ docker compose up -d --remove-orphans")
 	job := dockerexec.Job{Project: slug, Dir: runDir, ConfigFiles: mapp.ConfigFiles, EnvFile: envFile, Action: []string{"up", "-d", "--remove-orphans"}}
+	// Suppress the self-healing supervisor for this app while we intentionally
+	// provision/recreate it (plan §8.5).
+	defer s.leaseExpectedDown(r.Context(), slug)()
 	runErr := s.runner.Run(r.Context(), job, func(line string) { writeln("%s", line) })
 	code, outcome := classifyExit(runErr)
 	s.recordDeployFinish(context.Background(), depID, code, outcome)

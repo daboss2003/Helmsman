@@ -4,12 +4,15 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/helmsman/helmsman/internal/dockerexec"
 	"github.com/helmsman/helmsman/internal/hostmon"
 	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/helmsman/helmsman/internal/store"
 )
 
 // fakeActioner records remediation calls instead of running docker.
@@ -157,6 +160,35 @@ func TestWatcherSemaphoreBusyDefersNoAttempt(t *testing.T) {
 	}
 	if w.fsms[Key{App: "shop", Service: "web"}].Attempts != 0 {
 		t.Errorf("a deferred action must not consume an attempt, got %d", w.fsms[Key{App: "shop", Service: "web"}].Attempts)
+	}
+}
+
+// Fail-closed: if the boot-time clear of stale expected_down leases fails, the
+// watcher must REFUSE to start (rather than risk a stale lease silently suppressing
+// a crash-loop page). Simulated by closing the DB so ClearAllExpectedDown errors.
+func TestWatcherRefusesToStartIfLeaseClearFails(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close() // any store write/read now errors
+	clock := int64(1000)
+	w := New(Config{
+		Store:    NewStore(db),
+		Snap:     func() *monitor.Snapshot { return nil },
+		Sem:      dockerexec.NewSemaphore(),
+		Act:      &fakeActioner{},
+		Policy:   testPolicy(),
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Interval: time.Hour, // so a successful start would block, not return
+		Now:      func() int64 { return clock },
+	})
+	done := make(chan struct{})
+	go func() { w.Run(context.Background()); close(done) }()
+	select {
+	case <-done: // good: it returned without entering the ticker loop
+	case <-time.After(2 * time.Second):
+		t.Fatal("watcher must refuse to start when the boot lease-clear fails")
 	}
 }
 

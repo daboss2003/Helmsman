@@ -613,6 +613,9 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 	depID := s.recordRepoDeployStart(bg, slug, source, actor, "git_deploy")
 	onLine("$ docker compose " + strings.Join(action, " "))
 	job := dockerexec.Job{Project: slug, Dir: rd, ConfigFiles: app.ConfigFiles, EnvFile: envFile, Action: action}
+	// Suppress the self-healing supervisor for this app while we intentionally
+	// recreate it (plan §8.5) — a deploy mid-flight must not look like a crash loop.
+	defer s.leaseExpectedDown(ctx, slug)()
 	runErr := s.runner.Run(ctx, job, onLine)
 	code, outcome := classifyExit(runErr)
 	s.recordDeployFinish(bg, depID, code, outcome)

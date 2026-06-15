@@ -65,20 +65,21 @@ func (s *Server) Remediate(ctx context.Context, app monitor.App, service string,
 	return s.runner.RunHeld(ctx, job, nil)
 }
 
-// withExpectedDown wraps a write-plane action in an expected_down lease so the
-// supervisor doesn't read an intentional restart/down as a crash loop. The lease is
-// released when fn returns; its bounded `until` + boot-time clear cover a crash.
-func (s *Server) withExpectedDown(ctx context.Context, project string, fn func()) {
-	if s.selfHeal != nil {
-		_ = s.selfHeal.AcquireExpectedDown(ctx, project, time.Now().Add(expectedDownLease).Unix())
-		defer func() {
-			// Release with a background context so a cancelled request still clears it.
-			rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = s.selfHeal.ReleaseExpectedDown(rctx, project)
-		}()
+// leaseExpectedDown acquires a bounded expected_down lease for project and returns
+// a release function to defer — so the self-healing supervisor doesn't read an
+// intentional restart/redeploy/provision/git-deploy as a crash loop. The release
+// uses a background context so a cancelled request still clears the lease; the
+// bounded `until` + boot-time clear cover a crash. A no-op when self-heal is absent.
+func (s *Server) leaseExpectedDown(ctx context.Context, project string) func() {
+	if s.selfHeal == nil {
+		return func() {}
 	}
-	fn()
+	_ = s.selfHeal.AcquireExpectedDown(ctx, project, time.Now().Add(expectedDownLease).Unix())
+	return func() {
+		rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.selfHeal.ReleaseExpectedDown(rctx, project)
+	}
 }
 
 // SetCircuitClearer wires the supervisor's clear-circuit entry point (set by

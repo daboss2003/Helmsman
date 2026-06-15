@@ -125,16 +125,8 @@ func (s *Server) runLifecycle(w http.ResponseWriter, r *http.Request, project, s
 
 	job := dockerexec.Job{Project: project, Dir: app.WorkingDir, ConfigFiles: app.ConfigFiles, EnvFile: envFile, Action: args, Service: service}
 	// Hold an expected_down lease so the self-healing supervisor doesn't read this
-	// intentional restart/redeploy as a crash loop (plan §8.5). Released when the
-	// action returns; the bounded `until` + boot-time clear cover a crash.
-	if s.selfHeal != nil {
-		_ = s.selfHeal.AcquireExpectedDown(ctx, project, time.Now().Add(expectedDownLease).Unix())
-		defer func() {
-			rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = s.selfHeal.ReleaseExpectedDown(rctx, project)
-		}()
-	}
+	// intentional restart/redeploy as a crash loop (plan §8.5).
+	defer s.leaseExpectedDown(ctx, project)()
 	runErr := s.runner.Run(ctx, job, func(line string) { writeln("%s", line) })
 
 	code, outcome := classifyExit(runErr)
