@@ -14,6 +14,7 @@ import (
 
 	"github.com/helmsman/helmsman/internal/alertengine"
 	"github.com/helmsman/helmsman/internal/alertstore"
+	"github.com/helmsman/helmsman/internal/apitoken"
 	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/docker"
@@ -154,6 +155,7 @@ func cmdServe(args []string) error {
 	edgeRoutes := edge.NewRouteStore(db)
 	selfHealStore := selfheal.NewStore(db)
 	scalingStore := scale.NewStore(db)
+	apiTokenStore := apitoken.NewStore(db)
 	var edgeRecon *edge.Reconciler
 	edgeReason := ""
 	if cfg.Edge.Mode == config.EdgeManaged {
@@ -204,6 +206,7 @@ func cmdServe(args []string) error {
 		SelfHeal:   selfHealStore,
 		Scaling:    scalingStore,
 		DockerSem:  dockerSem,
+		APITokens:  apiTokenStore,
 	})
 	if err != nil {
 		return err

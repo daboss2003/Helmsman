@@ -23,6 +23,11 @@ Definition file (helmsman.yaml — same validation as the dashboard):
   secret import    Import a .env into an app's encrypted store (§7.9: classify,
                    literal-secret hard stop, by-reference; values from the file).
 
+Scoped machine API tokens (§17.1 — minted ONLY here, never from the web):
+  token mint       Mint a scoped, CIDR-bound, expiring bearer token (shown once).
+  token list       List tokens (id, state, expiry, scopes — never the secret).
+  token revoke     Revoke a token by id (rejected at auth immediately).
+
 Root of trust (run over SSH; secrets read from /dev/tty, never argv):
   gen-key          Generate the AES-256-GCM master key (base64).
   hash-password    Produce an argon2id hash for auth.password_hash.
@@ -55,6 +60,8 @@ func main() {
 		err = cmdInit(args)
 	case "secret":
 		err = cmdSecret(args)
+	case "token":
+		err = cmdToken(args)
 	case "gen-key":
 		err = cmdGenKey(args)
 	case "hash-password":

@@ -69,8 +69,20 @@ func (s *Server) allowlistMiddleware(next http.Handler) http.Handler {
 		// stamp the client IP so the general per-IP rate limiter has a real key.
 		// Match the CLEANED path (what the mux will route) so a traversal like
 		// /webhook/../something cannot ride the exemption to a non-webhook route.
-		if !strings.HasPrefix(path.Clean(r.URL.Path)+"/", "/webhook/") {
-			if !prefixesContain(sec.allowlist, client) {
+		cleaned := path.Clean(r.URL.Path) + "/"
+		if !strings.HasPrefix(cleaned, "/webhook/") {
+			admitted := prefixesContain(sec.allowlist, client)
+			// The scoped-API surface (/api/v1) may ALSO be reached from any IP inside
+			// the precomputed union of active token CIDRs — a bounded, reload-scoped
+			// exception so a CI runner's egress IP passes the network gate. This is
+			// decided WITHOUT parsing the bearer (no enumeration oracle / no
+			// unauthenticated DB lookup): the union is precomputed. It opens ONLY the
+			// API surface, never the browser admin plane, and the presented token is
+			// re-bound to its OWN CIDR at auth time (the union is a coarse gate).
+			if !admitted && strings.HasPrefix(cleaned, "/api/v1/") {
+				admitted = prefixesContain(sec.tokenCIDRUnion, client)
+			}
+			if !admitted {
 				s.auditDeny(r, peer, client)
 				notFound(w)
 				return

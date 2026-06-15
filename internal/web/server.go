@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/helmsman/helmsman/internal/alertstore"
+	"github.com/helmsman/helmsman/internal/apitoken"
 	"github.com/helmsman/helmsman/internal/audit"
 	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
@@ -51,6 +52,15 @@ type secState struct {
 	passwordHash   string
 	totpSecret     string
 	dummyHash      string
+	// tokenCIDRUnion is the precomputed union of every ACTIVE API token's CIDR set.
+	// The IP gate checks the unspoofable peer against this BEFORE any bearer is
+	// parsed (so a token id is never an enumeration oracle and an unknown bearer
+	// never triggers a DB lookup before the peer is admitted). It admits ONLY the
+	// /api/v1 surface — never the browser admin plane — and the presented token is
+	// still re-bound to its OWN CIDR at auth time (the union is a coarse gate, not
+	// the grant). Recomputed on construction + SIGHUP; minting a token therefore
+	// requires a reload to widen the gate (fail-closed: stale = narrower).
+	tokenCIDRUnion []netip.Prefix
 }
 
 // loginVerifyConcurrency caps simultaneous argon2id verifications so a burst of
@@ -85,6 +95,7 @@ type Deps struct {
 	SelfHeal   *selfheal.Store       // supervisor FSM + expected_down leases (may be nil)
 	Scaling    *scale.Store          // auto-scaling policies + state (may be nil)
 	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
+	APITokens  *apitoken.Store       // scoped read/deploy API tokens (M19; may be nil → /api/v1 disabled)
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
@@ -115,6 +126,7 @@ type Server struct {
 	selfHeal       *selfheal.Store               // supervisor FSM + expected_down leases (may be nil)
 	scaling        *scale.Store                  // auto-scaling policies + state (may be nil)
 	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
+	apiTokens      *apitoken.Store               // scoped API tokens (M19; nil → /api/v1 disabled)
 	dockerSem      *dockerexec.Semaphore         // global one-docker-child semaphore (may be nil)
 	setupConfirm   *confirmStore                 // single-use setup confirm tokens
 	webhookRL      *rateLimiter                  // per-token webhook rate limit
@@ -161,6 +173,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		edgeReason:   d.EdgeReason,
 		selfHeal:     d.SelfHeal,
 		scaling:      d.Scaling,
+		apiTokens:    d.APITokens,
 		dockerSem:    d.DockerSem,
 		setupConfirm: newConfirmStore(5 * time.Minute),
 		webhookRL:    newRateLimiter(30, time.Minute),
@@ -173,8 +186,24 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	sec.tokenCIDRUnion = s.activeTokenUnion(context.Background())
 	s.sec.Store(sec)
 	return s, nil
+}
+
+// activeTokenUnion recomputes the union of every active API token's CIDR set. On any
+// store error it returns nil (admitting NO token CIDRs) — a read failure must never
+// widen the IP gate, only narrow it (fail-closed).
+func (s *Server) activeTokenUnion(ctx context.Context) []netip.Prefix {
+	if s.apiTokens == nil {
+		return nil
+	}
+	union, err := s.apiTokens.ActiveCIDRUnion(ctx, time.Now())
+	if err != nil {
+		s.log.Warn("apitoken: CIDR-union recompute failed; admitting no token CIDRs (fail-closed)", "err", err)
+		return nil
+	}
+	return union
 }
 
 func buildSecState(cfg *config.Config) (*secState, error) {
@@ -217,10 +246,11 @@ func (s *Server) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	sec.tokenCIDRUnion = s.activeTokenUnion(ctx)
 	s.sec.Store(sec)
 	_ = s.audit.Log(ctx, audit.Event{
 		Action: "config_reload", Outcome: audit.OK, Level: audit.Security,
-		Detail: "allowlist + auth reloaded",
+		Detail: "allowlist + auth + token CIDR-union reloaded",
 	})
 	return nil
 }
@@ -315,6 +345,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 	// Operator UI prefs (M7): persisted tile order. UI-only, never Tier-1.
 	mux.HandleFunc("POST /settings/tile-order", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleTileOrder))))
+
+	// Scoped machine API (M19, plan §17.1): bearer-ONLY, cookie-REJECTING,
+	// CSRF-EXEMPT (no ambient credential to abuse). requireToken is the sole gate —
+	// these routes are deliberately NOT wrapped in requireAuth/requireCSRF. A token
+	// can carry only the read scopes + deploy:write:<slug>; nothing here can express
+	// a Tier-1 / reveal / setup / mint capability.
+	mux.HandleFunc("GET /api/v1/status", s.requireToken(fixedScope("status:read"), s.handleAPIStatus))
+	mux.HandleFunc("GET /api/v1/metrics", s.requireToken(fixedScope("metrics:read"), s.handleAPIMetrics))
+	mux.HandleFunc("GET /api/v1/events", s.requireToken(fixedScope("events:read"), s.handleAPIEvents))
+	mux.HandleFunc("GET /api/v1/audit", s.requireToken(fixedScope("audit:read"), s.handleAPIAudit))
+	mux.HandleFunc("POST /api/v1/apps/{project}/deploy", capBody(1<<20, s.requireToken(deployScope, s.handleAPIDeploy)))
 
 	// Pipeline order: allowlist → headers → rate limit → session loader → router.
 	// (auth + CSRF are applied per-route inside the mux.)

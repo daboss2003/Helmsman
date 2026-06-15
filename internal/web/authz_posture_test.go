@@ -44,6 +44,7 @@ type routeReg struct {
 	pattern  string
 	hasAuth  bool
 	hasCSRF  bool
+	hasToken bool // wrapped in requireToken (the bearer-API auth gate)
 	isHandle bool // mux.Handle (raw handler) vs mux.HandleFunc
 }
 
@@ -114,6 +115,8 @@ func extractRoutesFromFile(f *ast.File, fset *token.FileSet) []routeReg {
 					r.hasAuth = true
 				case "requireCSRF":
 					r.hasCSRF = true
+				case "requireToken":
+					r.hasToken = true
 				}
 			}
 			return true
@@ -126,16 +129,21 @@ func extractRoutesFromFile(f *ast.File, fset *token.FileSet) []routeReg {
 
 func TestRoutePostureFromTable(t *testing.T) {
 	for _, r := range extractRoutes(t) {
-		if !authExempt[r.key] && !r.hasAuth {
-			t.Errorf("AUTHZ: %q is not auth-exempt and is missing requireAuth (add it, or allowlist if truly public)", r.key)
+		// A route is authenticated by either the session gate (requireAuth) or the
+		// bearer gate (requireToken). The bearer API is CSRF-EXEMPT by construction:
+		// it carries no ambient credential, so there is nothing a cross-site request
+		// can abuse.
+		authed := r.hasAuth || r.hasToken
+		if !authExempt[r.key] && !authed {
+			t.Errorf("AUTHZ: %q is not auth-exempt and is missing requireAuth/requireToken (add it, or allowlist if truly public)", r.key)
 		}
-		if mutatingVerb[r.verb] && !csrfExempt[r.key] && !r.hasCSRF {
+		if mutatingVerb[r.verb] && !csrfExempt[r.key] && !r.hasToken && !r.hasCSRF {
 			t.Errorf("AUTHZ: mutating route %q is missing requireCSRF (add it, or allowlist if HMAC-authenticated)", r.key)
 		}
 		// An auth-exempt route must be a DELIBERATE entry — flag a route that claims
-		// to be public but still wires requireAuth (contradiction / stale allowlist).
-		if authExempt[r.key] && r.hasAuth {
-			t.Errorf("AUTHZ: %q is in the auth-exempt allowlist but wires requireAuth (remove one)", r.key)
+		// to be public but still wires an auth gate (contradiction / stale allowlist).
+		if authExempt[r.key] && authed {
+			t.Errorf("AUTHZ: %q is in the auth-exempt allowlist but wires an auth gate (remove one)", r.key)
 		}
 	}
 }

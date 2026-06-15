@@ -13,6 +13,7 @@ const (
 	clientIPKey ctxKey = iota
 	sessionKey
 	csrfTokenKey
+	tokenIDKey
 )
 
 func withClientIP(ctx context.Context, ip netip.Addr) context.Context {
@@ -44,4 +45,15 @@ func withCSRF(ctx context.Context, token string) context.Context {
 func CSRFToken(ctx context.Context) string {
 	t, _ := ctx.Value(csrfTokenKey).(string)
 	return t
+}
+
+func withTokenID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, tokenIDKey, id)
+}
+
+// TokenID returns the authenticated API token id (for audit), or "" on the browser
+// plane.
+func TokenID(ctx context.Context) string {
+	id, _ := ctx.Value(tokenIDKey).(string)
+	return id
 }
