@@ -31,5 +31,35 @@
   </section>
 
   <pre id="log-output" class="stream" hidden></pre>
+
+  {{if not .WriteDisabledReason}}
+  <section class="panel">
+    <h2>Auto-scaling <span class="muted">(opt-in, per service)</span></h2>
+    <p class="muted">Helmsman can scale replicas of a <strong>stateless, edge-fronted HTTP</strong> service up
+      and down with load. It is conservative: it refuses (and alerts) rather than risk the host's memory, and
+      collapses to a single replica on a small box. <strong>Never enable this for a database or any service with
+      its own data volume</strong> — replicas would corrupt shared state.
+      {{if .Scaling}}<br>Current desired replicas: {{range $svc, $n := .Scaling}}<code>{{$svc}}={{$n}}</code> {{end}}{{end}}</p>
+    <form method="post" action="/apps/{{pathEscape .App.Project}}/scaling" class="stack">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label>Service <input type="text" name="service" placeholder="web" required></label>
+      <div class="row">
+        <label>Min <input type="number" name="min" value="1" min="1" style="width:5rem"></label>
+        <label>Max <input type="number" name="max" value="3" min="1" style="width:5rem"></label>
+        <label>Per-replica memory (MiB) <input type="number" name="per_replica_mem_mib" value="256" min="16" style="width:7rem"></label>
+        <label>Per-replica CPU (milli) <input type="number" name="per_replica_cpu_milli" value="500" min="50" style="width:7rem"></label>
+      </div>
+      <div class="row">
+        <label>Scale-up CPU% <input type="number" name="up_cpu" value="80" style="width:5rem"></label>
+        <label>Scale-down CPU% <input type="number" name="down_cpu" value="40" style="width:5rem"></label>
+        <label>Scale-up mem% <input type="number" name="up_mem" value="80" style="width:5rem"></label>
+        <label>Scale-down mem% <input type="number" name="down_mem" value="40" style="width:5rem"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="attest"> I confirm this service is stateless and edge-fronted, with no fixed host port and no read-write volume.</label>
+      <label class="check"><input type="checkbox" name="enabled"> Enable auto-scaling for this service</label>
+      <button type="submit">Save scaling policy</button>
+    </form>
+  </section>
+  {{end}}
 </main>
 {{template "bottom" .}}

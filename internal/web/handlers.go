@@ -48,6 +48,8 @@ type tmplData struct {
 
 	// Supervisor (M13): per-service FSM phase, e.g. "CIRCUIT_OPEN", for the app view.
 	Supervisor map[string]string
+	// Scaling (M14): per-service desired replica count, for the app view.
+	Scaling map[string]int
 
 	// Audit-log viewer filters + pagination (M7).
 	EventLevel    string
@@ -140,6 +142,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		Snap:                snap,
 		WriteDisabledReason: s.writeDisabledReason(),
 		Supervisor:          s.supervisorStates(project),
+		Scaling:             s.scalingDesired(project),
 	})
 }
 

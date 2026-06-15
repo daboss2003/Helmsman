@@ -125,3 +125,18 @@ func TestCapacityPolicyMaxCaps(t *testing.T) {
 		t.Errorf("the policy max should cap the ceiling at 5, got %d", ceil)
 	}
 }
+
+func TestStatefulImageDenylist(t *testing.T) {
+	stateful := []string{"postgres", "postgres:16", "ghcr.io/acme/postgres:16", "redis:7-alpine", "docker.io/library/mysql", "rabbitmq:3-management", "mongo"}
+	for _, img := range stateful {
+		if !StatefulImage(img) {
+			t.Errorf("%q must be detected as stateful (C4)", img)
+		}
+	}
+	scalable := []string{"nginx", "caddy", "ghcr.io/acme/web:1.2", "my-postgres-helper", "node:20", "myapp/api"}
+	for _, img := range scalable {
+		if StatefulImage(img) {
+			t.Errorf("%q must NOT be flagged stateful", img)
+		}
+	}
+}

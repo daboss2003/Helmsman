@@ -29,6 +29,7 @@ import (
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/provstore"
+	"github.com/helmsman/helmsman/internal/scale"
 	"github.com/helmsman/helmsman/internal/selfheal"
 	"github.com/helmsman/helmsman/internal/session"
 	"github.com/helmsman/helmsman/internal/setupstore"
@@ -82,6 +83,7 @@ type Deps struct {
 	EdgeRecon  *edge.Reconciler      // nil when the edge isn't owned (external/unavailable)
 	EdgeReason string                // why the edge isn't owned (banner), "" when owned
 	SelfHeal   *selfheal.Store       // supervisor FSM + expected_down leases (may be nil)
+	Scaling    *scale.Store          // auto-scaling policies + state (may be nil)
 	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
 }
 
@@ -111,6 +113,7 @@ type Server struct {
 	edgeRecon      *edge.Reconciler              // edge config reconciler (nil when edge unowned)
 	edgeReason     string                        // why the edge isn't owned (banner)
 	selfHeal       *selfheal.Store               // supervisor FSM + expected_down leases (may be nil)
+	scaling        *scale.Store                  // auto-scaling policies + state (may be nil)
 	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
 	dockerSem      *dockerexec.Semaphore         // global one-docker-child semaphore (may be nil)
 	setupConfirm   *confirmStore                 // single-use setup confirm tokens
@@ -157,6 +160,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		edgeRecon:    d.EdgeRecon,
 		edgeReason:   d.EdgeReason,
 		selfHeal:     d.SelfHeal,
+		scaling:      d.Scaling,
 		dockerSem:    d.DockerSem,
 		setupConfirm: newConfirmStore(5 * time.Minute),
 		webhookRL:    newRateLimiter(30, time.Minute),
@@ -256,6 +260,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAppAction))))
 	mux.HandleFunc("POST /apps/{project}/services/{service}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleServiceAction))))
 	mux.HandleFunc("POST /apps/{project}/supervisor/clear", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSupervisorClear))))
+	mux.HandleFunc("POST /apps/{project}/scaling", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleScalingSave))))
 	mux.HandleFunc("GET /apps/{project}/services/{service}/logs", s.requireAuth(s.handleServiceLogs))
 	// Env settings (M5): literals + write-only secrets, masked reveal, history.
 	mux.HandleFunc("GET /apps/{project}/env", s.requireAuth(s.withCSRFToken(s.handleEnvGet)))

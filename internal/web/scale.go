@@ -1,0 +1,154 @@
+package web
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"github.com/helmsman/helmsman/internal/audit"
+	"github.com/helmsman/helmsman/internal/dockerexec"
+	"github.com/helmsman/helmsman/internal/monitor"
+	"github.com/helmsman/helmsman/internal/scale"
+)
+
+// Scale makes *Server the auto-scaler's Scaler: it changes a service's replica count
+// with a static-argv `docker compose up -d --no-deps --no-recreate --scale <svc>=<n>`
+// through the gated write path (env render + §5.6 validation), via RunHeld — the
+// scaler's safety gate already holds the one-docker-child semaphore. A protected
+// project is refused (authority never widens what may run).
+func (s *Server) Scale(ctx context.Context, appProject, service string, replicas int) error {
+	if s.runner == nil {
+		return fmt.Errorf("write plane unavailable")
+	}
+	if s.cfg.IsProtectedProject(appProject) {
+		return fmt.Errorf("refusing to scale a protected project %q", appProject)
+	}
+	var app *monitor.App
+	if snap := s.snapshot(); snap != nil {
+		app = snap.AppByProject(appProject)
+	}
+	if app == nil {
+		return fmt.Errorf("app %q not found", appProject)
+	}
+	env := s.composeEnv(app)
+	envFile, cleanup, err := s.renderEnvFile(app, env)
+	defer cleanup()
+	if err != nil {
+		return fmt.Errorf("render env file: %w", err)
+	}
+	if res := s.validateAppCompose(app, env); !res.OK() && s.cfg.ComposeValidation.Mode != "review" {
+		return fmt.Errorf("§5.6 compose validation failed (%d findings)", len(res.Violations))
+	}
+	job := dockerexec.Job{
+		Project: appProject, Dir: app.WorkingDir, ConfigFiles: app.ConfigFiles, EnvFile: envFile,
+		Action: []string{"up", "-d", "--no-deps", "--no-recreate", "--scale", service + "=" + strconv.Itoa(replicas)},
+	}
+	return s.runner.RunHeld(ctx, job, nil)
+}
+
+// handleScalingSave persists a per-service scaling policy. Enabling scaling is hard-
+// gated: a protected project, a stateful image (C4 — refused at the chokepoint, not
+// merely attested), or an invalid policy / missing reservation is rejected.
+func (s *Server) handleScalingSave(w http.ResponseWriter, r *http.Request) {
+	if s.scaling == nil {
+		http.Error(w, "scaling unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	project := r.PathValue("project")
+	if s.cfg.IsProtectedProject(project) {
+		http.Error(w, "protected project", http.StatusForbidden)
+		return
+	}
+	_ = r.ParseForm()
+	service := r.PostFormValue("service")
+	if service == "" {
+		http.Error(w, "service is required", http.StatusUnprocessableEntity)
+		return
+	}
+	enabled := r.PostFormValue("enabled") == "on"
+
+	if enabled {
+		// C4 hard gate: never scale a known stateful/clustered image, whatever the
+		// operator attests — scaling a database risks data corruption.
+		if img := s.serviceImage(project, service); scale.StatefulImage(img) {
+			http.Error(w, "this service runs a stateful image ("+img+") and cannot be auto-scaled (C4)", http.StatusUnprocessableEntity)
+			return
+		}
+		// C1/C2/C3/C6 attestation: the operator must confirm the candidacy contract.
+		if r.PostFormValue("attest") != "on" {
+			http.Error(w, "you must confirm the service is a stateless, edge-fronted HTTP service with no fixed host port and no read-write volume", http.StatusUnprocessableEntity)
+			return
+		}
+	}
+
+	pr := scale.PolicyRow{
+		Policy: scale.Policy{
+			Min: atoiDefault(r.PostFormValue("min"), 1), Max: atoiDefault(r.PostFormValue("max"), 1),
+			UpCPUPct: atofDefault(r.PostFormValue("up_cpu"), 80), DownCPUPct: atofDefault(r.PostFormValue("down_cpu"), 40),
+			UpMemPct: atofDefault(r.PostFormValue("up_mem"), 80), DownMemPct: atofDefault(r.PostFormValue("down_mem"), 40),
+			BreachForSecs:  int64(atoiDefault(r.PostFormValue("breach_for"), 60)),
+			CooldownUpSecs: int64(atoiDefault(r.PostFormValue("cooldown_up"), 60)), CooldownDownSecs: int64(atoiDefault(r.PostFormValue("cooldown_down"), 300)),
+		},
+		Enabled:       enabled,
+		PerReplicaMem: uint64(atoiDefault(r.PostFormValue("per_replica_mem_mib"), 0)) << 20, // MiB → bytes
+		PerReplicaCPU: uint64(atoiDefault(r.PostFormValue("per_replica_cpu_milli"), 0)),
+	}
+	if err := s.scaling.SavePolicy(r.Context(), scale.Key{App: project, Service: service}, pr); err != nil {
+		http.Error(w, "scaling policy rejected: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "scaling_policy_save", Target: project + "/" + service, Outcome: audit.OK, Level: audit.Security})
+	http.Redirect(w, r, "/apps/"+project, http.StatusSeeOther)
+}
+
+// scalingDesired returns the per-service desired replica count for a project (the
+// controller's current target), for the read-only app view.
+func (s *Server) scalingDesired(project string) map[string]int {
+	out := map[string]int{}
+	if s.scaling == nil {
+		return out
+	}
+	states, err := s.scaling.LoadStates()
+	if err != nil {
+		return out
+	}
+	for k, st := range states {
+		if k.App == project {
+			out[k.Service] = st.Replicas
+		}
+	}
+	return out
+}
+
+// serviceImage returns a service's image from the latest snapshot ("" if unknown).
+func (s *Server) serviceImage(project, service string) string {
+	snap := s.snapshot()
+	if snap == nil {
+		return ""
+	}
+	app := snap.AppByProject(project)
+	if app == nil {
+		return ""
+	}
+	for _, svc := range app.Services {
+		if svc.Service == service {
+			return svc.Image
+		}
+	}
+	return ""
+}
+
+func atoiDefault(s string, def int) int {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	return def
+}
+
+func atofDefault(s string, def float64) float64 {
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f
+	}
+	return def
+}

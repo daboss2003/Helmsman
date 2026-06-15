@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/helmsman/helmsman/internal/provstore"
 	"github.com/helmsman/helmsman/internal/retention"
 	"github.com/helmsman/helmsman/internal/sandbox"
+	"github.com/helmsman/helmsman/internal/scale"
 	"github.com/helmsman/helmsman/internal/selfheal"
 	"github.com/helmsman/helmsman/internal/setupstore"
 	"github.com/helmsman/helmsman/internal/store"
@@ -151,6 +153,7 @@ func cmdServe(args []string) error {
 	// and apply once the edge is up. The supervisor is joined before db.Close.
 	edgeRoutes := edge.NewRouteStore(db)
 	selfHealStore := selfheal.NewStore(db)
+	scalingStore := scale.NewStore(db)
 	var edgeRecon *edge.Reconciler
 	edgeReason := ""
 	if cfg.Edge.Mode == config.EdgeManaged {
@@ -199,6 +202,7 @@ func cmdServe(args []string) error {
 		EdgeRecon:  edgeRecon,
 		EdgeReason: edgeReason,
 		SelfHeal:   selfHealStore,
+		Scaling:    scalingStore,
 		DockerSem:  dockerSem,
 	})
 	if err != nil {
@@ -235,6 +239,32 @@ func cmdServe(args []string) error {
 	srv.SetCircuitClearer(func(p, svc string) { watcher.ClearCircuit(selfheal.Key{App: p, Service: svc}) })
 	wg.Add(1)
 	go func() { defer wg.Done(); watcher.Run(ctx) }()
+
+	// Opt-in auto-scaler (M14, plan §8A): one controller goroutine. OFF unless a
+	// per-service policy is enabled; the host-capacity guard caps every decision and
+	// collapses to effective_max=1 on a near-OOM box. Scaler = the gated web write
+	// path (srv via RunHeld); edge pool reconcile is left to DNS round-robin in v1.
+	// Joined before the deferred db.Close.
+	scaler := scale.New(scale.Config{
+		Store:        scalingStore,
+		Alerts:       shAlerts,
+		Snap:         mon.Snapshot,
+		Sem:          dockerSem,
+		Scaler:       srv,
+		Log:          log,
+		Interval:     cfg.Monitor.PollInterval.D(),
+		WritePlaneOK: writeAllowed,
+		HostCPUMilli: uint64(runtime.NumCPU() * 1000),
+		Reserves: scale.Reserves{
+			MemReserveBytes:    384 << 20, // control plane + edge slice + headroom
+			MemFreeFloor:       256 << 20,
+			NearOOMFreeBytes:   256 << 20,
+			PerReplicaMemFloor: 16 << 20,
+			CPUReserveMilli:    500,
+		},
+	})
+	wg.Add(1)
+	go func() { defer wg.Done(); scaler.Run(ctx) }()
 
 	// SIGHUP hot-reloads the allowlist + auth (plan §5.1), never keys/bind.
 	hup := make(chan os.Signal, 1)
