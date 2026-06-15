@@ -49,6 +49,9 @@ type tmplData struct {
 	// Apps list (table view).
 	AppsRows []appsRow
 
+	// API tokens screen (view + revoke).
+	APITokenRows []apiTokenRow
+
 	// Incidents screen: aggregated open alerts / unhealthy apps / circuit-open / fails.
 	Incidents *incidentsView
 

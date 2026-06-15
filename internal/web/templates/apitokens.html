@@ -1,0 +1,52 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <h1>API tokens</h1>
+  <p class="muted">Scoped tokens let scripts and CI talk to Helmsman's read/deploy API. Each is limited to specific permissions and networks, and always expires.</p>
+
+  <section class="panel">
+    <h2>Tokens</h2>
+    {{if .APITokenRows}}
+    <table class="grid">
+      <thead><tr><th>ID</th><th>Scopes</th><th>Networks</th><th>Expires</th><th>State</th><th></th></tr></thead>
+      <tbody>
+        {{range .APITokenRows}}
+        <tr>
+          <td class="mono">{{.ID}}</td>
+          <td>{{range .Scopes}}<span class="badge">{{.}}</span> {{end}}</td>
+          <td class="mono small">{{range .CIDRs}}{{.}}<br>{{end}}</td>
+          <td class="mono">{{.Expires}}</td>
+          <td>
+            {{if eq .State "active"}}<span class="pill pill-ok">active</span>
+            {{else if eq .State "expired"}}<span class="pill">expired</span>
+            {{else}}<span class="pill pill-down">revoked</span>{{end}}
+          </td>
+          <td>
+            {{if eq .State "active"}}
+            <form method="post" action="/settings/api-tokens/revoke" class="inline" data-confirm="Revoke token {{.ID}}? Clients using it will stop working immediately.">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button type="submit" class="link">revoke</button>
+            </form>
+            {{else}}<span class="muted">—</span>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="muted">No API tokens yet.</p>
+    {{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Create a token</h2>
+    <p class="muted">For security, tokens are minted over SSH — never from the dashboard. On your server:</p>
+    <pre class="mono">helmsman token mint \
+  --scopes status:read,metrics:read,deploy:write:my-app \
+  --cidrs 203.0.113.0/24 \
+  --ttl 720h</pre>
+    <p class="muted small">The token value is shown once. It appears here so you can review and revoke it.</p>
+  </section>
+</main>
+{{template "bottom" .}}

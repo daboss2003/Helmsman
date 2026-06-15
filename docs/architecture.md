@@ -1,8 +1,10 @@
 # Architecture
 
-> How Helmsman is put together: the processes that make up a running install, where each one sits on the host, how data is split between them, and the small number of choke points every privileged action is forced through.
+> **You don't need this page to use Helmsman** — [Install it](./installation.md) and [Deploy your first app](./first-steps.md) cover everything for day-to-day use. This is an optional deep-dive for people who want to understand how it works under the hood, or who are evaluating it for security.
 
-This document is the conceptual map of Helmsman. If you want to *use* Helmsman, start at [the README](../README.md). If you want to understand *why a fresh install is safe with zero configuration*, read [the security model](./security.md) and [the managed edge](./edge-and-tls.md). This page connects those pieces: it explains the components, their runtime placement, the read-plane / write-plane split, and the single reconciler that both the dashboard and the CLI share.
+How Helmsman is put together: the processes that make up a running install, where each one sits on the host, how data is split between them, and the small number of choke points every privileged action is forced through.
+
+Helmsman is a **single static Go binary** plus a small supporting cast of OS processes it supervises. It is a generic tool an operator points at a Docker host — not tied to any project. The overriding design constraint: hosting Helmsman must never become the thing that gets the server hacked. Almost every structural decision below is subordinate to that requirement.
 
 Helmsman is a **single static Go binary** plus a small supporting cast of OS processes it supervises. It is a generic tool an operator points at a Docker host — not tied to any project. The overriding design constraint is stated plainly in the build plan: hosting Helmsman *must never become the thing that gets the server hacked*. Almost every structural decision below is subordinate to that requirement.
 

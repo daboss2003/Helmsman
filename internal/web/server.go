@@ -382,6 +382,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /events", s.requireAuth(s.withCSRFToken(s.handleEvents)))
 	// Operator UI prefs (M7): persisted tile order. UI-only, never Tier-1.
 	mux.HandleFunc("POST /settings/tile-order", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleTileOrder))))
+	// API tokens (M19): read-only view + revoke. Minting stays CLI-only by design.
+	mux.HandleFunc("GET /settings/api-tokens", s.requireAuth(s.withCSRFToken(s.handleAPITokens)))
+	mux.HandleFunc("POST /settings/api-tokens/revoke", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAPITokenRevoke))))
 
 	// Scoped machine API (M19, plan §17.1): bearer-ONLY, cookie-REJECTING,
 	// CSRF-EXEMPT (no ambient credential to abuse). requireToken is the sole gate —

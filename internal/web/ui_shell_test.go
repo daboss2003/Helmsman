@@ -83,6 +83,21 @@ func TestGitViewForUnconfigured(t *testing.T) {
 	}
 }
 
+func TestAPITokensScreen(t *testing.T) {
+	e, _, _ := buildAPIServer(t, true, seedToken{[]string{"status:read", "deploy:write:web"}, []string{"203.0.113.0/24"}})
+	sess, _ := e.login(t, "127.0.0.1:1", testPassword, "")
+	resp := e.req(t, "GET", "/settings/api-tokens", "127.0.0.1:1", nil, []*http.Cookie{sess}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /settings/api-tokens = %d, want 200", resp.StatusCode)
+	}
+	body := readBody(resp)
+	for _, want := range []string{"API tokens", "status:read", "deploy:write:web", "203.0.113.0/24", "helmsman token mint"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("api tokens screen missing %q", want)
+		}
+	}
+}
+
 func TestLoginHasNoShell(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	resp := e.req(t, "GET", "/login", "127.0.0.1:1", nil, nil, nil)

@@ -59,8 +59,16 @@ edge:
   mode: "managed"                   # Helmsman runs the web server + HTTPS for you
   acme_email: "you@example.com"     # used by Let's Encrypt for your certificates
 
+admin:
+  hostname: "admin.example.com"     # Helmsman serves the dashboard here over HTTPS,
+                                    # behind your ip_allowlist. Point its DNS at this
+                                    # server. Omit it and you reach the dashboard over
+                                    # an SSH tunnel instead.
+
 data_dir: "/var/lib/helmsman"       # where Helmsman keeps its data
 ```
+
+> **You don't run a proxy or forward a port.** With `admin.hostname` set, the managed edge serves the dashboard at that address over HTTPS (still behind your IP allowlist). Point the hostname's DNS at your server and that's it. Leave `admin.hostname` out only if you'd rather reach the dashboard over an SSH tunnel.
 
 Helmsman validates this file at startup. If a required value is missing or the file permissions are too open, it stops with a clear message explaining what to fix.
 

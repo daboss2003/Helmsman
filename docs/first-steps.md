@@ -6,15 +6,22 @@ Helmsman is running. This guide walks through signing in and deploying an app wi
 
 ## Sign in
 
-The dashboard listens on the server's loopback interface. To reach it the first time, forward the port over SSH:
+If you set `admin.hostname` during installation, **Helmsman serves the dashboard for you** at that address over HTTPS (behind your IP allowlist) — just open it in your browser:
 
-```bash
-ssh -L 9000:127.0.0.1:9000 operator@your-server
+```
+https://admin.example.com
 ```
 
-Open **http://127.0.0.1:9000** and sign in with the username and password you set during installation.
+No proxy to run, no port to forward. Sign in with the username and password you set during installation.
 
-You'll arrive at the **Overview** — your server's CPU, memory, and disk, with a tile for each app once you've added some. From here, everything is in the dashboard. (Later, set `admin.hostname` to serve the dashboard on its own domain and skip the tunnel.)
+> **Didn't set a hostname yet?** Until you do (e.g. while DNS is still propagating), reach the dashboard over an SSH tunnel — this also stays as a recovery path if the edge is ever down:
+>
+> ```bash
+> ssh -L 9000:127.0.0.1:9000 operator@your-server
+> # then open http://127.0.0.1:9000
+> ```
+
+You'll arrive at the **Overview** — your server's CPU, memory, and disk, with a tile for each app once you've added some. Everything from here is in the dashboard.
 
 ## Add an app
 
