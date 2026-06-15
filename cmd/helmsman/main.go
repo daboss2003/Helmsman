@@ -20,6 +20,8 @@ Definition file (helmsman.yaml — same validation as the dashboard):
   validate         Parse + validate a helmsman.yaml through the §5.6/§6.2 chokepoints
                    (read-only, no DB — safe in CI).
   init             Scaffold a helmsman.yaml from an existing compose (--from-compose).
+  secret import    Import a .env into an app's encrypted store (§7.9: classify,
+                   literal-secret hard stop, by-reference; values from the file).
 
 Root of trust (run over SSH; secrets read from /dev/tty, never argv):
   gen-key          Generate the AES-256-GCM master key (base64).
@@ -51,6 +53,8 @@ func main() {
 		err = cmdValidate(args)
 	case "init":
 		err = cmdInit(args)
+	case "secret":
+		err = cmdSecret(args)
 	case "gen-key":
 		err = cmdGenKey(args)
 	case "hash-password":
