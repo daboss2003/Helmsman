@@ -58,8 +58,9 @@ type Config struct {
 
 // Watcher is the auto-scaling controller loop (plan §8A).
 type Watcher struct {
-	cfg    Config
-	states map[Key]State
+	cfg     Config
+	states  map[Key]State
+	refused map[Key]bool // services with an open scale_refused_no_capacity alert
 }
 
 // New builds a Watcher.
@@ -70,7 +71,7 @@ func New(cfg Config) *Watcher {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	return &Watcher{cfg: cfg, states: map[Key]State{}}
+	return &Watcher{cfg: cfg, states: map[Key]State{}, refused: map[Key]bool{}}
 }
 
 // Run recovers state and ticks until ctx is cancelled.
@@ -112,19 +113,34 @@ func (w *Watcher) Tick(ctx context.Context) {
 
 	groups := w.groupReplicas(snap)
 
-	// Cross-app budget: total memory/cpu reserved by ALL enabled services' DESIRED
-	// replicas (red-team: reserve against desired, not observed — closes multi-app
-	// over-commit). Each service then excludes its own contribution.
-	var totalDesiredMem, totalDesiredCPU uint64
+	// Cross-app budget: memory/cpu reserved by ALL enabled services' DESIRED replicas
+	// (red-team: reserve against desired, not observed). This is a LIVE running total
+	// — when a service scales up earlier in this tick, the reservation grows so a
+	// LATER service in the SAME tick is sized against it. Without this, two services
+	// scaling in one tick would each see the other's stale (pre-scale) desired and
+	// could jointly over-commit the host into an OOM.
+	lb := &liveBudget{}
 	for k, p := range policies {
 		d := w.desired(k, groups[k], p)
-		totalDesiredMem += uint64(d) * p.PerReplicaMem
-		totalDesiredCPU += uint64(d) * p.PerReplicaCPU
+		lb.mem += uint64(d) * p.PerReplicaMem
+		lb.cpu += uint64(d) * p.PerReplicaCPU
 	}
 
 	for k, p := range policies {
-		w.stepService(ctx, snap, k, p, groups[k], totalDesiredMem, totalDesiredCPU, now)
+		w.stepService(ctx, snap, k, p, groups[k], lb, now)
 	}
+}
+
+// liveBudget is the running cross-app reservation, mutated as services scale within
+// a single tick so later services account for earlier in-tick scale-ups.
+type liveBudget struct{ mem, cpu uint64 }
+
+func adjust(v uint64, delta int, per uint64) uint64 {
+	n := int64(v) + int64(delta)*int64(per)
+	if n < 0 {
+		return 0
+	}
+	return uint64(n)
 }
 
 func (w *Watcher) groupReplicas(snap *monitor.Snapshot) map[Key]replicaGroup {
@@ -170,11 +186,22 @@ func (w *Watcher) desired(k Key, g replicaGroup, p PolicyRow) int {
 	return d
 }
 
-func (w *Watcher) stepService(ctx context.Context, snap *monitor.Snapshot, k Key, p PolicyRow, g replicaGroup, totalDesiredMem, totalDesiredCPU uint64, now int64) {
+func (w *Watcher) stepService(ctx context.Context, snap *monitor.Snapshot, k Key, p PolicyRow, g replicaGroup, lb *liveBudget, now int64) {
 	st, ok := w.states[k]
 	if !ok || st.Replicas == 0 {
 		st = State{Replicas: w.desired(k, g, p)}
 	}
+	oldDesired := st.Replicas
+	// Keep the live cross-app budget in sync with whatever this service ends up at
+	// (a no-op for ActNone/Refused; a delta for an actual scale) so later services in
+	// THIS tick reserve against the new total.
+	defer func() {
+		delta := w.states[k].Replicas - oldDesired
+		if delta != 0 {
+			lb.mem = adjust(lb.mem, delta, p.PerReplicaMem)
+			lb.cpu = adjust(lb.cpu, delta, p.PerReplicaCPU)
+		}
+	}()
 
 	// Candidacy (C1–C6) is re-checked every tick: a service that lost candidacy
 	// (gained a host port / RW volume) is scaled back to the floor and left alone.
@@ -182,16 +209,20 @@ func (w *Watcher) stepService(ctx context.Context, snap *monitor.Snapshot, k Key
 		spec, _ := w.cfg.IsCandidate(k.App, k.Service)
 		spec.OptedIn = true // the enabled policy IS the opt-in (C7)
 		if ok, reason := Candidacy(spec); !ok {
+			st.BreachSince = 0 // clear stale hysteresis so a later re-gain starts fresh
 			if st.Replicas > p.Min {
 				w.act(ctx, k, p.Min, st, now, "lost candidacy: "+reason)
+			} else {
+				w.save(ctx, k, st, now)
 			}
 			return
 		}
 	}
 
-	// Host-capacity guard on fresh data, reserving against OTHER apps' desired.
-	otherMem := totalDesiredMem - uint64(st.Replicas)*p.PerReplicaMem
-	otherCPU := totalDesiredCPU - uint64(st.Replicas)*p.PerReplicaCPU
+	// Host-capacity guard on fresh data, reserving against OTHER apps' desired (the
+	// live running total minus this service's own current contribution).
+	otherMem := adjust(lb.mem, -st.Replicas, p.PerReplicaMem)
+	otherCPU := adjust(lb.cpu, -st.Replicas, p.PerReplicaCPU)
 	ceiling, nearOOM, capReason := MaxReplicas(CapacityInput{
 		Mem:       Budget{HostTotal: snap.Host.MemTotal, HostFree: hostFree(snap), Reserved: w.cfg.Reserves.MemReserveBytes + otherMem, FreeFloor: w.cfg.Reserves.MemFreeFloor, PerReplica: p.PerReplicaMem, Current: st.Replicas},
 		CPU:       Budget{HostTotal: w.cfg.HostCPUMilli, HostFree: w.cfg.HostCPUMilli, Reserved: w.cfg.Reserves.CPUReserveMilli + otherCPU, FreeFloor: w.cfg.Reserves.CPUFreeFloor, PerReplica: p.PerReplicaCPU, Current: st.Replicas},
@@ -207,6 +238,7 @@ func (w *Watcher) stepService(ctx context.Context, snap *monitor.Snapshot, k Key
 	d := Decide(st, metrics, p.Policy, ceiling, now)
 	switch d.Action {
 	case ActNone:
+		w.resolveRefused(ctx, k) // load dropped → the refusal condition is gone
 		w.save(ctx, k, d.Next, now)
 	case ActUp, ActDown:
 		w.scaleGated(ctx, k, d, now)
@@ -244,6 +276,9 @@ func (w *Watcher) act(ctx context.Context, k Key, target int, next State, now in
 	if !down && w.cfg.Edge != nil {
 		_ = w.cfg.Edge.ReconcilePool(ctx, k.App, k.Service, target)
 	}
+	if !down {
+		w.resolveRefused(ctx, k) // a successful scale-up clears any open refusal
+	}
 	w.cfg.Log.Info("scaled", "app", k.App, "service", k.Service, "replicas", target, "reason", reason)
 	w.save(ctx, k, next, now)
 }
@@ -274,9 +309,27 @@ func (w *Watcher) emitRefused(ctx context.Context, k Key, nearOOM bool, reason s
 		w.cfg.Log.Warn("scale: refused (no channels configured)", "target", target, "reason", reason)
 		return
 	}
+	w.refused[k] = true
 	_ = w.cfg.Alerts.EnqueueInfra(ctx, alert.Outbox{
 		RuleID: 0, Target: target, Kind: "scale_refused_no_capacity", Level: alert.LevelWarning,
 		Transition: "firing", Summary: msg, DedupeKey: "scale:" + target,
+	})
+}
+
+// resolveRefused clears an open scale_refused_no_capacity alert once the service can
+// scale again (capacity returned) or no longer wants to (load dropped).
+func (w *Watcher) resolveRefused(ctx context.Context, k Key) {
+	if !w.refused[k] {
+		return
+	}
+	delete(w.refused, k)
+	if w.cfg.Alerts == nil {
+		return
+	}
+	target := sanitizeName(k.App) + "/" + sanitizeName(k.Service)
+	_ = w.cfg.Alerts.EnqueueInfra(ctx, alert.Outbox{
+		RuleID: 0, Target: target, Kind: "scale_refused_no_capacity", Level: alert.LevelWarning,
+		Transition: "resolved", Summary: "Service " + target + " no longer needs more capacity (resolved).", DedupeKey: "scale:" + target,
 	})
 }
 

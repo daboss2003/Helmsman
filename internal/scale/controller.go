@@ -49,6 +49,10 @@ func (p Policy) Valid() (bool, string) {
 		return false, "min replicas must be >= 1"
 	case p.Max < p.Min:
 		return false, "max replicas must be >= min"
+	case p.DownCPUPct < 0 || p.UpCPUPct > 100 || p.DownMemPct < 0 || p.UpMemPct > 100:
+		return false, "thresholds must be within 0–100"
+	case p.UpCPUPct <= p.DownCPUPct || p.UpMemPct <= p.DownMemPct:
+		return false, "up thresholds must be above down thresholds"
 	case p.UpCPUPct-p.DownCPUPct < deadBand:
 		return false, "cpu up/down thresholds must differ by >= 20 points (dead band)"
 	case p.UpMemPct-p.DownMemPct < deadBand:

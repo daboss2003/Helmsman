@@ -25,6 +25,18 @@ func TestPolicyValidation(t *testing.T) {
 	if ok, _ := bad.Valid(); ok {
 		t.Error("down cooldown < up cooldown (not down-lazy) must be rejected")
 	}
+	// Out-of-range thresholds (negative / >100 / inverted) must be rejected.
+	for _, mut := range []func(p *Policy){
+		func(p *Policy) { p.DownCPUPct = -5 },
+		func(p *Policy) { p.UpCPUPct = 150 },
+		func(p *Policy) { p.UpMemPct = 30; p.DownMemPct = 60 }, // inverted
+	} {
+		p := testCtlPolicy()
+		mut(&p)
+		if ok, _ := p.Valid(); ok {
+			t.Error("an out-of-range / inverted threshold policy must be rejected")
+		}
+	}
 }
 
 var hot = Metrics{CPUMeanPct: 90, MemMaxPct: 50, AllHealthy: true}

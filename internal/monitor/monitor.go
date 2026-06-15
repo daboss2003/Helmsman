@@ -32,6 +32,7 @@ type ServiceStatus struct {
 	RestartCount int
 	ExitCode     int  // last exit code (137 ≈ OOM/at-limit kill — used by the supervisor)
 	OOMKilled    bool // the container's last stop was an OOM kill
+	HasRWVolume  bool // a shared read-write bind/named volume (auto-scaling C3 disqualifier)
 	StatusText   string
 }
 
@@ -228,6 +229,7 @@ func (m *Monitor) pollOnce(parent context.Context) *Snapshot {
 			svc.Health = ci.HealthStatus()
 			svc.ExitCode = ci.State.ExitCode
 			svc.OOMKilled = ci.State.OOMKilled
+			svc.HasRWVolume = ci.HasSharedRWVolume()
 		}
 		if c.State == "running" {
 			if st, err := m.cli.StatsOneShot(ctx, c.ID); err == nil {

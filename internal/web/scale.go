@@ -69,9 +69,17 @@ func (s *Server) handleScalingSave(w http.ResponseWriter, r *http.Request) {
 	enabled := r.PostFormValue("enabled") == "on"
 
 	if enabled {
+		// The service must exist in the running deployment, so the C4 image gate is
+		// actually evaluated (a typo'd / not-yet-deployed service can't slip enablement
+		// past the denylist).
+		img := s.serviceImage(project, service)
+		if img == "" {
+			http.Error(w, "service not found in the running deployment", http.StatusUnprocessableEntity)
+			return
+		}
 		// C4 hard gate: never scale a known stateful/clustered image, whatever the
 		// operator attests — scaling a database risks data corruption.
-		if img := s.serviceImage(project, service); scale.StatefulImage(img) {
+		if scale.StatefulImage(img) {
 			http.Error(w, "this service runs a stateful image ("+img+") and cannot be auto-scaled (C4)", http.StatusUnprocessableEntity)
 			return
 		}

@@ -83,6 +83,46 @@ type ContainerInspect struct {
 		Image  string            `json:"Image"`
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
+	Mounts []struct {
+		Type string `json:"Type"` // bind | volume | tmpfs
+		Name string `json:"Name"` // volume name ("" for binds; a 64-hex hash for anonymous volumes)
+		RW   bool   `json:"RW"`
+	} `json:"Mounts"`
+}
+
+// HasSharedRWVolume reports whether the container has a read-write mount that would
+// be SHARED across replicas (a host bind or a named volume) — the auto-scaling C3
+// disqualifier. Anonymous volumes (a 64-hex name) are per-replica scratch and don't
+// count; tmpfs never counts.
+func (ci ContainerInspect) HasSharedRWVolume() bool {
+	for _, m := range ci.Mounts {
+		if !m.RW {
+			continue
+		}
+		switch m.Type {
+		case "bind":
+			return true
+		case "volume":
+			if m.Name != "" && !isAnonymousVolume(m.Name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isAnonymousVolume reports whether a volume name is Docker's anonymous-volume hash
+// (64 lowercase hex chars) — per-replica scratch, safe to scale.
+func isAnonymousVolume(name string) bool {
+	if len(name) != 64 {
+		return false
+	}
+	for _, c := range name {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // HealthStatus returns the container's healthcheck status, or "none" if it has

@@ -12,9 +12,12 @@ var statefulImages = []string{
 	"postgres", "postgis", "mysql", "mariadb", "percona", "cockroach", "yugabyte",
 	"redis", "valkey", "keydb", "memcached",
 	"mongo", "couchdb", "cassandra", "scylla", "elasticsearch", "opensearch", "clickhouse",
-	"influxdb", "victoriametrics", "timescale", "neo4j", "rethinkdb",
+	"influxdb", "victoriametrics", "timescale", "neo4j", "rethinkdb", "questdb",
+	"dragonfly", "dragonflydb",
 	"rabbitmq", "kafka", "redpanda", "nats", "pulsar", "activemq", "zookeeper", "etcd", "consul", "vault",
 	"minio", "seaweedfs", "garage",
+	// search / vector / log stores (stateful indexes on disk)
+	"solr", "meilisearch", "typesense", "qdrant", "weaviate", "milvus", "loki", "mimir", "tempo", "prometheus",
 }
 
 // StatefulImage reports whether an image reference belongs to a known stateful /

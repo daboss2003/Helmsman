@@ -255,6 +255,25 @@ func cmdServe(args []string) error {
 		Interval:     cfg.Monitor.PollInterval.D(),
 		WritePlaneOK: writeAllowed,
 		HostCPUMilli: uint64(runtime.NumCPU() * 1000),
+		// Runtime candidacy re-check (C3/C4) from docker inspect, every tick: a
+		// service that gains a shared RW volume or now runs a stateful image loses
+		// candidacy and is scaled back to the floor (closes a post-enable compose
+		// change). C1/C2/C6 stay operator-attested at enable time (full compose-
+		// derived candidacy lands with the typed model in M15).
+		IsCandidate: func(app, service string) (scale.ServiceSpec, bool) {
+			spec := scale.ServiceSpec{EdgeUpstream: true, StatelessContract: true}
+			if snap := mon.Snapshot(); snap != nil {
+				if a := snap.AppByProject(app); a != nil {
+					for _, svc := range a.Services {
+						if svc.Service == service {
+							spec.RWVolume = svc.HasRWVolume
+							spec.Stateful = scale.StatefulImage(svc.Image)
+						}
+					}
+				}
+			}
+			return spec, true
+		},
 		Reserves: scale.Reserves{
 			MemReserveBytes:    384 << 20, // control plane + edge slice + headroom
 			MemFreeFloor:       256 << 20,
