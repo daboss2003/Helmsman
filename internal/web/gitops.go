@@ -718,37 +718,46 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		defer s.gitDeploy.Release()
 		ctx, cancel := context.WithTimeout(context.Background(), gitDeployTimeout)
 		defer cancel()
-		_, staged, err := s.doFetch(ctx, project)
-		if err != nil {
-			s.log.Warn("webhook fetch failed", "project", project)
-			return
-		}
-		// Re-read the config AFTER the fetch completes so a mid-fetch toggle of
-		// auto_deploy (or any edit) is honored — never auto-deploy against a flag
-		// captured before the (possibly slow) network fetch (review: stale flag).
-		fresh, ok, _ := s.gitStore.Get(project)
-		if !ok || !fresh.AutoDeploy {
-			return // fetch-only; the operator deploys manually
-		}
-		// Only auto-deploy a clean fast-forward update. A history rewrite or
-		// up-to-date state never auto-deploys.
-		if fresh.UpdateState != "update_available" || staged == "" || fresh.StagedCommit != staged {
-			return
-		}
-		if s.runner == nil {
-			return
-		}
-		if ok, _ := s.runner.WriteAllowed(); !ok {
-			return
-		}
-		if err := s.deployRepoApp(ctx, fresh, staged, "webhook", "webhook", func(line string) {
-			s.log.Info("git auto-deploy", "project", project, "line", line)
-		}); err != nil {
-			s.log.Warn("webhook auto-deploy failed", "project", project)
-		}
+		s.fetchAndMaybeDeploy(ctx, project, "webhook")
 	}()
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("accepted\n"))
+}
+
+// fetchAndMaybeDeploy runs the read-plane fetch and, ONLY for a repo that opted into
+// auto_deploy with a clean fast-forward update, the same gated promote the manual
+// deploy uses. The CALLER must already hold s.gitDeploy (the webhook handler and the
+// poller both do). It is the shared core of the webhook trigger and the background
+// poller, so both honor the auto_deploy flag identically.
+func (s *Server) fetchAndMaybeDeploy(ctx context.Context, project, actor string) {
+	_, staged, err := s.doFetch(ctx, project)
+	if err != nil {
+		s.log.Warn("git fetch failed", "project", project, "via", actor)
+		return
+	}
+	// Re-read the config AFTER the fetch so a mid-fetch toggle of auto_deploy (or any
+	// edit) is honored — never auto-deploy against a flag captured before the
+	// (possibly slow) network fetch.
+	fresh, ok, _ := s.gitStore.Get(project)
+	if !ok || !fresh.AutoDeploy {
+		return // fetch-only; the operator deploys manually
+	}
+	// Only auto-deploy a clean fast-forward update. A history rewrite or an
+	// up-to-date state never auto-deploys.
+	if fresh.UpdateState != "update_available" || staged == "" || fresh.StagedCommit != staged {
+		return
+	}
+	if s.runner == nil {
+		return
+	}
+	if ok, _ := s.runner.WriteAllowed(); !ok {
+		return
+	}
+	if err := s.deployRepoApp(ctx, fresh, staged, actor, actor, func(line string) {
+		s.log.Info("git auto-deploy", "project", project, "via", actor, "line", line)
+	}); err != nil {
+		s.log.Warn("git auto-deploy failed", "project", project, "via", actor)
+	}
 }
 
 // verifyWebhookSig verifies HMAC-SHA256(secret, "<ts>.<nonce>") in constant time

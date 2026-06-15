@@ -56,6 +56,7 @@ type Config struct {
 	Cookie  CookieConfig  `yaml:"cookie"`
 	Docker  DockerConfig  `yaml:"docker"`
 	Monitor MonitorConfig `yaml:"monitor"`
+	Git     GitConfig     `yaml:"git"`
 
 	CaddyEditor       EditorBlock     `yaml:"caddy_editor"`
 	ComposeValidation EditorBlock     `yaml:"compose_validation"`
@@ -123,6 +124,15 @@ type DockerConfig struct {
 type MonitorConfig struct {
 	PollInterval     Duration `yaml:"poll_interval"`
 	MetricsRetention Duration `yaml:"metrics_retention"`
+}
+
+// GitConfig tunes the connected-repo auto-fetch poller. So a repo connected in the
+// dashboard "just works" with no webhook setup, Helmsman fetches every connected repo
+// on this cadence (read-plane); repos that opted into auto_deploy then deploy through
+// the same gated promote path. The webhook stays as an optional instant trigger.
+// poll_interval: 0 disables polling (webhook-only).
+type GitConfig struct {
+	PollInterval Duration `yaml:"poll_interval"`
 }
 
 // SessionConfig holds idle/absolute timeouts (plan §5.3).
@@ -255,6 +265,12 @@ func applyDefaults(c *Config) {
 	}
 	if c.Monitor.MetricsRetention == 0 {
 		c.Monitor.MetricsRetention = Duration(7 * 24 * time.Hour)
+	}
+	if c.Git.PollInterval == 0 {
+		// Turnkey default: connected repos are auto-fetched every 2 min so a repo
+		// connected in the dashboard "just works" with no webhook. A NEGATIVE value
+		// disables polling (webhook-only).
+		c.Git.PollInterval = Duration(2 * time.Minute)
 	}
 	if c.Retention.Interval == 0 {
 		c.Retention.Interval = Duration(6 * time.Hour)

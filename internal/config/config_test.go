@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helmsman/helmsman/internal/crypto"
 )
@@ -60,6 +61,21 @@ func TestValidConfigLoads(t *testing.T) {
 	}
 	if cfg.Cookie.Prefix != "__Host-" {
 		t.Errorf("default cookie prefix not __Host-")
+	}
+	// Turnkey default: connected-repo auto-fetch is ON (2 min) so connecting a repo in
+	// the dashboard "just works" with no webhook.
+	if cfg.Git.PollInterval.D() != 2*time.Minute {
+		t.Errorf("git poll interval default = %v, want 2m", cfg.Git.PollInterval.D())
+	}
+}
+
+func TestGitPollNegativeDisablesIsPreserved(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML(t, "git:\n  poll_interval: \"-1s\"\n")))
+	if err != nil {
+		t.Fatalf("config with negative git poll rejected: %v", err)
+	}
+	if cfg.Git.PollInterval.D() >= 0 {
+		t.Errorf("a negative git poll_interval must be preserved (disables polling), got %v", cfg.Git.PollInterval.D())
 	}
 }
 
