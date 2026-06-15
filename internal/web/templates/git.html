@@ -4,12 +4,22 @@
   {{with .Git}}
   {{if .Project}}<p><a href="/apps/{{pathEscape .Project}}">← {{.Project}}</a></p>{{else}}<p><a href="/">← Overview</a></p>{{end}}
   <h1>{{if .Project}}Repository — {{.Project}}{{else}}Connect a repository{{end}}</h1>
-  <p class="muted">Helmsman fetches the configured ref into a private object store and shows a
-    sanitized diff. Deploys are <strong>sha-pinned</strong>: you promote exactly the commit you
-    reviewed — its definition is validated (§5.6) from the pinned bytes and Helmsman runs it.
-    <em>(Repo apps still point at a definition path in the repo; unifying this onto
-    <code>helmsman.yaml</code> lands with M15.)</em></p>
+  <p class="muted">Helmsman watches your repo for new commits and shows a clear diff. Deploys are
+    <strong>pinned to the exact commit you reviewed</strong> — nothing ships until you click Deploy.</p>
   {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
+
+  {{if and (not .Project) $.GitHubEnabled}}
+  <section class="panel">
+    <h2>Connect with GitHub</h2>
+    <p class="muted">The easy way: authorize once, pick a repo, and Helmsman installs a
+      read-only deploy key for you — no keys or URLs to copy.</p>
+    <form method="post" action="/github/connect" class="inline">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <button type="submit" class="btn btn-primary">Connect with GitHub →</button>
+    </form>
+  </section>
+  <p class="muted small">Or connect any Git repository manually below.</p>
+  {{end}}
 
   {{if .Configured}}
   <section class="panel">

@@ -29,6 +29,10 @@ var authExempt = map[string]bool{
 	"POST /logout":          true,
 	"GET /static/theme.css": true,
 	"GET /static/":          true, // embedded asset FileServer (behind the allowlist)
+	// OAuth callback: a cross-site navigation back from github.com, so the Strict
+	// session cookie isn't sent. Authenticated instead by the single-use Lax OAuth
+	// state cookie that only an authenticated+CSRF'd /github/connect could have set.
+	"GET /github/callback": true,
 }
 
 // csrfExempt are the mutating routes that intentionally do NOT use requireCSRF.

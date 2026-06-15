@@ -26,6 +26,7 @@ import (
 	"github.com/helmsman/helmsman/internal/dockerexec"
 	"github.com/helmsman/helmsman/internal/edge"
 	"github.com/helmsman/helmsman/internal/envstore"
+	"github.com/helmsman/helmsman/internal/github"
 	"github.com/helmsman/helmsman/internal/gitstore"
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
@@ -134,6 +135,7 @@ type Server struct {
 	scaling        *scale.Store                  // auto-scaling policies + state (may be nil)
 	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
 	apiTokens      *apitoken.Store               // scoped API tokens (M19; nil → /api/v1 disabled)
+	githubClient   *github.Client                // GitHub connect (M20; nil → feature off)
 	dockerSem      *dockerexec.Semaphore         // global one-docker-child semaphore (may be nil)
 	setupConfirm   *confirmStore                 // single-use setup confirm tokens
 	webhookRL      *rateLimiter                  // per-token webhook rate limit
@@ -204,6 +206,12 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		return nil, fmt.Errorf("web: build api decoy hash: %w", err)
 	}
 	s.apiDummyHash = apiDummy
+	// "Connect with GitHub" is on only when the operator configured an OAuth App. The
+	// HTTP client has a bounded timeout; outbound egress to GitHub is the operator's
+	// systemd egress-allowlist concern.
+	if cfg.GitHub.Enabled() {
+		s.githubClient = github.New(&http.Client{Timeout: 30 * time.Second}, "", "")
+	}
 	return s, nil
 }
 
@@ -346,6 +354,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/git/fetch", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitFetch))))
 	mux.HandleFunc("POST /apps/{project}/git/deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitDeploy))))
 	mux.HandleFunc("POST /apps/{project}/git/webhook-rotate", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitWebhookRotate))))
+	// Connect with GitHub (M20): OAuth web flow → repo picker → auto deploy-key.
+	// The callback is a cross-site navigation back from github.com, so the Strict
+	// session cookie isn't sent — it is authenticated by the single-use Lax OAuth
+	// state cookie instead (set only by the authenticated+CSRF'd connect action).
+	mux.HandleFunc("POST /github/connect", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitHubConnect))))
+	mux.HandleFunc("GET /github/callback", s.handleGitHubCallback)
+	mux.HandleFunc("GET /github/repos", s.requireAuth(s.handleGitHubRepos))
+	mux.HandleFunc("POST /github/connect-repo", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitHubConnectRepo))))
+	mux.HandleFunc("POST /github/disconnect", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitHubDisconnect))))
 	// Managed edge (M11): per-app public routes (Caddy/ACME). The whole config is
 	// re-rendered + pushed on every change; the operator never edits Caddy.
 	mux.HandleFunc("GET /edge", s.requireAuth(s.withCSRFToken(s.handleEdge)))

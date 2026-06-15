@@ -46,6 +46,11 @@ type tmplData struct {
 	Alerts *alertsView
 	Edge   *edgeView
 
+	// GitHub connect (M20): the connect-repo page + repo picker.
+	GitHubEnabled bool
+	GitHubLogin   string
+	GitHubRepos   []githubRepoView
+
 	// Supervisor (M13): per-service FSM phase, e.g. "CIRCUIT_OPEN", for the app view.
 	Supervisor map[string]string
 	// Scaling (M14): per-service desired replica count, for the app view.

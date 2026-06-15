@@ -229,10 +229,11 @@ func (s *Server) handleGitNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "git.html", tmplData{
-		Title:     "Connect a repository",
-		CSRFToken: CSRFToken(r.Context()),
-		Username:  sessionUser(r),
-		Git:       &gitView{Configured: false, BuildPolicy: "never", Ref: "refs/heads/main", ComposePath: "docker-compose.yml"},
+		Title:         "Connect a repository",
+		CSRFToken:     CSRFToken(r.Context()),
+		Username:      sessionUser(r),
+		GitHubEnabled: s.githubEnabled(),
+		Git:           &gitView{Configured: false, BuildPolicy: "never", Ref: "refs/heads/main", ComposePath: "docker-compose.yml"},
 	})
 }
 

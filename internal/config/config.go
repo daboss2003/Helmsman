@@ -57,6 +57,7 @@ type Config struct {
 	Docker  DockerConfig  `yaml:"docker"`
 	Monitor MonitorConfig `yaml:"monitor"`
 	Git     GitConfig     `yaml:"git"`
+	GitHub  GitHubConfig  `yaml:"github"`
 
 	CaddyEditor       EditorBlock     `yaml:"caddy_editor"`
 	ComposeValidation EditorBlock     `yaml:"compose_validation"`
@@ -146,6 +147,19 @@ func (g GitConfig) PollIntervalD() time.Duration {
 	}
 	return g.PollInterval.D()
 }
+
+// GitHubConfig holds the optional "Connect with GitHub" OAuth App credentials. The
+// operator registers an OAuth App once in their GitHub settings and pastes the id +
+// secret here (install-time, SSH — never a browser). When both are set, the dashboard
+// offers one-click repo connect (pick a repo; Helmsman installs a read-only deploy key
+// for it — no key pasting). Empty = the feature is simply off.
+type GitHubConfig struct {
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+}
+
+// Enabled reports whether GitHub connect is configured.
+func (g GitHubConfig) Enabled() bool { return g.ClientID != "" && g.ClientSecret != "" }
 
 // SessionConfig holds idle/absolute timeouts (plan §5.3).
 type SessionConfig struct {

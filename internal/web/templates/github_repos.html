@@ -1,0 +1,42 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <p><a href="/git/new">← Connect a repository</a></p>
+  <h1>Pick a repository</h1>
+  <p class="muted">Connected to GitHub as <strong>{{.GitHubLogin}}</strong>.
+    Choose a repo and Helmsman installs a read-only deploy key and starts watching it for new commits.
+    <form method="post" action="/github/disconnect" class="inline" data-confirm="Disconnect GitHub? Existing repos keep working.">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <button type="submit" class="link">Disconnect</button>
+    </form>
+  </p>
+
+  {{if .GitHubRepos}}
+  <section class="panel">
+    <table class="grid">
+      <thead><tr><th>Repository</th><th>Visibility</th><th>App name</th><th>Compose path</th><th></th></tr></thead>
+      <tbody>
+        {{range .GitHubRepos}}
+        <tr>
+          <td class="mono">{{.FullName}}</td>
+          <td>{{if .Private}}<span class="pill">private</span>{{else}}<span class="pill pill-ok">public</span>{{end}}</td>
+          <td colspan="3">
+            <form method="post" action="/github/connect-repo" class="row">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="full_name" value="{{.FullName}}">
+              <input type="hidden" name="branch" value="{{.DefaultBranch}}">
+              <input type="text" name="slug" placeholder="app name (a-z0-9-)" required>
+              <input type="text" name="compose_path" value="docker-compose.yml">
+              <button type="submit" class="btn btn-primary btn-sm">Connect</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  {{else}}
+  <p class="muted">No repositories found for this account.</p>
+  {{end}}
+</main>
+{{template "bottom" .}}

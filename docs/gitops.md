@@ -48,7 +48,28 @@ The wizard auto-suggests Mode 4 whenever a repo is connected, and pre-fills cand
 
 ---
 
-## Connecting a repository
+## Connect with GitHub (one click)
+
+The easy path for GitHub repos: the operator clicks **Connect with GitHub**, authorizes once, and picks a repo from a list. Helmsman then **generates a read-only deploy key, installs it on that repo via the GitHub API, and stores the private half encrypted** — so nobody copies a key or URL by hand. Fetching uses that repo-scoped deploy key over SSH, verified against GitHub's pinned host keys; the broad OAuth token is only ever used to list repos and install keys, never to fetch.
+
+**One-time setup** (whoever installs Helmsman, over SSH):
+
+1. In your GitHub account, create an **OAuth App** (Settings → Developer settings → OAuth Apps). Set its **Authorization callback URL** to `https://<your-dashboard>/github/callback` (or `http://127.0.0.1:9000/github/callback` if you reach the dashboard over the SSH tunnel).
+2. Put the credentials in `config.yaml` and reload:
+
+   ```yaml
+   github:
+     client_id: "<from the OAuth App>"
+     client_secret: "<from the OAuth App>"
+   ```
+
+3. Make sure the server's outbound network allows `api.github.com` and `github.com` (if you locked down egress in the service file).
+
+That's it — the dashboard now shows **Connect with GitHub** on the *Connect a repository* page. Operators can disconnect at any time; existing repos keep working because they use their own deploy keys, not the token.
+
+> Prefer not to use OAuth? You can always connect any repo manually with a token or deploy key — see below.
+
+## Connecting a repository (manually)
 
 Git connectivity is set up through the credential flow (PAT or deploy key). Credentials are:
 

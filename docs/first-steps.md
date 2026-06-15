@@ -43,13 +43,13 @@ Save it. Helmsman gets a TLS certificate for that domain, sets up the routing, a
 
 ## 5. Deploy from a Git repo
 
-Prefer to ship from a repository? Click **Connect repo** and give it:
+Prefer to ship from a repository? Two ways:
 
-- the **repo URL** and **branch**,
-- the **path to your compose file** in the repo,
-- for a private repo, a **key or token** (the form tells you what it needs).
+**Connect with GitHub (one click).** If your admin set up the GitHub integration, just click **Connect with GitHub**, authorize once, and pick a repo from the list. Helmsman creates a read-only deploy key for it automatically — **you never copy a key or URL.** (Setup is a one-time step for whoever installed Helmsman; see [Deploy from a Git repo](./gitops.md).)
 
-That's the whole setup — **no webhook to configure, no file to add to your repo.** Helmsman watches the repo for you. When you push a new commit, an **"update available"** appears in the dashboard with a summary of what changed, and you click **Deploy** to ship it.
+**Connect any repo manually.** Click **Connect repo** and give it the repo URL, branch, the path to your compose file, and — for a private repo — a key or token.
+
+Either way: **no webhook to configure, no file to add to your repo.** Helmsman watches the repo for you. When you push a new commit, an **"update available"** appears in the dashboard with a summary of what changed, and you click **Deploy** to ship it.
 
 > **It watches; you decide.** Helmsman never deploys a push on its own — it just tells you there's something new. (If you really want push-to-deploy, it's an opt-in you can turn on. See [Deploy from a Git repo](./gitops.md).)
 
