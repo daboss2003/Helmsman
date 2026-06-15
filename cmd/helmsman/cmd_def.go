@@ -27,6 +27,18 @@ func cmdValidate(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", *from, err)
 	}
+	kind, err := definition.Kind(raw)
+	if err != nil {
+		return err
+	}
+	if kind == "Host" {
+		h, err := definition.ParseHost(raw)
+		if err != nil {
+			return err // envelope + Tier-1 + registry + deploy-order cycle checks
+		}
+		fmt.Printf("OK: host definition is valid (%d apps registered)\n", len(h.Spec.Apps))
+		return nil
+	}
 	d, err := definition.Parse(raw)
 	if err != nil {
 		return err // parse + envelope + parser-differential rejections
