@@ -15,12 +15,14 @@ Every design decision in this project is subordinate to that requirement. If a f
 You give Helmsman SSH access to a Linux host running Docker. In return it:
 
 - **Owns the public edge.** It supervises a child Caddy that takes `:80`/`:443`, runs ACME/Let's Encrypt, terminates TLS, and reverse-proxies the admin UI and each of your apps. You never run a separate proxy or `certbot`.
-- **Monitors your apps and the host.** A read-only plane polls Docker over a loopback socket-proxy and samples host CPU/memory/disk, surfaced as live health on the dashboard.
+- **Monitors your apps and the host.** A read-only plane polls Docker over a loopback socket-proxy — which **Helmsman brings up and manages itself** — and samples host CPU/memory/disk, surfaced as live health on the dashboard.
 - **Deploys and runs apps safely.** A guided form, an importer for existing compose, or a connected git repo — all converging on one validated, gated write path.
 - **Manages secrets and config by reference.** Plaintext credentials stay out of your YAML, your repo, your logs, and your browser.
 - **Gives you a CLI that is a second front door, not a back door** — the same engine, the same validation chokepoint, minus the web-transport gates.
 
 Helmsman is **generic**: it isn't tied to any framework or project. You point it at a host and it manages whatever you deploy.
+
+> **After install, you never run a Docker command.** No `docker`, no `docker compose`, no `certbot` — Helmsman manages the read-only socket-proxy, the edge, and TLS for you. The operator's whole job is **install Helmsman once, then write [`helmsman.yaml`](./definition-file.md)** (or use the dashboard, which writes it for you).
 
 ---
 

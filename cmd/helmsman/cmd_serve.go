@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/helmsman/helmsman/internal/alertengine"
 	"github.com/helmsman/helmsman/internal/alertstore"
@@ -33,6 +34,7 @@ import (
 	"github.com/helmsman/helmsman/internal/scale"
 	"github.com/helmsman/helmsman/internal/selfheal"
 	"github.com/helmsman/helmsman/internal/setupstore"
+	"github.com/helmsman/helmsman/internal/socketproxy"
 	"github.com/helmsman/helmsman/internal/store"
 	"github.com/helmsman/helmsman/internal/web"
 )
@@ -109,6 +111,29 @@ func cmdServe(args []string) error {
 	// the setup sandbox (plan §4: one docker child across poller+deploy+sandbox).
 	dockerSem := dockerexec.NewSemaphore()
 	runner := dockerexec.NewRunner(dockerSem, writeAllowed, writeReason)
+
+	// Helmsman MANAGES its own read-only socket-proxy (plan §3) so the operator never
+	// runs a docker command — they only ever write helmsman.yaml. Bring it up in the
+	// background (the first run may pull the image) and ungated (the read plane must
+	// work even on a sub-1 GB box). Best-effort: a failure just leaves the read plane
+	// "unavailable" until it is up. Set docker.external_proxy to opt out (you run your
+	// own proxy/endpoint at docker.proxy_addr).
+	if !cfg.Docker.ExternalProxy {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ec, cancel := context.WithTimeout(ctx, 90*time.Second) // allow a first-run image pull
+			defer cancel()
+			log.Info("ensuring the managed read-only docker socket-proxy is running")
+			if err := socketproxy.EnsureRunning(ec, runner, cfg.DataDir, func(line string) { log.Debug("socket-proxy", "out", line) }); err != nil {
+				log.Warn("could not start the managed socket-proxy; the read plane stays unavailable until it is up", "err", err)
+			} else {
+				log.Info("managed read-only docker socket-proxy is up", "addr", cfg.Docker.ProxyAddr)
+			}
+		}()
+	} else {
+		log.Info("docker.external_proxy set; Helmsman will NOT manage the socket-proxy", "addr", cfg.Docker.ProxyAddr)
+	}
 
 	// Setup sandbox (M9, Mode 3 — OFF by default, hard-gated). Fail-closed boot
 	// precondition: if setup is enabled the host MUST provide a working sandbox

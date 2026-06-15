@@ -83,19 +83,7 @@ The full set of keys (sessions, cookies, monitor cadence, retention, alerting, t
 
 ---
 
-## Step 4 — Run the read-only Docker socket-proxy
-
-Helmsman **never** mounts the raw Docker socket. It reads container state through a **read-only, verb-allowlisted** socket-proxy on loopback `:2375` (only `CONTAINERS`/`INFO`/`VERSION` are enabled; every write verb is denied). Writes are done by Helmsman shelling out to `docker compose` directly — never through this proxy.
-
-The companion compose file ships in the repo:
-
-```bash
-docker compose -f deploy/socket-proxy/docker-compose.yml up -d
-```
-
----
-
-## Step 5 — Install the systemd unit and start
+## Step 4 — Install the systemd unit and start
 
 Helmsman runs as its **own** systemd unit (not a compose container) so it can never appear in a managed project's container list, and a stack `down` can't take it down. It runs non-root, memory-capped, and heavily sandboxed.
 
@@ -116,9 +104,18 @@ Notable hardening in the unit (see the file for the full list): `MemoryMax=192M`
 
 > **SIGHUP reloads safely.** `systemctl reload helmsman` hot-swaps the IP allowlist, auth, retention policy, and the API-token CIDR gate — never the key or bind address. A bad edit is rejected and the previous policy is kept (fail-closed).
 
+### You don't run any Docker commands
+
+That's the last setup step. From here you only ever write [`helmsman.yaml`](./definition-file.md) — you never run `docker`, `docker compose`, or `certbot` yourself. In particular:
+
+- **The read-only Docker socket-proxy is managed for you.** Helmsman **never** mounts the raw Docker socket; it reads container state through a read-only, verb-allowlisted proxy on loopback `:2375` (only `CONTAINERS`/`INFO`/`VERSION` are enabled — every write verb is denied). Helmsman **brings this proxy up itself at boot** from an embedded, locked-down compose; you don't start it. (Write-plane actions never use the proxy — Helmsman shells out to `docker compose` for those, gated.)
+- **The edge + TLS are managed for you.** The child Caddy and ACME are supervised by Helmsman.
+
+> **Advanced — run your own proxy.** If you'd rather operate the socket-proxy (or a remote Docker endpoint) yourself, set `docker.external_proxy: true` in `config.yaml` and point `docker.proxy_addr` at it; Helmsman then leaves it alone. The reference compose is at `deploy/socket-proxy/docker-compose.yml`.
+
 ---
 
-## Step 6 — Verify the key/DB match
+## Step 5 — Verify the key/DB match
 
 Before the next write can touch the database, confirm the configured key actually opens it. This catches a key/DB mismatch *before* it corrupts data:
 

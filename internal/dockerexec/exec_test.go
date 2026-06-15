@@ -89,6 +89,29 @@ func TestRunStreamsAndGates(t *testing.T) {
 	}
 }
 
+// RunInternal must run Helmsman-owned infra (the socket-proxy) even when the
+// write-plane RAM gate is CLOSED — the read plane has to work on a small box.
+func TestRunInternalIsUngated(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fakedocker")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho proxy-up\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// writeAllowed=false: Run() would refuse, but RunInternal must proceed.
+	r := NewRunner(NewSemaphore(), false, "below gate")
+	r.binary = fake
+	if err := r.Run(context.Background(), Job{Project: "x", Action: []string{"up"}}, nil); err != ErrWritePlaneDisabled {
+		t.Fatalf("Run on a gated box: got %v, want ErrWritePlaneDisabled", err)
+	}
+	var lines []string
+	if err := r.RunInternal(context.Background(), Job{Project: "p", Action: []string{"up", "-d"}}, func(l string) { lines = append(lines, l) }); err != nil {
+		t.Fatalf("RunInternal must run ungated: %v", err)
+	}
+	if len(lines) != 1 || lines[0] != "proxy-up" {
+		t.Errorf("RunInternal stream = %v", lines)
+	}
+}
+
 func TestRunContextCancelKills(t *testing.T) {
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "fakedocker")

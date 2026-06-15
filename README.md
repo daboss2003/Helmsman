@@ -121,7 +121,7 @@ Empty IP allowlist means **deny-all**, never allow-all. A descriptor an app adve
 - Root/SSH access to the host (you provision auth and the master key over SSH — never through a browser).
 - For the **write plane** (deploy/redeploy, on-box builds, setup scripts): **≥ 1 GB RAM** (see §9). The managed edge and read-only monitoring run fine on a small VPS.
 
-The quickstart below assumes you have placed the `helmsman` binary somewhere on the host's `PATH` (e.g. `/usr/local/bin/helmsman`). See [./docs/install.md](./README.md) for the systemd unit, the socket-proxy companion, and hardening.
+The quickstart below assumes you have placed the `helmsman` binary somewhere on the host's `PATH` (e.g. `/usr/local/bin/helmsman`). See [the installation guide](./docs/installation.md) for the systemd unit and hardening. (You do **not** set up the Docker socket-proxy yourself — Helmsman manages it for you; see the guide.)
 
 ### Step 1 — Generate the master key
 

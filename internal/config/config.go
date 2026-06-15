@@ -109,8 +109,14 @@ type AdminConfig struct {
 
 // DockerConfig points at the read-only docker-socket-proxy (plan §3). Helmsman
 // NEVER talks to the raw socket; ProxyAddr must be a loopback endpoint.
+//
+// By default Helmsman MANAGES this proxy itself: at boot it brings up the embedded,
+// Helmsman-owned read-only proxy compose so the operator never runs a docker command
+// (they only ever write helmsman.yaml). Set external_proxy: true if you run your own
+// proxy/endpoint at proxy_addr and want Helmsman to leave it alone.
 type DockerConfig struct {
-	ProxyAddr string `yaml:"proxy_addr"`
+	ProxyAddr     string `yaml:"proxy_addr"`
+	ExternalProxy bool   `yaml:"external_proxy"`
 }
 
 // MonitorConfig tunes the read-plane poller (plan §4 read plane).

@@ -144,6 +144,21 @@ func (r *Runner) RunHeld(ctx context.Context, job Job, onLine func(string)) erro
 	return r.runHeld(ctx, job, onLine)
 }
 
+// RunInternal runs a Helmsman-OWNED infrastructure job (bringing up the embedded
+// read-only socket-proxy) REGARDLESS of the §0 write-plane resource gate — the read
+// plane must come up even on a sub-1 GB box. It is NOT for app workloads: the caller
+// passes a fixed, embedded, Helmsman-authored compose (never operator input), so it
+// bypasses the RAM gate while keeping the static-argv discipline, the
+// one-docker-child semaphore, and process-group reaping. It acquires the semaphore
+// (blocking on ctx) like Run.
+func (r *Runner) RunInternal(ctx context.Context, job Job, onLine func(string)) error {
+	if err := r.sem.Acquire(ctx); err != nil {
+		return err
+	}
+	defer r.sem.Release()
+	return r.runHeld(ctx, job, onLine)
+}
+
 func (r *Runner) runHeld(ctx context.Context, job Job, onLine func(string)) error {
 	cmd := exec.CommandContext(ctx, r.binary, job.argv()...)
 	cmd.Dir = job.Dir
