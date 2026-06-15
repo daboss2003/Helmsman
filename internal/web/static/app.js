@@ -220,27 +220,36 @@
     for (var k in attrs) n.setAttribute(k, attrs[k]);
     return n;
   }
-  // drawArea renders a 0..100 (%) series into an <svg> as a grid + area + line.
-  // The line uses non-scaling-stroke so it stays crisp under the stretched viewBox.
+  // drawArea renders a 0..100 (%) series into an <svg> as a grid + gradient area +
+  // line. The line uses non-scaling-stroke so it stays crisp under the stretched
+  // viewBox. Returns true when it drew real data, false when the series was empty.
   function drawArea(svg, values) {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var W = 300, H = 120;
+    var W = 300, H = 140;
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     svg.setAttribute("preserveAspectRatio", "none");
-    // horizontal grid at 25/50/75%
     [0.25, 0.5, 0.75].forEach(function (g) {
       var y = H - g * H;
       svg.appendChild(el("line", { x1: 0, y1: y, x2: W, y2: y, class: "grid-line", "vector-effect": "non-scaling-stroke" }));
     });
-    if (!values || values.length < 2) return;
+    if (!values || values.length < 2) return false;
     var n = values.length;
     function x(i) { return (i / (n - 1)) * W; }
     function y(v) { var c = v < 0 ? 0 : (v > 100 ? 100 : v); return H - (c / 100) * H; }
+    // A vertical gradient for the area fill (its own id per chart).
+    var gid = "grad-" + (svg.getAttribute("data-chart") || "x");
+    var defs = el("defs");
+    var lg = el("linearGradient", { id: gid, x1: "0", y1: "0", x2: "0", y2: "1" });
+    lg.appendChild(el("stop", { offset: "0%", "stop-color": "currentColor", "stop-opacity": "0.35" }));
+    lg.appendChild(el("stop", { offset: "100%", "stop-color": "currentColor", "stop-opacity": "0.02" }));
+    defs.appendChild(lg);
+    svg.appendChild(defs);
     var line = "M" + x(0) + " " + y(values[0]);
     for (var i = 1; i < n; i++) line += " L" + x(i) + " " + y(values[i]);
     var area = line + " L" + W + " " + H + " L0 " + H + " Z";
-    svg.appendChild(el("path", { d: area, class: "area", fill: "currentColor", stroke: "none" }));
+    svg.appendChild(el("path", { d: area, fill: "url(#" + gid + ")", stroke: "none" }));
     svg.appendChild(el("path", { d: line, class: "line", stroke: "currentColor", "vector-effect": "non-scaling-stroke" }));
+    return true;
   }
   function pct(used, total) { return total > 0 ? (used / total) * 100 : 0; }
   var charts = document.querySelectorAll("[data-chart]");
@@ -249,8 +258,7 @@
       fetch("/partials/metrics.json", { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
-          if (!data || !data.points) return;
-          var pts = data.points;
+          var pts = (data && data.points) || [];
           var series = {
             cpu: pts.map(function (p) { return p.cpu; }),
             mem: pts.map(function (p) { return pct(p.memUsed, p.memTotal); }),
@@ -259,9 +267,11 @@
           charts.forEach(function (svg) {
             var key = svg.getAttribute("data-chart");
             var vals = series[key];
-            drawArea(svg, vals);
+            var drew = drawArea(svg, vals);
+            var empty = document.querySelector('[data-chart-empty="' + key + '"]');
+            if (empty) empty.style.display = drew ? "none" : "";
             var now = document.querySelector('[data-chart-now="' + key + '"]');
-            if (now && vals && vals.length) now.textContent = Math.round(vals[vals.length - 1]) + "%";
+            if (now) now.textContent = (drew && vals.length) ? Math.round(vals[vals.length - 1]) + "%" : "—";
           });
         })
         .catch(function () { /* transient */ });

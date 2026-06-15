@@ -2,41 +2,60 @@
 
 > **Getting started, 1 of 3** · Next: [Install it →](./installation.md)
 
-Helmsman turns a plain Linux server into a place you can confidently run your apps — with a dashboard, automatic HTTPS, and live health monitoring — without becoming a full-time sysadmin.
+Helmsman is a self-hosting platform for Docker apps. You install it on a Linux server, open its dashboard in your browser, and from there you deploy apps, give them domains, manage their settings, and watch their health. It runs the web server and HTTPS certificates for you, so a plain server becomes a place you can ship to in minutes.
 
-You install one small program on a server that has Docker. From then on, you manage everything from a web dashboard: deploy apps, set secrets, point domains at them, watch their health. Helmsman handles the parts people usually get wrong — TLS certificates, reverse proxying, safe deploys — so you don't have to.
+Think of it as your own small Heroku or Netlify, running on a server you own.
 
-## What you get
+## Philosophy
 
-- **Your apps online, over HTTPS, automatically.** Give an app a domain name and Helmsman issues the certificate, renews it, and routes traffic to it. No proxy config, no `certbot`.
-- **A real dashboard.** See every app's health at a glance, view logs, restart a service, roll back a change — all in the browser.
-- **Safe deploys.** Deploy from a guided form or straight from a Git repo. Helmsman checks every change before it goes live and can roll back automatically if something fails.
-- **Secrets done right.** Store passwords and API keys encrypted, never in plain text in your files or your repo.
-- **Peace of mind.** It's locked down by default and won't run anything dangerous on your behalf.
+Running apps on your own server usually means stitching together a reverse proxy, TLS certificates, a process manager, log access, and a deploy script — and maintaining all of it. Helmsman replaces that with a single program and a dashboard. You describe *what* you want to run; it handles *how* to run it.
 
-## How it feels to use
+It's designed for a specific person: a developer or small team who wants the control of their own server without the operational overhead. It's not an orchestrator for large clusters — if you need Kubernetes, use Kubernetes. For one server, or a handful, Helmsman is meant to be all you need.
+
+## A quick look
+
+Here's the shape of using Helmsman. Deploy an app from the dashboard, or describe it in a small file:
+
+```yaml
+apiVersion: helmsman/v1
+kind: App
+metadata:
+  slug: my-app
+spec:
+  compose:
+    inline: |
+      services:
+        web:
+          image: ghcr.io/example/web:1.4.2
+          expose: ["8080"]
+  edge:
+    routes:
+      - hostname: "app.example.com"
+        upstream: "web:8080"
+```
+
+That's a running app with a public HTTPS address. Helmsman pulls the image, starts it, points `app.example.com` at it, and issues the certificate.
+
+## What's included
+
+- **A dashboard** to deploy apps, view logs, restart services, and roll back changes.
+- **Automatic HTTPS** — give an app a domain and Helmsman issues and renews the certificate and routes traffic to it.
+- **Git deploys** — connect a repository and Helmsman watches it for new commits.
+- **Secrets management** — store credentials encrypted and inject them into your apps at runtime.
+- **Health monitoring** — live CPU, memory, and disk for your server and each app.
+- **Scaling and self-healing** — optional automation to keep apps responsive and running.
+
+## How you'll work
 
 1. Install Helmsman on your server (a one-time setup over SSH).
-2. Open the dashboard in your browser.
-3. Add an app — fill in a short form, or connect a Git repo.
-4. Give it a domain. It's live over HTTPS in moments.
+2. Open the dashboard.
+3. Add an app — from a form, or by connecting a Git repo.
+4. Give it a domain.
 
-After step 1, you don't touch the command line again for day-to-day work. No editing config files on the server, no Docker commands, no certificate wrangling.
-
-## Who it's for
-
-Helmsman is for solo developers and small teams who want to run real apps on their own server (a cheap VPS is fine) and would rather not assemble and babysit a stack of DevOps tools. If you've been doing `docker compose up` over SSH and hand-rolling Nginx and Let's Encrypt, this replaces all of that with something you manage from a browser.
-
-It's **not** trying to be Kubernetes. If you're running a large fleet that needs a full orchestrator, this isn't it. For everyone between "one SSH session" and "we hired a platform team," it's built for you.
-
-## What makes it different
-
-Most self-hosting tools hand you a lot of rope. Helmsman deliberately doesn't:
-
-- **You configure apps through the tool**, not by pasting raw Docker or proxy config. That keeps things simple — and means a typo or a bad snippet can't quietly weaken your server.
-- **It's secure by default.** Fresh install, zero tuning: the dashboard is private, traffic is HTTPS, secrets are encrypted, and a risky setting makes it refuse to start rather than run unsafe.
-- **Nothing happens behind your back.** A push to your repo never deploys itself unless you explicitly ask it to. You stay in control of what ships and when.
+From step 2 on, you work entirely in the dashboard.
 
 ---
+
+Ready to set it up?
 
 > **Next: [Install it →](./installation.md)**

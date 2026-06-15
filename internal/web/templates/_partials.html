@@ -1,60 +1,74 @@
 {{define "overview"}}
-{{with .Snap}}
-  {{if not .DockerOK}}
-  <div class="error" role="alert">Read plane unavailable: {{.DockerErr}} — is the read-only companion running?</div>
-  {{end}}
+{{$snap := .Snap}}
+{{if $snap}}{{if not $snap.DockerOK}}
+<div class="error" role="alert">Read plane unavailable: {{$snap.DockerErr}} — is the read-only companion running?</div>
+{{end}}{{end}}
 
-  <div class="stat-grid">
-    {{if .HostOK}}
-    {{$mem := ratioPct .Host.MemUsed .Host.MemTotal}}
-    {{$disk := ratioPct .Host.DiskUsed .Host.DiskTotal}}
-    <div class="stat-card {{meterClass .Host.CPUPercent}}">
-      <div class="stat-label">CPU</div>
-      <div class="stat-value">{{pct1 .Host.CPUPercent}}<small>%</small></div>
-      <div class="stat-sub">load {{pct1 .Host.Load1}} (1m)</div>
-      {{template "meter" .Host.CPUPercent}}
-    </div>
-    <div class="stat-card {{meterClass $mem}}">
-      <div class="stat-label">Memory</div>
-      <div class="stat-value">{{pct1 $mem}}<small>%</small></div>
-      <div class="stat-sub">{{humanBytes .Host.MemUsed}} / {{humanBytes .Host.MemTotal}}</div>
-      {{template "meter" $mem}}
-    </div>
-    <div class="stat-card {{meterClass $disk}}">
-      <div class="stat-label">Disk</div>
-      <div class="stat-value">{{pct1 $disk}}<small>%</small></div>
-      <div class="stat-sub">{{humanBytes .Host.DiskUsed}} / {{humanBytes .Host.DiskTotal}}</div>
-      {{template "meter" $disk}}
-    </div>
-    {{end}}
-    <div class="stat-card {{if .Apps}}{{if lt (appsUp .Apps) (len .Apps)}}is-warn{{else}}is-ok{{end}}{{end}}">
-      <div class="stat-label">Apps healthy</div>
-      <div class="stat-value">{{appsUp .Apps}}<small>/{{len .Apps}}</small></div>
-      <div class="stat-sub">{{if .DockerOK}}docker ok{{else}}docker unavailable{{end}}</div>
-    </div>
+<div class="stat-grid">
+  {{if and $snap $snap.HostOK}}
+  {{$mem := ratioPct $snap.Host.MemUsed $snap.Host.MemTotal}}
+  {{$disk := ratioPct $snap.Host.DiskUsed $snap.Host.DiskTotal}}
+  <div class="stat-card {{meterClass $snap.Host.CPUPercent}}">
+    <div class="stat-label">CPU</div>
+    <div class="stat-value">{{pct1 $snap.Host.CPUPercent}}<small>%</small></div>
+    <div class="stat-sub">load {{pct1 $snap.Host.Load1}} (1m)</div>
+    {{template "meter" $snap.Host.CPUPercent}}
   </div>
+  <div class="stat-card {{meterClass $mem}}">
+    <div class="stat-label">Memory</div>
+    <div class="stat-value">{{pct1 $mem}}<small>%</small></div>
+    <div class="stat-sub">{{humanBytes $snap.Host.MemUsed}} / {{humanBytes $snap.Host.MemTotal}}</div>
+    {{template "meter" $mem}}
+  </div>
+  <div class="stat-card {{meterClass $disk}}">
+    <div class="stat-label">Disk</div>
+    <div class="stat-value">{{pct1 $disk}}<small>%</small></div>
+    <div class="stat-sub">{{humanBytes $snap.Host.DiskUsed}} / {{humanBytes $snap.Host.DiskTotal}}</div>
+    {{template "meter" $disk}}
+  </div>
+  {{else}}
+  {{template "statwait" "CPU"}}
+  {{template "statwait" "Memory"}}
+  {{template "statwait" "Disk"}}
+  {{end}}
+  {{if $snap}}
+  <div class="stat-card {{if $snap.Apps}}{{if lt (appsUp $snap.Apps) (len $snap.Apps)}}is-warn{{else}}is-ok{{end}}{{end}}">
+    <div class="stat-label">Apps healthy</div>
+    <div class="stat-value">{{appsUp $snap.Apps}}<small>/{{len $snap.Apps}}</small></div>
+    <div class="stat-sub">{{if $snap.DockerOK}}all services{{else}}docker unavailable{{end}}</div>
+  </div>
+  {{else}}{{template "statwait" "Apps healthy"}}{{end}}
+</div>
 
-  <section class="panel">
-    <h2><span>Apps <span class="muted">({{len .Apps}})</span></span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
-    {{if .Apps}}
-    <div class="tiles" data-tile-grid>
-      {{range $.OrderedApps}}
-      <a class="tile {{if .Degraded}}tile-degraded{{else}}tile-ok{{end}}" href="/apps/{{pathEscape .Project}}" draggable="true" data-project="{{.Project}}">
-        <div class="tile-name">{{.DisplayName}}{{if .Rich}} <span class="badge">RICH</span>{{end}}</div>
-        <div class="tile-stat">
-          {{if .Degraded}}<span class="pill pill-down">{{.UpCount}}/{{.Total}} up</span>{{else}}<span class="pill pill-ok">{{.UpCount}}/{{.Total}} up</span>{{end}}
-        </div>
-      </a>
-      {{end}}
-    </div>
-    {{else}}
-    <p class="muted">No apps discovered yet. Create one from <a href="/apps/new">New app</a>.</p>
+<section class="panel">
+  <h2><span>Apps {{if $snap}}<span class="muted">({{len $snap.Apps}})</span>{{end}}</span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
+  {{if and $snap $snap.Apps}}
+  <div class="tiles" data-tile-grid>
+    {{range $.OrderedApps}}
+    <a class="tile {{if .Degraded}}tile-degraded{{else}}tile-ok{{end}}" href="/apps/{{pathEscape .Project}}" draggable="true" data-project="{{.Project}}">
+      <div class="tile-name">{{.DisplayName}}{{if .Rich}} <span class="badge">RICH</span>{{end}}</div>
+      <div class="tile-stat">
+        {{if .Degraded}}<span class="pill pill-down">{{.UpCount}}/{{.Total}} up</span>{{else}}<span class="pill pill-ok">{{.UpCount}}/{{.Total}} up</span>{{end}}
+      </div>
+    </a>
     {{end}}
-  </section>
-  <p class="muted small">Updated {{.At.Format "15:04:05 MST"}}{{if .Version}} · engine {{.Version}}{{end}}</p>
-{{else}}
-  <p class="muted">Collecting metrics…</p>
+  </div>
+  {{else if $snap}}
+  <p class="muted">No apps yet. Create one with <a href="/apps/new">New app</a> or <a href="/git/new">connect a repo</a>.</p>
+  {{else}}
+  <p class="muted">Collecting…</p>
+  {{end}}
+</section>
+{{if $snap}}<p class="muted small">Updated {{$snap.At.Format "15:04:05 MST"}}{{if $snap.Version}} · engine {{$snap.Version}}{{end}}</p>{{end}}
 {{end}}
+
+{{/* statwait is a placeholder stat card shown before the first sample arrives. */}}
+{{define "statwait"}}
+<div class="stat-card is-wait">
+  <div class="stat-label">{{.}}</div>
+  <div class="stat-value">—</div>
+  <div class="stat-sub">collecting…</div>
+</div>
 {{end}}
 
 {{/* meter renders a CSP-safe progress bar as an SVG (rect width is an attribute,

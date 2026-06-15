@@ -2,74 +2,68 @@
 
 > **Getting started, 3 of 3** · [← Install it](./installation.md)
 
-Helmsman is running. Let's get you signed in and ship a real app, online with HTTPS. Everything here happens in the browser.
+Helmsman is running. This guide walks through signing in and deploying an app with a public HTTPS address. It all happens in the dashboard.
 
-## 1. Sign in
+## Sign in
 
-For safety, the dashboard isn't exposed to the internet. The quickest way to reach it the first time is an SSH tunnel from your computer:
+The dashboard listens on the server's loopback interface. To reach it the first time, forward the port over SSH:
 
 ```bash
 ssh -L 9000:127.0.0.1:9000 operator@your-server
 ```
 
-Now open **http://127.0.0.1:9000** and sign in with the username and password you set during install (and your two-factor code if you turned that on).
+Open **http://127.0.0.1:9000** and sign in with the username and password you set during installation.
 
-You'll land on the **Overview**: your server's CPU, memory, and disk, and a tile for each app once you have some.
+You'll arrive at the **Overview** — your server's CPU, memory, and disk, with a tile for each app once you've added some. From here, everything is in the dashboard. (Later, set `admin.hostname` to serve the dashboard on its own domain and skip the tunnel.)
 
-> **This is your home base from now on.** You used SSH once to install; everything day-to-day — apps, secrets, domains, deploys — is here in the dashboard. Later you can put the dashboard on its own domain so you don't need the tunnel.
+## Add an app
 
-## 2. Add an app
+Click **New app** and fill in the form: the image to run, the port it listens on, volumes, and environment values. Helmsman generates the Compose definition from your input.
 
-Click **New app** and fill in the form: the image to run, which port it listens on, any volumes, and environment values. Helmsman builds everything it needs from that — you don't write or paste Docker config.
+Click **Validate** to preview, then **Deploy**. The deploy runs live in the page, and the app then appears on your Overview with its health, logs, and controls.
 
-Hit **Validate** to preview, then **Deploy**. You'll watch the deploy happen live, and when it's done the app shows up on your Overview with its health, logs, and controls.
+Your app should listen on an internal port such as `8080`. Helmsman owns ports 80 and 443 and routes public traffic to your app.
 
-> **One thing to know:** your app should listen on an internal port (like `8080`), not try to grab ports 80 or 443. Those belong to Helmsman, which routes public traffic to your app for you. (Got an app in a Git repo instead? Skip to step 5.)
+## Add a secret
 
-## 3. Add a secret
+Open your app and go to **Env**. Add non-secret values as plain settings, and passwords or API keys as **secrets** — these are encrypted and injected into the app at runtime. Reference a secret from your config by name, and Helmsman supplies the value when the app runs.
 
-Don't put passwords or API keys directly in your app's settings. Open your app → **Env**, and add them as secrets. They're encrypted immediately, hidden from view, and injected into your app when it runs. Regular (non-secret) settings go right next to them.
-
-That's all — no files, no SSH.
-
-## 4. Put it online with HTTPS
+## Give it a domain
 
 Open **Edge** and add a route:
 
-- **Domain** — the public address, like `app.example.com` (point its DNS at your server first).
-- **App** — which app and port to send traffic to, like `web:8080`.
+- **Domain** — the public address, e.g. `app.example.com` (point its DNS at your server).
+- **App** — the app and port to route to, e.g. `web:8080`.
 
-Save it. Helmsman gets a TLS certificate for that domain, sets up the routing, and within moments **https://app.example.com** is live and secure. You never touched a web-server config or a certificate.
+Save it. Helmsman issues a TLS certificate for the domain and configures the routing. Within moments, `https://app.example.com` is live.
 
-## 5. Deploy from a Git repo
+## Deploy from a Git repo
 
-Prefer to ship from a repository? Two ways:
+To deploy from a repository, you have two options.
 
-**Connect with GitHub (one click).** If your admin set up the GitHub integration, just click **Connect with GitHub**, authorize once, and pick a repo from the list. Helmsman creates a read-only deploy key for it automatically — **you never copy a key or URL.** (Setup is a one-time step for whoever installed Helmsman; see [Deploy from a Git repo](./gitops.md).)
+**Connect with GitHub.** If GitHub is configured (see [Deploy from a Git repo](./gitops.md)), click **Connect with GitHub**, authorize, and choose a repo from the list. Helmsman creates a deploy key for it.
 
-**Connect any repo manually.** Click **Connect repo** and give it the repo URL, branch, the path to your compose file, and — for a private repo — a key or token.
+**Connect any repo.** Click **Connect repo** and provide the URL, branch, the path to your Compose file, and — for a private repo — a key or token.
 
-Either way: **no webhook to configure, no file to add to your repo.** Helmsman watches the repo for you. When you push a new commit, an **"update available"** appears in the dashboard with a summary of what changed, and you click **Deploy** to ship it.
+Once connected, Helmsman watches the repository. When you push a commit, an **update available** notice appears with a summary of the changes. Click **Deploy** to release it.
 
-> **It watches; you decide.** Helmsman never deploys a push on its own — it just tells you there's something new. (If you really want push-to-deploy, it's an opt-in you can turn on. See [Deploy from a Git repo](./gitops.md).)
+## Next steps
 
-## You did it
+You've deployed an app, added a secret, and put it online. From here:
 
-You've deployed an app, secured its secrets, and put it online with HTTPS — all from the browser. Where to next:
-
-- **Ship from Git** → [Deploy from a Git repo](./gitops.md)
-- **Templated config files & certificates inside your app** → [Secrets & config files](./config-files-and-secrets.md)
-- **Keep apps healthy under load** → [Scaling & self-healing](./scaling-and-self-healing.md) · [Alerts](./alerting.md)
-- **Protect your data** → [Backups & recovery](./backup-and-recovery.md)
-- **Run several apps on one server** → [Running many apps](./host-file.md)
+- [Deploy from a Git repo](./gitops.md)
+- [Secrets & config files](./config-files-and-secrets.md)
+- [Scaling & self-healing](./scaling-and-self-healing.md) · [Alerts](./alerting.md)
+- [Backups & recovery](./backup-and-recovery.md)
+- [Running many apps on one server](./host-file.md)
 
 [← Back to the docs home](./README.md)
 
 ---
 
-### Optional: describe an app in a file
+### Describing an app in a file
 
-Everything you set in the dashboard is saved to a small per-app file (`helmsman.yaml`) that Helmsman manages for you — you never have to open it. But if you like keeping your setup in version control, you can write that file yourself and let the dashboard manage it from there. It looks like this:
+What you configure in the dashboard is saved to a per-app `helmsman.yaml`. You can also write this file yourself and keep it in version control — the dashboard keeps it in sync. A minimal example:
 
 ```yaml
 apiVersion: helmsman/v1
@@ -85,7 +79,7 @@ spec:
           expose: ["8080"]
   env:
     - LOG_LEVEL: "info"
-    - DATABASE_URL: "secret: DATABASE_URL"   # the value is set separately, never in the file
+    - DATABASE_URL: "secret: DATABASE_URL"
   secrets:
     - name: DATABASE_URL
   edge:
@@ -94,4 +88,4 @@ spec:
         upstream: "web:8080"
 ```
 
-Full details — every field, how edits merge, and how to roll back — are in [The `helmsman.yaml` file](./definition-file.md).
+See [The `helmsman.yaml` file](./definition-file.md) for the full reference.

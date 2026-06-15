@@ -62,7 +62,7 @@ edge:
 data_dir: "/var/lib/helmsman"       # where Helmsman keeps its data
 ```
 
-Helmsman checks this file when it starts. If something's unsafe — no encryption key, a wide-open allowlist, bad file permissions — it refuses to start and tells you why, rather than running in an insecure state.
+Helmsman validates this file at startup. If a required value is missing or the file permissions are too open, it stops with a clear message explaining what to fix.
 
 > Everything *else* about your apps lives in the dashboard (or an optional per-app file). This config is just the foundation.
 
@@ -87,7 +87,7 @@ That's it. **You won't run any Docker commands** — Helmsman sets up everything
 
 ## 5. You're ready
 
-Helmsman is now running and serving HTTPS — but it isn't exposing anything yet, on purpose. Nothing is public until you add an app and give it a domain.
+Helmsman is now running and serving HTTPS. Nothing is published yet — that happens when you add an app and give it a domain.
 
 > **Next: [Deploy your first app →](./first-steps.md)**
 

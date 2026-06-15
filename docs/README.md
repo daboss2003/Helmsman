@@ -2,9 +2,7 @@
 
 **Run your apps on your own server — with automatic HTTPS, live monitoring, and one clean dashboard — without the DevOps grind.**
 
-Helmsman is a single small program you install on a Linux server with Docker. It takes over the boring, error-prone parts of self-hosting: it puts your apps online over HTTPS, renews certificates, watches their health, and gives you a dashboard to deploy and manage everything. You configure your apps *in the tool* — you never hand-edit a web-server config or run `certbot`.
-
-It's built for people who want their own server without the stress.
+Helmsman is a single small program you install on a Linux server with Docker. It puts your apps online over HTTPS, renews certificates, watches their health, and gives you a dashboard to deploy and manage everything — so a plain server becomes a place you can ship to in minutes.
 
 ## New here? Start with these
 
@@ -33,4 +31,4 @@ That's the whole on-ramp. After that, you live in the dashboard.
 
 ---
 
-A quick promise that shapes everything here: **hosting Helmsman should never be the thing that gets your server hacked.** It's secure by default, refuses to start if its setup is unsafe, and never does anything risky behind your back. If that matters to you, the [Security](./security.md) page is worth a read.
+Helmsman is secure by default — private dashboard, automatic HTTPS, encrypted secrets, no configuration required to be safe. The [Security](./security.md) page covers the model in full.

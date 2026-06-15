@@ -153,20 +153,28 @@ section.panel > h2:first-child { display: flex; align-items: center; justify-con
 /* ============================= charts ============================= */
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
 .chart-card {
+  position: relative;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 1rem 1.15rem 0.6rem; box-shadow: var(--shadow);
+  padding: 1rem 1.15rem 0.7rem; box-shadow: var(--shadow);
 }
-.chart-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.3rem; }
-.chart-head .chart-label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
-.chart-head .chart-now { font-weight: 700; font-size: 1.05rem; }
-.chart { width: 100%; height: 120px; display: block; }
-.chart .area { opacity: 0.18; }
+.chart-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.4rem; }
+.chart-head .chart-label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.chart-head .chart-now { font-weight: 700; font-size: 1.25rem; letter-spacing: -0.02em; }
+.chart { width: 100%; height: 140px; display: block; }
 .chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.chart .grid-line { stroke: var(--border-2); stroke-width: 1; opacity: 0.5; }
-.chart-empty { color: var(--faint); font-size: 0.85rem; padding: 2.2rem 0; text-align: center; }
+.chart .grid-line { stroke: var(--border-2); stroke-width: 1; opacity: 0.45; }
+/* empty-state overlay shown until the first samples arrive (positioned over the
+   chart drawing area, below the header row) */
+.chart-empty {
+  position: absolute; left: 1.15rem; right: 1.15rem; bottom: 0.7rem; height: 140px;
+  display: grid; place-items: center; color: var(--faint); font-size: 0.85rem; pointer-events: none;
+}
 .c-cpu { color: var(--accent); }
 .c-mem { color: #b083f0; }
 .c-disk { color: var(--warn); }
+.stat-card.is-wait { opacity: 0.7; }
+.stat-card.is-wait::before { background: var(--border-2); }
+.stat-card.is-wait .stat-value { color: var(--faint); }
 
 /* ============================= pills / badges ============================= */
 .pill {
