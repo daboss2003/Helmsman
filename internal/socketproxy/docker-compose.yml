@@ -7,7 +7,11 @@
 # (Write-plane actions never use this proxy — they shell out to `docker compose`.)
 services:
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:0.3.0  # digest-pin in production (plan §15)
+    # Digest-PINNED (plan §15): Helmsman auto-pulls and runs this at boot with the raw
+    # docker socket mounted in, so its integrity is the read-plane boundary. A mutable
+    # :tag would let a registry/tag swap gain socket access — pin by sha256 (this is
+    # docker-socket-proxy 0.3.0).
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
     container_name: helmsman-socket-proxy
     restart: unless-stopped
     read_only: true

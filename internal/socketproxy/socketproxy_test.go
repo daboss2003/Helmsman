@@ -32,6 +32,28 @@ func TestEmbeddedProxyIsLockedDown(t *testing.T) {
 	}
 }
 
+// Helmsman auto-pulls and runs this image at boot with the raw docker socket mounted
+// in, so a mutable :tag would be a supply-chain swap into root. It MUST be digest-
+// pinned (matches the project's rule for setup.image and the Caddy binary).
+func TestEmbeddedProxyImageIsDigestPinned(t *testing.T) {
+	imageLines := 0
+	for _, line := range strings.Split(string(Compose()), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "image:") {
+			continue
+		}
+		imageLines++
+		ref := strings.TrimSpace(strings.TrimPrefix(trimmed, "image:"))
+		// A bare ...:tag (no digest) is the supply-chain swap vector.
+		if !strings.Contains(ref, "@sha256:") {
+			t.Errorf("proxy image must be digest-pinned (@sha256:), got: %q", ref)
+		}
+	}
+	if imageLines != 1 {
+		t.Errorf("expected exactly one image: line, got %d", imageLines)
+	}
+}
+
 func TestMaterializeWritesCompose(t *testing.T) {
 	dataDir := t.TempDir()
 	path, err := Materialize(dataDir)

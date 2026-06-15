@@ -118,6 +118,14 @@ func cmdServe(args []string) error {
 	// work even on a sub-1 GB box). Best-effort: a failure just leaves the read plane
 	// "unavailable" until it is up. Set docker.external_proxy to opt out (you run your
 	// own proxy/endpoint at docker.proxy_addr).
+	// The managed proxy is the read-plane SECURITY BOUNDARY, and because Helmsman now
+	// runs it as a compose project it shows up as a normal app in the snapshot. Protect
+	// it from EVERY write path (lifecycle stop/redeploy, self-heal restart, auto-scale)
+	// exactly like the edge — it must never be a target. This must not depend on the
+	// operator remembering to list it, so seed it BEFORE the web server and the
+	// self-heal watcher read cfg.ProtectedProjects (review finding).
+	protectManagedProxy(cfg)
+
 	if !cfg.Docker.ExternalProxy {
 		wg.Add(1)
 		go func() {
@@ -349,6 +357,23 @@ func cmdServe(args []string) error {
 	}
 	log.Info("helmsman stopped")
 	return nil
+}
+
+// protectManagedProxy seeds the managed socket-proxy's compose project into the
+// protected set so it can never be a lifecycle/self-heal/scale target. It is a no-op
+// when the operator runs their own proxy (external_proxy) or when the project is
+// already listed (idempotent). The proxy is the read-plane security boundary;
+// protection must not depend on the operator remembering to list it.
+func protectManagedProxy(cfg *config.Config) {
+	if cfg.Docker.ExternalProxy {
+		return
+	}
+	for _, p := range cfg.ProtectedProjects {
+		if p == socketproxy.Project {
+			return
+		}
+	}
+	cfg.ProtectedProjects = append(cfg.ProtectedProjects, socketproxy.Project)
 }
 
 // edgeAdminListen returns the Caddy admin listen address — the operator's
