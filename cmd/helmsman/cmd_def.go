@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/helmsman/helmsman/internal/compose"
 	"github.com/helmsman/helmsman/internal/definition"
@@ -42,6 +43,16 @@ func cmdValidate(args []string) error {
 	return nil
 }
 
+// relPath rejects an absolute or parent-traversing path (a CLI fail-fast guard so a
+// scaffold never reads/writes outside the operator's working directory).
+func relPath(flag, p string) error {
+	clean := filepath.Clean(p)
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%s must be a repo-relative path, not absolute or traversing (got %q)", flag, p)
+	}
+	return nil
+}
+
 // cmdInit scaffolds a helmsman.yaml from an existing compose file (`--from-compose`),
 // pointing at it via source: repo_path. The operator then fills in env/secrets/edge.
 func cmdInit(args []string) error {
@@ -54,6 +65,15 @@ func cmdInit(args []string) error {
 	}
 	if *fromCompose == "" || *slug == "" {
 		return fmt.Errorf("usage: helmsman init --slug <slug> --from-compose <compose.yml> [--out helmsman.yaml]")
+	}
+	// Both paths must be repo-relative + non-traversing — fail fast at scaffold time
+	// rather than relying on the apply-time confinement, and never write outside the
+	// operator's working directory.
+	if err := relPath("--from-compose", *fromCompose); err != nil {
+		return err
+	}
+	if err := relPath("--out", *out); err != nil {
+		return err
 	}
 	d := &definition.Definition{
 		APIVersion: definition.APIVersion,

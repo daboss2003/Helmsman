@@ -246,8 +246,8 @@ func (s *Spec) validateEdge() error {
 		if len(h) > 253 || !hostnameRe.MatchString(h) {
 			return fmt.Errorf("edge route hostname %q is invalid (FQDN, no wildcards)", h)
 		}
-		if r.Service == "" {
-			return fmt.Errorf("edge route %q must name a service (upstream is a selector, never a literal)", h)
+		if !svcRe.MatchString(r.Service) {
+			return fmt.Errorf("edge route %q must name a valid service (upstream is a selector, never a literal dial target)", h)
 		}
 		if r.Port != 0 && controlPort(r.Port) {
 			return fmt.Errorf("edge route %q port %d is a reserved control-plane port", h, r.Port)
