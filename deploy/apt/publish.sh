@@ -35,7 +35,10 @@ fi
 
 # Export the rendered repo + the public signing key for static hosting.
 mkdir -p "$OUT"
-rsync -a --delete "$(aptly config show | sed -n 's/.*"rootDir": "\(.*\)".*/\1/p')/public/" "$OUT/"
+rootdir="$(aptly config show | sed -n 's/.*"rootDir": *"\(.*\)".*/\1/p')"
+rootdir="${rootdir/#\~/$HOME}"            # aptly prints "~/.aptly" — expand the leading ~
+[ -d "$rootdir/public" ] || rootdir="$HOME/.aptly"   # fallback to the default location
+rsync -a --delete "$rootdir/public/" "$OUT/"
 gpg --armor --export "$GPG_KEY_ID" > "$OUT/gpg.key"
 
 echo ">> done. Serve ./$OUT/ at your apt domain (e.g. https://daboss2003.github.io/Helmsman)."
