@@ -28,6 +28,7 @@ import (
 	"github.com/helmsman/helmsman/internal/provstore"
 	"github.com/helmsman/helmsman/internal/retention"
 	"github.com/helmsman/helmsman/internal/sandbox"
+	"github.com/helmsman/helmsman/internal/selfheal"
 	"github.com/helmsman/helmsman/internal/setupstore"
 	"github.com/helmsman/helmsman/internal/store"
 	"github.com/helmsman/helmsman/internal/web"
@@ -149,6 +150,7 @@ func cmdServe(args []string) error {
 	// the edge (non-Linux / no caddy), the edge isn't started — routes still save
 	// and apply once the edge is up. The supervisor is joined before db.Close.
 	edgeRoutes := edge.NewRouteStore(db)
+	selfHealStore := selfheal.NewStore(db)
 	var edgeRecon *edge.Reconciler
 	edgeReason := ""
 	if cfg.Edge.Mode == config.EdgeManaged {
@@ -196,11 +198,43 @@ func cmdServe(args []string) error {
 		EdgeRoutes: edgeRoutes,
 		EdgeRecon:  edgeRecon,
 		EdgeReason: edgeReason,
+		SelfHeal:   selfHealStore,
 		DockerSem:  dockerSem,
 	})
 	if err != nil {
 		return err
 	}
+
+	// Self-healing supervisor (M13, plan §8.5): a bounded watcher at the poll cadence
+	// that acts ONLY through the gated write path (srv.Remediate via RunHeld) behind
+	// the four safety gates — it can only reduce pressure or page. Joined before the
+	// deferred db.Close(). Infra alerts route through the engine only when alerting is
+	// enabled; otherwise a give-up is logged.
+	shPolicy := selfheal.DefaultPolicy()
+	protected := map[string]bool{}
+	for _, p := range cfg.ProtectedProjects {
+		protected[p] = true
+	}
+	var shAlerts *alertstore.Store
+	if cfg.Alerting.Enabled {
+		shAlerts = alertStore
+	}
+	watcher := selfheal.New(selfheal.Config{
+		Store:        selfHealStore,
+		Alerts:       shAlerts,
+		Snap:         mon.Snapshot,
+		Sem:          dockerSem,
+		Act:          srv,
+		Policy:       shPolicy,
+		Log:          log,
+		Interval:     cfg.Monitor.PollInterval.D(),
+		FloorBytes:   256 << 20, // memory-headroom floor for a momentary old+new during a restart
+		WritePlaneOK: writeAllowed,
+		Protected:    protected,
+	})
+	srv.SetCircuitClearer(func(p, svc string) { watcher.ClearCircuit(selfheal.Key{App: p, Service: svc}) })
+	wg.Add(1)
+	go func() { defer wg.Done(); watcher.Run(ctx) }()
 
 	// SIGHUP hot-reloads the allowlist + auth (plan §5.1), never keys/bind.
 	hup := make(chan os.Signal, 1)

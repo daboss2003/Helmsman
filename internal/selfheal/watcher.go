@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helmsman/helmsman/internal/alert"
@@ -39,6 +40,9 @@ type Config struct {
 type Watcher struct {
 	cfg  Config
 	fsms map[Key]FSM // in-memory FSM cache, recovered from the store on boot
+
+	mu           sync.Mutex   // guards pendingClear only (NOT held during tick I/O)
+	pendingClear map[Key]bool // operator clear-circuit requests, drained at tick start
 }
 
 // New builds a Watcher.
@@ -49,7 +53,30 @@ func New(cfg Config) *Watcher {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	return &Watcher{cfg: cfg, fsms: map[Key]FSM{}}
+	return &Watcher{cfg: cfg, fsms: map[Key]FSM{}, pendingClear: map[Key]bool{}}
+}
+
+// ClearCircuit requests that a latched CIRCUIT_OPEN service be reset to HEALTHY (the
+// operator's "I fixed the root cause, try again" button). It is safe to call from
+// another goroutine (the web handler): it only records the request under a short
+// lock; the watcher applies it at the start of the next tick, so it never races the
+// fsm map and never blocks on tick I/O.
+func (w *Watcher) ClearCircuit(k Key) {
+	w.mu.Lock()
+	w.pendingClear[k] = true
+	w.mu.Unlock()
+}
+
+// drainClears applies any pending operator clear-circuit requests.
+func (w *Watcher) drainClears(ctx context.Context, now int64) {
+	w.mu.Lock()
+	pending := w.pendingClear
+	w.pendingClear = map[Key]bool{}
+	w.mu.Unlock()
+	for k := range pending {
+		w.fsms[k] = FSM{Phase: Healthy}
+		_ = w.cfg.Store.Save(ctx, k, w.fsms[k], now)
+	}
 }
 
 // Run boots (clearing stale expected_down leases fail-closed, then recovering FSM
@@ -80,6 +107,7 @@ func (w *Watcher) Tick(ctx context.Context) {
 		return // never act on stale/absent data
 	}
 	now := w.cfg.Now()
+	w.drainClears(ctx, now)
 	leases, _ := w.cfg.Store.ActiveExpectedDown(now)
 
 	// Headroom: free host memory this tick. If host metrics are unavailable the

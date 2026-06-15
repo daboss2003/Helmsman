@@ -46,6 +46,9 @@ type tmplData struct {
 	Alerts *alertsView
 	Edge   *edgeView
 
+	// Supervisor (M13): per-service FSM phase, e.g. "CIRCUIT_OPEN", for the app view.
+	Supervisor map[string]string
+
 	// Audit-log viewer filters + pagination (M7).
 	EventLevel    string
 	EventOutcome  string
@@ -136,6 +139,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		App:                 app,
 		Snap:                snap,
 		WriteDisabledReason: s.writeDisabledReason(),
+		Supervisor:          s.supervisorStates(project),
 	})
 }
 
@@ -151,7 +155,7 @@ func (s *Server) handleAppPartial(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app not found", http.StatusNotFound)
 		return
 	}
-	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap, CSRFToken: CSRFToken(r.Context()), WriteDisabledReason: s.writeDisabledReason()})
+	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap, CSRFToken: CSRFToken(r.Context()), WriteDisabledReason: s.writeDisabledReason(), Supervisor: s.supervisorStates(project)})
 }
 
 // eventsPageSize bounds one page of the audit viewer.

@@ -44,6 +44,7 @@
 {{with .App}}
 {{if .Ops}}{{if .Ops.Err}}<div class="error">App Ops Interface: {{.Ops.Err}}{{if .Ops.Version}} (reported v{{.Ops.Version}}){{end}}</div>{{end}}{{end}}
 {{$proj := .Project}}
+{{$sup := $.Supervisor}}
 {{if .Rich}}
 {{with .Ops}}
 <section class="panel">
@@ -91,10 +92,11 @@
 {{end}}
 <table class="grid">
   <thead>
-    <tr><th>Service</th><th>State</th><th>Health</th><th>CPU%</th><th>Memory</th><th>Restarts</th><th>Status</th><th>Actions</th></tr>
+    <tr><th>Service</th><th>State</th><th>Health</th><th>CPU%</th><th>Memory</th><th>Restarts</th><th>Self-heal</th><th>Status</th><th>Actions</th></tr>
   </thead>
   <tbody>
     {{range .Services}}
+    {{$phase := index $sup .Service}}
     <tr class="{{if .Running}}row-ok{{else}}row-down{{end}}">
       <td>{{.Service}}</td>
       <td>{{.State}}</td>
@@ -102,6 +104,18 @@
       <td class="mono">{{pct1 .CPUPercent}}</td>
       <td class="mono">{{humanBytes .MemBytes}}{{if .MemLimit}} / {{humanBytes .MemLimit}}{{end}}</td>
       <td class="mono">{{.RestartCount}}</td>
+      <td>
+        {{if eq $phase "CIRCUIT_OPEN"}}
+          <span class="badge badge-warn" title="Self-healing gave up; investigate, then clear to retry.">circuit open</span>
+          {{if not $wdr}}
+          <form method="post" action="/apps/{{pathEscape $proj}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Helmsman try again?">
+            <input type="hidden" name="csrf_token" value="{{$csrf}}"><input type="hidden" name="service" value="{{.Service}}">
+            <button type="submit" class="link">clear</button>
+          </form>
+          {{end}}
+        {{else if $phase}}<span class="muted" title="self-healing supervisor state">{{$phase}}</span>
+        {{else}}<span class="muted">—</span>{{end}}
+      </td>
       <td class="muted">{{.StatusText}}</td>
       <td class="queue-actions">
         <button type="button" class="link lc-btn" data-log-url="/apps/{{pathEscape $proj}}/services/{{pathEscape .Service}}/logs">logs</button>
@@ -109,7 +123,7 @@
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="8" class="muted">No containers for this app.</td></tr>
+    <tr><td colspan="9" class="muted">No containers for this app.</td></tr>
     {{end}}
   </tbody>
 </table>

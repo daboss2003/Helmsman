@@ -29,6 +29,7 @@ import (
 	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 	"github.com/helmsman/helmsman/internal/provstore"
+	"github.com/helmsman/helmsman/internal/selfheal"
 	"github.com/helmsman/helmsman/internal/session"
 	"github.com/helmsman/helmsman/internal/setupstore"
 	"github.com/helmsman/helmsman/internal/store"
@@ -80,42 +81,45 @@ type Deps struct {
 	EdgeRoutes *edge.RouteStore
 	EdgeRecon  *edge.Reconciler      // nil when the edge isn't owned (external/unavailable)
 	EdgeReason string                // why the edge isn't owned (banner), "" when owned
+	SelfHeal   *selfheal.Store       // supervisor FSM + expected_down leases (may be nil)
 	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
 type Server struct {
-	cfg          *config.Config // immutable parts (bind, cookie, edge, session)
-	configPath   string
-	db           *store.DB
-	sessions     *session.Manager
-	audit        *audit.Logger
-	limiter      *rateLimiter
-	templates    *template.Template
-	log          *slog.Logger
-	verifySem    chan struct{}
-	mon          *monitor.Monitor      // read-plane snapshots (may be nil)
-	opsStore     *ops.ConfigStore      // ops config (may be nil)
-	prober       *ops.Prober           // ops queue actions (may be nil)
-	runner       *dockerexec.Runner    // write-plane exec (may be nil)
-	docker       *docker.Client        // read-plane log streaming (may be nil)
-	envStore     *envstore.Store       // encrypted env store (may be nil)
-	cfgStore     *cfgstore.Store       // managed config files + cert bindings (may be nil)
-	gitStore     *gitstore.Store       // repo-path GitOps (may be nil)
-	provStore    *provstore.Store      // provisioned apps (modes 1/2; may be nil)
-	setupStore   *setupstore.Store     // setup scripts (Mode 3; may be nil)
-	alertStore   *alertstore.Store     // alerting channels/rules/state (may be nil)
-	edgeRoutes   *edge.RouteStore      // managed-edge routes (may be nil)
-	edgeRecon    *edge.Reconciler      // edge config reconciler (nil when edge unowned)
-	edgeReason   string                // why the edge isn't owned (banner)
-	dockerSem    *dockerexec.Semaphore // global one-docker-child semaphore (may be nil)
-	setupConfirm *confirmStore         // single-use setup confirm tokens
-	webhookRL    *rateLimiter          // per-token webhook rate limit
-	webhookSeen  *nonceCache           // webhook replay (timestamp+nonce) defense
-	webhookFlash *tokenFlash           // one-time rotated-token hand-off (never in URL)
-	gitDeploy    *dockerexec.Semaphore // single-flight repo deploy (1 at a time)
-	logStreams   chan struct{}         // concurrency cap on live log streams
-	sec          atomic.Pointer[secState]
+	cfg            *config.Config // immutable parts (bind, cookie, edge, session)
+	configPath     string
+	db             *store.DB
+	sessions       *session.Manager
+	audit          *audit.Logger
+	limiter        *rateLimiter
+	templates      *template.Template
+	log            *slog.Logger
+	verifySem      chan struct{}
+	mon            *monitor.Monitor              // read-plane snapshots (may be nil)
+	opsStore       *ops.ConfigStore              // ops config (may be nil)
+	prober         *ops.Prober                   // ops queue actions (may be nil)
+	runner         *dockerexec.Runner            // write-plane exec (may be nil)
+	docker         *docker.Client                // read-plane log streaming (may be nil)
+	envStore       *envstore.Store               // encrypted env store (may be nil)
+	cfgStore       *cfgstore.Store               // managed config files + cert bindings (may be nil)
+	gitStore       *gitstore.Store               // repo-path GitOps (may be nil)
+	provStore      *provstore.Store              // provisioned apps (modes 1/2; may be nil)
+	setupStore     *setupstore.Store             // setup scripts (Mode 3; may be nil)
+	alertStore     *alertstore.Store             // alerting channels/rules/state (may be nil)
+	edgeRoutes     *edge.RouteStore              // managed-edge routes (may be nil)
+	edgeRecon      *edge.Reconciler              // edge config reconciler (nil when edge unowned)
+	edgeReason     string                        // why the edge isn't owned (banner)
+	selfHeal       *selfheal.Store               // supervisor FSM + expected_down leases (may be nil)
+	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
+	dockerSem      *dockerexec.Semaphore         // global one-docker-child semaphore (may be nil)
+	setupConfirm   *confirmStore                 // single-use setup confirm tokens
+	webhookRL      *rateLimiter                  // per-token webhook rate limit
+	webhookSeen    *nonceCache                   // webhook replay (timestamp+nonce) defense
+	webhookFlash   *tokenFlash                   // one-time rotated-token hand-off (never in URL)
+	gitDeploy      *dockerexec.Semaphore         // single-flight repo deploy (1 at a time)
+	logStreams     chan struct{}                 // concurrency cap on live log streams
+	sec            atomic.Pointer[secState]
 }
 
 // New builds a Server from a validated config and its dependencies.
@@ -152,6 +156,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		edgeRoutes:   d.EdgeRoutes,
 		edgeRecon:    d.EdgeRecon,
 		edgeReason:   d.EdgeReason,
+		selfHeal:     d.SelfHeal,
 		dockerSem:    d.DockerSem,
 		setupConfirm: newConfirmStore(5 * time.Minute),
 		webhookRL:    newRateLimiter(30, time.Minute),
@@ -250,6 +255,7 @@ func (s *Server) Handler() http.Handler {
 	// (ops-config, queues) are more specific and take precedence over {action}.
 	mux.HandleFunc("POST /apps/{project}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAppAction))))
 	mux.HandleFunc("POST /apps/{project}/services/{service}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleServiceAction))))
+	mux.HandleFunc("POST /apps/{project}/supervisor/clear", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSupervisorClear))))
 	mux.HandleFunc("GET /apps/{project}/services/{service}/logs", s.requireAuth(s.handleServiceLogs))
 	// Env settings (M5): literals + write-only secrets, masked reveal, history.
 	mux.HandleFunc("GET /apps/{project}/env", s.requireAuth(s.withCSRFToken(s.handleEnvGet)))
