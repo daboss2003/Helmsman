@@ -45,6 +45,11 @@ const (
 	webhookNonceTTL = webhookReplayWindow + webhookForwardSkew
 	// gitDeployTimeout caps a webhook-triggered background fetch+deploy.
 	gitDeployTimeout = 15 * time.Minute
+	// gitFetchTimeout caps a single network git fetch, independent of the larger
+	// deploy cap. A read-plane fetch must never hold the shared single-flight gate for
+	// a deploy-sized window — a slow/hostile repo endpoint (slow-loris, tarpit) would
+	// otherwise block manual deploys, webhooks, and provisioning behind it.
+	gitFetchTimeout = 90 * time.Second
 	// maxWebhookNonceLen bounds the nonce header so a hostile client can't bloat
 	// the in-memory replay cache key.
 	maxWebhookNonceLen = 128
@@ -430,7 +435,11 @@ func (s *Server) doFetch(ctx context.Context, project string) (gitstore.Config, 
 	if err != nil {
 		return cfg, "", err
 	}
-	stagedSha, ferr := repo.Fetch(ctx, cfg.RepoURL, cfg.Ref, creds)
+	// Bound the network fetch on its own short timeout (independent of any larger
+	// deploy cap) so a hung/slow repo can't hold the shared single-flight gate.
+	fctx, fcancel := context.WithTimeout(ctx, gitFetchTimeout)
+	stagedSha, ferr := repo.Fetch(fctx, cfg.RepoURL, cfg.Ref, creds)
+	fcancel()
 	if ferr != nil {
 		s.gitStore.SetFetchError(bg, project, ferr.Error()) // already classified
 		return cfg, "", ferr

@@ -221,7 +221,7 @@ That's it. There is **no re-validate, no build, no redeploy** in the webhook pat
 
 If you genuinely want full auto-deploy-on-push (the Netlify-style behavior), Helmsman supports it — but as an **explicit per-app opt-in** (`auto_deploy`, **default `false`**), and it does **not** introduce a second deploy path.
 
-- When `auto_deploy` is enabled, a fetch that produces an `update_available` simply **auto-clicks the same gated promote path** a human would click. It is *not* an unguarded build.
+- When `auto_deploy` is enabled, a **webhook-triggered** fetch that produces an `update_available` simply **auto-clicks the same gated promote path** a human would click. It is *not* an unguarded build. The **background auto-fetch poll never deploys** — it only surfaces the update; auto-deploy fires solely on a verified webhook delivery (so push-to-deploy is a deliberate, webhook-backed choice, not a side effect of polling).
 - It runs through the identical sequence: §5.6 re-validation of the exact bytes, §0 write-plane gate, one-docker-child semaphore, memory-headroom floor, `build_policy`.
 - On any validation or gate failure it **fails closed to `update_blocked` + a page** — it stays on the old deployment, exactly like a manual deploy, and never falls through to an unguarded build.
 - It still requires verifiable replay protection on the triggering webhook; without it, the webhook stays fetch-only regardless of the `auto_deploy` setting.

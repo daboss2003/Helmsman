@@ -6,13 +6,14 @@ import (
 )
 
 // RunGitPoller is the "just connect the repo and it works" loop: it periodically
-// fetches every connected repo so change-detection needs NO webhook setup (the
-// webhook stays as an optional instant trigger). It is read-plane — a fetch never
-// mutates a running app — and serialized through the same single-flight gate as the
-// webhook + manual deploy, so it can never pile up docker/git children. Repos that
-// opted into auto_deploy then deploy through the same gated promote path.
+// FETCHES every connected repo so change-detection needs NO webhook setup. It is
+// READ-PLANE ONLY — it never deploys; it surfaces an "update available" the operator
+// deploys with a click (push-to-deploy stays an explicit opt-in via the webhook +
+// auto_deploy, never this background loop). A fetch never mutates a running app, and
+// the loop is serialized through the same single-flight gate as deploys, so it can
+// never pile up docker/git children.
 //
-// interval <= 0 disables polling (webhook-only). Blocks until ctx is cancelled.
+// interval <= 0 disables polling. Blocks until ctx is cancelled.
 func (s *Server) RunGitPoller(ctx context.Context, interval time.Duration) {
 	if s.gitStore == nil || interval <= 0 {
 		return
@@ -47,17 +48,17 @@ func (s *Server) pollAllRepos(ctx context.Context) {
 	}
 }
 
-// pollOneRepo fetches (and, if opted in, auto-deploys) a single repo, holding the
-// single-flight gate for just that repo. If a deploy/fetch is already in progress
-// anywhere, it skips this tick rather than queueing (queuing children is the OOM
-// vector) — the next tick retries.
+// pollOneRepo FETCHES a single repo (never deploys), holding the single-flight gate
+// for just that repo. If a deploy/fetch is already in progress anywhere, it skips this
+// tick rather than queueing (queuing children is the OOM vector) — the next tick
+// retries. The fetch is bounded by its own short timeout (in doFetch), so a slow or
+// hostile repo endpoint can't hold the shared gate for a deploy-sized window.
 func (s *Server) pollOneRepo(ctx context.Context, project string) {
 	if !s.gitDeploy.TryAcquire() {
 		return
 	}
 	defer s.gitDeploy.Release()
-	// Bound a single repo's fetch+maybe-deploy so one slow repo can't stall the loop.
-	rc, cancel := context.WithTimeout(ctx, gitDeployTimeout)
-	defer cancel()
-	s.fetchAndMaybeDeploy(rc, project, "poller")
+	if _, _, err := s.doFetch(ctx, project); err != nil {
+		s.log.Warn("git poll fetch failed", "project", project)
+	}
 }

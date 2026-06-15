@@ -128,11 +128,23 @@ type MonitorConfig struct {
 
 // GitConfig tunes the connected-repo auto-fetch poller. So a repo connected in the
 // dashboard "just works" with no webhook setup, Helmsman fetches every connected repo
-// on this cadence (read-plane); repos that opted into auto_deploy then deploy through
-// the same gated promote path. The webhook stays as an optional instant trigger.
-// poll_interval: 0 disables polling (webhook-only).
+// on this cadence — READ-PLANE ONLY: the poller never deploys, it just surfaces an
+// "update available" the operator then deploys with a click. (Push-to-deploy stays an
+// explicit opt-in via the webhook + auto_deploy, never the background poller.)
+//
+// PollInterval is a pointer so an omitted key (nil → the 2 min default) is
+// distinguishable from an explicit "poll_interval: 0" (disables polling). A negative
+// value also disables.
 type GitConfig struct {
-	PollInterval Duration `yaml:"poll_interval"`
+	PollInterval *Duration `yaml:"poll_interval"`
+}
+
+// PollIntervalD returns the effective poll interval (0 when disabled / unset).
+func (g GitConfig) PollIntervalD() time.Duration {
+	if g.PollInterval == nil {
+		return 0
+	}
+	return g.PollInterval.D()
 }
 
 // SessionConfig holds idle/absolute timeouts (plan §5.3).
@@ -266,11 +278,12 @@ func applyDefaults(c *Config) {
 	if c.Monitor.MetricsRetention == 0 {
 		c.Monitor.MetricsRetention = Duration(7 * 24 * time.Hour)
 	}
-	if c.Git.PollInterval == 0 {
-		// Turnkey default: connected repos are auto-fetched every 2 min so a repo
-		// connected in the dashboard "just works" with no webhook. A NEGATIVE value
-		// disables polling (webhook-only).
-		c.Git.PollInterval = Duration(2 * time.Minute)
+	if c.Git.PollInterval == nil {
+		// Turnkey default (key omitted): connected repos are auto-FETCHED every 2 min
+		// so a repo connected in the dashboard "just works" with no webhook. An
+		// explicit "poll_interval: 0" (or a negative value) disables polling.
+		d := Duration(2 * time.Minute)
+		c.Git.PollInterval = &d
 	}
 	if c.Retention.Interval == 0 {
 		c.Retention.Interval = Duration(6 * time.Hour)

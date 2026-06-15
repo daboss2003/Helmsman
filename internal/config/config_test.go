@@ -62,10 +62,21 @@ func TestValidConfigLoads(t *testing.T) {
 	if cfg.Cookie.Prefix != "__Host-" {
 		t.Errorf("default cookie prefix not __Host-")
 	}
-	// Turnkey default: connected-repo auto-fetch is ON (2 min) so connecting a repo in
-	// the dashboard "just works" with no webhook.
-	if cfg.Git.PollInterval.D() != 2*time.Minute {
-		t.Errorf("git poll interval default = %v, want 2m", cfg.Git.PollInterval.D())
+	// Turnkey default (key omitted): connected-repo auto-fetch is ON (2 min) so
+	// connecting a repo in the dashboard "just works" with no webhook.
+	if cfg.Git.PollIntervalD() != 2*time.Minute {
+		t.Errorf("git poll interval default = %v, want 2m", cfg.Git.PollIntervalD())
+	}
+}
+
+// An EXPLICIT poll_interval: 0 disables polling (must not collapse into the default).
+func TestGitPollZeroDisables(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML(t, "git:\n  poll_interval: \"0s\"\n")))
+	if err != nil {
+		t.Fatalf("config with git poll 0 rejected: %v", err)
+	}
+	if cfg.Git.PollIntervalD() != 0 {
+		t.Errorf("explicit poll_interval 0 must disable polling, got %v", cfg.Git.PollIntervalD())
 	}
 }
 
@@ -74,8 +85,8 @@ func TestGitPollNegativeDisablesIsPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config with negative git poll rejected: %v", err)
 	}
-	if cfg.Git.PollInterval.D() >= 0 {
-		t.Errorf("a negative git poll_interval must be preserved (disables polling), got %v", cfg.Git.PollInterval.D())
+	if cfg.Git.PollIntervalD() >= 0 {
+		t.Errorf("a negative git poll_interval must be preserved (disables polling), got %v", cfg.Git.PollIntervalD())
 	}
 }
 

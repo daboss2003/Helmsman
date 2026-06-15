@@ -75,9 +75,9 @@ For a repo-backed app, click **Connect repo** in the dashboard and give it:
 - the **path to your compose** in the repo (e.g. `docker-compose.yml`),
 - for a private repo, a **deploy key or token** (the form shows you what it needs).
 
-That's the whole setup. **You don't register a webhook or hand it a config file** — Helmsman checks each connected repo for new commits on its own (it fetches on a cadence in the background). When a new commit lands you see an **"update available"** with a diff; click **Deploy** to ship that exact reviewed commit (sha-pinned). Prefer hands-off? Turn on **auto-deploy** and Helmsman ships clean fast-forward updates for you.
+That's the whole setup. **You don't register a webhook or hand it a config file** — Helmsman checks each connected repo for new commits on its own (it fetches on a cadence in the background). When a new commit lands you see an **"update available"** with a diff, and you click **Deploy** to ship that exact reviewed commit (sha-pinned).
 
-> Want *instant* deploys instead of waiting for the next check? There's an optional webhook you can add — but it's not required; connecting the repo is enough.
+> **Auto-fetch never auto-deploys.** The background check only ever *fetches* — it surfaces the update; **you** decide when to deploy. (Advanced: if you genuinely want push-to-deploy, an optional webhook + `auto_deploy` enables it — see the [GitOps guide](./gitops.md). The default, and the background poll, is fetch-only.)
 
 This is the "I just connected it online and it works" flow — no SSH, no webhook plumbing.
 

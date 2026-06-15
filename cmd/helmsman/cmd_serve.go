@@ -322,11 +322,11 @@ func cmdServe(args []string) error {
 	go func() { defer wg.Done(); scaler.Run(ctx) }()
 
 	// Connected-repo auto-fetch poller (Netlify-style): a repo connected in the
-	// dashboard "just works" with no webhook — Helmsman fetches every connected repo on
-	// a cadence (read-plane), and auto_deploy repos deploy through the same gated
-	// promote. The webhook stays as an optional instant trigger. Joined before db.Close.
+	// dashboard "just works" with no webhook — Helmsman FETCHES every connected repo on
+	// a cadence (read-plane only; it never deploys, it surfaces an "update available"
+	// the operator deploys with a click). Joined before db.Close.
 	wg.Add(1)
-	go func() { defer wg.Done(); srv.RunGitPoller(ctx, cfg.Git.PollInterval.D()) }()
+	go func() { defer wg.Done(); srv.RunGitPoller(ctx, cfg.Git.PollIntervalD()) }()
 
 	// SIGHUP hot-reloads the allowlist + auth (plan §5.1), never keys/bind.
 	hup := make(chan os.Signal, 1)
