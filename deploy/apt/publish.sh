@@ -41,4 +41,18 @@ rootdir="${rootdir/#\~/$HOME}"            # aptly prints "~/.aptly" — expand t
 rsync -a --delete "$rootdir/public/" "$OUT/"
 gpg --armor --export "$GPG_KEY_ID" > "$OUT/gpg.key"
 
+# A small landing page so the Pages root isn't a bare 404 (apt only fetches sub-paths,
+# but a human visiting the URL should see install instructions).
+cat > "$OUT/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>Helmsman APT repository</title>
+<body style="font:16px system-ui;max-width:48rem;margin:3rem auto;padding:0 1rem">
+<h1>Helmsman APT repository</h1>
+<p>Install on Debian / Ubuntu:</p>
+<pre style="background:#f4f4f5;padding:1rem;border-radius:8px;overflow:auto">curl -fsSL https://daboss2003.github.io/Helmsman/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
+echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github.io/Helmsman stable main" | sudo tee /etc/apt/sources.list.d/helmsman.list
+sudo apt update &amp;&amp; sudo apt install helmsman</pre>
+<p><a href="https://github.com/daboss2003/Helmsman">github.com/daboss2003/Helmsman</a></p>
+</body>
+HTML
+
 echo ">> done. Serve ./$OUT/ at your apt domain (e.g. https://daboss2003.github.io/Helmsman)."
