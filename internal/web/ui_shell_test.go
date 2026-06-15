@@ -34,6 +34,32 @@ func TestShellRendersOnAuthedPages(t *testing.T) {
 	}
 }
 
+// The sidebar groups nav into labeled sections and surfaces the Incidents screen.
+func TestSidebarGroupedNav(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, _ := e.login(t, "127.0.0.1:1", testPassword, "")
+	body := readBody(e.req(t, "GET", "/", "127.0.0.1:1", nil, []*http.Cookie{sess}, nil))
+	for _, want := range []string{"nav-group-label", "Monitor", "/incidents", "Incidents"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sidebar missing %q", want)
+		}
+	}
+}
+
+// The Incidents screen renders (all-clear when there's nothing wrong).
+func TestIncidentsScreen(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, _ := e.login(t, "127.0.0.1:1", testPassword, "")
+	resp := e.req(t, "GET", "/incidents", "127.0.0.1:1", nil, []*http.Cookie{sess}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /incidents = %d, want 200", resp.StatusCode)
+	}
+	body := readBody(resp)
+	if !strings.Contains(body, "Incidents") || !strings.Contains(body, "All clear") {
+		t.Error("incidents page should render with an all-clear state when nothing is wrong")
+	}
+}
+
 func TestLoginHasNoShell(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	resp := e.req(t, "GET", "/login", "127.0.0.1:1", nil, nil, nil)

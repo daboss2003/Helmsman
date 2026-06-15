@@ -1,0 +1,99 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <h1>Incidents</h1>
+  <p class="muted">Everything that needs your attention, in one place.</p>
+
+  {{with .Incidents}}
+  {{if .Clear}}
+  <section class="panel">
+    <div class="incident-clear">
+      <span class="incident-clear-mark">✓</span>
+      <div><strong>All clear.</strong><br><span class="muted">No open alerts, unhealthy apps, or recent failures.</span></div>
+    </div>
+  </section>
+  {{end}}
+
+  {{if .Alerts}}
+  <section class="panel">
+    <h2>Open alerts <span class="pill pill-down">{{len .Alerts}}</span></h2>
+    <table class="grid">
+      <thead><tr><th>Target</th><th>Level</th><th>Detail</th><th>Since</th><th>State</th></tr></thead>
+      <tbody>
+        {{range .Alerts}}
+        <tr>
+          <td class="mono">{{.Target}}</td>
+          <td>{{if eq .Level "security"}}<span class="pill pill-down">{{.Level}}</span>{{else}}<span class="pill pill-warn">{{.Level}}</span>{{end}}</td>
+          <td>{{.Detail}}</td>
+          <td class="mono">{{.Since}}</td>
+          <td>{{if .Acked}}<span class="pill">acked</span>{{else}}<span class="pill pill-warn">firing</span>{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <p class="muted small mt1"><a href="/alerts">Manage alerts →</a></p>
+  </section>
+  {{end}}
+
+  {{if .Unhealthy}}
+  <section class="panel">
+    <h2>Unhealthy apps <span class="pill pill-down">{{len .Unhealthy}}</span></h2>
+    <div class="tiles">
+      {{range .Unhealthy}}
+      <a class="tile tile-degraded" href="/apps/{{pathEscape .Project}}">
+        <div class="tile-name">{{if .DisplayName}}{{.DisplayName}}{{else}}{{.Project}}{{end}}</div>
+        <div class="tile-stat"><span class="pill pill-down">{{.Up}}/{{.Total}} up</span></div>
+      </a>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
+  {{if .Circuit}}
+  <section class="panel">
+    <h2>Self-healing gave up <span class="pill pill-down">{{len .Circuit}}</span></h2>
+    <p class="muted">Helmsman tried to recover these and stopped (circuit open). Investigate, then clear to let it try again.</p>
+    <table class="grid">
+      <thead><tr><th>App</th><th>Service</th><th></th></tr></thead>
+      <tbody>
+        {{range .Circuit}}
+        <tr>
+          <td><a href="/apps/{{pathEscape .App}}">{{.App}}</a></td>
+          <td class="mono">{{.Service}}</td>
+          <td>
+            <form method="post" action="/apps/{{pathEscape .App}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Helmsman try again?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="service" value="{{.Service}}">
+              <button type="submit" class="link">clear &amp; retry</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  {{end}}
+
+  {{if .Failures}}
+  <section class="panel">
+    <h2>Recent failures</h2>
+    <table class="grid">
+      <thead><tr><th>When (UTC)</th><th>Action</th><th>Target</th><th>Outcome</th><th>Detail</th></tr></thead>
+      <tbody>
+        {{range .Failures}}
+        <tr class="{{if eq .Outcome "deny"}}out-deny{{end}}">
+          <td class="mono">{{.When}}</td>
+          <td>{{.Action}}</td>
+          <td class="mono">{{.Target}}</td>
+          <td>{{if eq .Outcome "deny"}}<span class="pill pill-down">deny</span>{{else}}<span class="pill pill-warn">error</span>{{end}}</td>
+          <td class="muted">{{.Detail}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <p class="muted small mt1"><a href="/events">Full audit log →</a></p>
+  </section>
+  {{end}}
+  {{end}}
+</main>
+{{template "bottom" .}}

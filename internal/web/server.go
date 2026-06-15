@@ -303,6 +303,7 @@ func (s *Server) Handler() http.Handler {
 	// Protected routes.
 	mux.HandleFunc("GET /{$}", s.requireAuth(s.withCSRFToken(s.handleHome)))
 	mux.HandleFunc("GET /partials/overview", s.requireAuth(s.handleOverviewPartial))
+	mux.HandleFunc("GET /incidents", s.requireAuth(s.withCSRFToken(s.handleIncidents)))
 	// Host metric series for the live dashboard charts (read plane; cookie-authed).
 	mux.HandleFunc("GET /partials/metrics.json", s.requireAuth(s.handleMetricsHistory))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))

@@ -46,6 +46,9 @@ type tmplData struct {
 	Alerts *alertsView
 	Edge   *edgeView
 
+	// Incidents screen: aggregated open alerts / unhealthy apps / circuit-open / fails.
+	Incidents *incidentsView
+
 	// GitHub connect (M20): the connect-repo page + repo picker.
 	GitHubEnabled bool
 	GitHubLogin   string
