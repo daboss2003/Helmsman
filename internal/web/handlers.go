@@ -277,6 +277,17 @@ func escapeLike(s string) string {
 // render executes a template into a buffer first so a template error never emits
 // a half-written, mis-statused response.
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data tmplData) {
+	// Backfill the shell's needs so every authenticated page renders the sidebar +
+	// edge badge without each handler having to remember (login stays unauthenticated:
+	// no session → no Username → no shell, which is the centered-card layout it wants).
+	if data.Username == "" {
+		if sess := SessionFrom(r.Context()); sess != nil {
+			data.Username = sess.Username
+		}
+	}
+	if data.EdgeMode == "" {
+		data.EdgeMode = string(s.cfg.Edge.Mode)
+	}
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

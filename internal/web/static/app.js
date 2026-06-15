@@ -188,4 +188,85 @@
         .catch(function () { /* transient; try again next tick */ });
     }, ms);
   });
+
+  // ---- shell: sidebar active link + mobile toggle + topbar title ----
+  var layout = document.querySelector("[data-layout]");
+  var toggle = document.querySelector("[data-menu-toggle]");
+  var scrim = document.querySelector("[data-scrim]");
+  if (toggle && layout) toggle.addEventListener("click", function () { layout.classList.toggle("menu-open"); });
+  if (scrim && layout) scrim.addEventListener("click", function () { layout.classList.remove("menu-open"); });
+
+  (function markActiveNav() {
+    var path = location.pathname;
+    document.querySelectorAll("[data-nav]").forEach(function (a) {
+      var href = a.getAttribute("href");
+      if (!href) return;
+      var exact = a.hasAttribute("data-exact");
+      var hit = exact ? path === href : (path === href || path.indexOf(href + "/") === 0);
+      if (hit) a.classList.add("nav-active");
+    });
+  })();
+
+  (function setTopbarTitle() {
+    var h1 = document.querySelector("main.wrap h1");
+    var tt = document.querySelector("[data-page-title]");
+    if (h1 && tt) tt.textContent = h1.textContent.trim();
+  })();
+
+  // ---- live host charts (CSP-safe: SVG built via the DOM, no inline script) ----
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function el(name, attrs) {
+    var n = document.createElementNS(SVGNS, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  // drawArea renders a 0..100 (%) series into an <svg> as a grid + area + line.
+  // The line uses non-scaling-stroke so it stays crisp under the stretched viewBox.
+  function drawArea(svg, values) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var W = 300, H = 120;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    // horizontal grid at 25/50/75%
+    [0.25, 0.5, 0.75].forEach(function (g) {
+      var y = H - g * H;
+      svg.appendChild(el("line", { x1: 0, y1: y, x2: W, y2: y, class: "grid-line", "vector-effect": "non-scaling-stroke" }));
+    });
+    if (!values || values.length < 2) return;
+    var n = values.length;
+    function x(i) { return (i / (n - 1)) * W; }
+    function y(v) { var c = v < 0 ? 0 : (v > 100 ? 100 : v); return H - (c / 100) * H; }
+    var line = "M" + x(0) + " " + y(values[0]);
+    for (var i = 1; i < n; i++) line += " L" + x(i) + " " + y(values[i]);
+    var area = line + " L" + W + " " + H + " L0 " + H + " Z";
+    svg.appendChild(el("path", { d: area, class: "area", fill: "currentColor", stroke: "none" }));
+    svg.appendChild(el("path", { d: line, class: "line", stroke: "currentColor", "vector-effect": "non-scaling-stroke" }));
+  }
+  function pct(used, total) { return total > 0 ? (used / total) * 100 : 0; }
+  var charts = document.querySelectorAll("[data-chart]");
+  if (charts.length) {
+    var refreshCharts = function () {
+      fetch("/partials/metrics.json", { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || !data.points) return;
+          var pts = data.points;
+          var series = {
+            cpu: pts.map(function (p) { return p.cpu; }),
+            mem: pts.map(function (p) { return pct(p.memUsed, p.memTotal); }),
+            disk: pts.map(function (p) { return pct(p.diskUsed, p.diskTotal); }),
+          };
+          charts.forEach(function (svg) {
+            var key = svg.getAttribute("data-chart");
+            var vals = series[key];
+            drawArea(svg, vals);
+            var now = document.querySelector('[data-chart-now="' + key + '"]');
+            if (now && vals && vals.length) now.textContent = Math.round(vals[vals.length - 1]) + "%";
+          });
+        })
+        .catch(function () { /* transient */ });
+    };
+    refreshCharts();
+    setInterval(refreshCharts, 5000);
+  }
 })();

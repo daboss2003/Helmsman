@@ -23,7 +23,7 @@
           <td class="mono">{{.Mode}}</td>
           <td class="{{if eq .Drift "host-edited"}}health-unhealthy{{else if eq .Drift "ok"}}health-healthy{{end}}">{{.Drift}}</td>
           <td>
-            <form method="post" action="/apps/{{$.Project}}/config-files/delete" class="inline" onsubmit="return confirm('Delete {{.Name}}?')">
+            <form method="post" action="/apps/{{$.Project}}/config-files/delete" class="inline" data-confirm="Delete {{.Name}}?">
               <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <input type="hidden" name="name" value="{{.Name}}">
               <button type="submit" class="link">delete</button>
@@ -77,7 +77,7 @@
       </tbody>
     </table>
     {{else}}<p class="muted">No cert bindings.</p>{{end}}
-    <form method="post" action="/apps/{{.Project}}/cert-bindings" class="stack" style="margin-top:1rem">
+    <form method="post" action="/apps/{{.Project}}/cert-bindings" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <label>Binding name <input type="text" name="binding_name" placeholder="web"></label>
       <label>Hostname <input type="text" name="hostname" placeholder="app.example.com"></label>

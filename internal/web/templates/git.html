@@ -24,7 +24,7 @@
         {{if .LastFetchError}}<tr><td>Last fetch error</td><td class="health-unhealthy">{{.LastFetchError}}</td></tr>{{end}}
       </tbody>
     </table>
-    <form method="post" action="/apps/{{pathEscape .Project}}/git/fetch" class="inline" style="margin-top:1rem">
+    <form method="post" action="/apps/{{pathEscape .Project}}/git/fetch" class="inline mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <button type="submit">Fetch now</button>
     </form>

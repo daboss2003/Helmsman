@@ -2,13 +2,32 @@
 {{template "nav" .}}
 <main class="wrap">
   <h1>Overview</h1>
-  <p class="muted">Signed in as {{.Username}}. Edge mode: <strong>{{.EdgeMode}}</strong>.</p>
+  <p class="muted">Signed in as {{.Username}} · edge mode <strong>{{.EdgeMode}}</strong></p>
+
+  {{/* Live host charts. These live OUTSIDE the polled fragment so their SVG DOM
+       persists; app.js refreshes them from /partials/metrics.json on its own timer. */}}
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-head"><span class="chart-label">CPU</span><span class="chart-now" data-chart-now="cpu">—</span></div>
+      <svg class="chart c-cpu" data-chart="cpu" aria-label="CPU usage over time"></svg>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><span class="chart-label">Memory</span><span class="chart-now" data-chart-now="mem">—</span></div>
+      <svg class="chart c-mem" data-chart="mem" aria-label="Memory usage over time"></svg>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head"><span class="chart-label">Disk</span><span class="chart-now" data-chart-now="disk">—</span></div>
+      <svg class="chart c-disk" data-chart="disk" aria-label="Disk usage over time"></svg>
+    </div>
+  </div>
+
+  {{/* Live stat cards + app tiles, refreshed by polling the overview fragment. */}}
   <div data-poll-url="/partials/overview" data-poll-interval="5000">
     {{template "overview" .}}
   </div>
 
   <section class="panel">
-    <h2>Provisioned apps <span class="muted">(form-generated or pasted)</span> · <a href="/apps/new">+ New app</a></h2>
+    <h2><span>Provisioned apps <span class="muted">(form-generated or imported)</span></span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
     {{if .Provisioned}}
     <table class="grid">
       <thead><tr><th>App</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
@@ -17,7 +36,7 @@
         <tr>
           <td><a href="/apps/{{pathEscape .Slug}}">{{.Slug}}</a></td>
           <td>{{.Source}}</td>
-          <td>{{if .Deployed}}<span class="health-healthy">{{.UpCount}}/{{.Total}} up</span>{{else}}<span class="muted">not deployed</span>{{end}}</td>
+          <td>{{if .Deployed}}<span class="pill pill-ok">{{.UpCount}}/{{.Total}} up</span>{{else}}<span class="pill">not deployed</span>{{end}}</td>
           <td class="queue-actions">
             <button type="button" class="link lc-btn" data-lc-confirm="Deploy {{.Slug}}?" data-lc-url="/apps/{{pathEscape .Slug}}/provision-deploy">deploy</button>
             <form method="post" action="/apps/{{pathEscape .Slug}}/provision-delete" class="inline" data-confirm="Delete {{.Slug}} and its files?">

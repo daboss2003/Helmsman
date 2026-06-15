@@ -3,28 +3,47 @@
   {{if not .DockerOK}}
   <div class="error" role="alert">Read plane unavailable: {{.DockerErr}} — is the read-only companion running?</div>
   {{end}}
-  <section class="panel">
-    <h2>Host</h2>
+
+  <div class="stat-grid">
     {{if .HostOK}}
-    <div class="metrics">
-      <div class="metric"><span class="muted">CPU</span><strong>{{pct1 .Host.CPUPercent}}%</strong></div>
-      <div class="metric"><span class="muted">Load (1m)</span><strong>{{pct1 .Host.Load1}}</strong></div>
-      <div class="metric"><span class="muted">Memory</span><strong>{{humanBytes .Host.MemUsed}} / {{humanBytes .Host.MemTotal}}</strong></div>
-      <div class="metric"><span class="muted">Disk</span><strong>{{humanBytes .Host.DiskUsed}} / {{humanBytes .Host.DiskTotal}}</strong></div>
+    {{$mem := ratioPct .Host.MemUsed .Host.MemTotal}}
+    {{$disk := ratioPct .Host.DiskUsed .Host.DiskTotal}}
+    <div class="stat-card {{meterClass .Host.CPUPercent}}">
+      <div class="stat-label">CPU</div>
+      <div class="stat-value">{{pct1 .Host.CPUPercent}}<small>%</small></div>
+      <div class="stat-sub">load {{pct1 .Host.Load1}} (1m)</div>
+      {{template "meter" .Host.CPUPercent}}
     </div>
-    {{else}}
-    <p class="muted">{{.HostErr}}</p>
+    <div class="stat-card {{meterClass $mem}}">
+      <div class="stat-label">Memory</div>
+      <div class="stat-value">{{pct1 $mem}}<small>%</small></div>
+      <div class="stat-sub">{{humanBytes .Host.MemUsed}} / {{humanBytes .Host.MemTotal}}</div>
+      {{template "meter" $mem}}
+    </div>
+    <div class="stat-card {{meterClass $disk}}">
+      <div class="stat-label">Disk</div>
+      <div class="stat-value">{{pct1 $disk}}<small>%</small></div>
+      <div class="stat-sub">{{humanBytes .Host.DiskUsed}} / {{humanBytes .Host.DiskTotal}}</div>
+      {{template "meter" $disk}}
+    </div>
     {{end}}
-  </section>
+    <div class="stat-card {{if .Apps}}{{if lt (appsUp .Apps) (len .Apps)}}is-warn{{else}}is-ok{{end}}{{end}}">
+      <div class="stat-label">Apps healthy</div>
+      <div class="stat-value">{{appsUp .Apps}}<small>/{{len .Apps}}</small></div>
+      <div class="stat-sub">{{if .DockerOK}}docker ok{{else}}docker unavailable{{end}}</div>
+    </div>
+  </div>
 
   <section class="panel">
-    <h2>Apps <span class="muted">({{len .Apps}})</span></h2>
+    <h2><span>Apps <span class="muted">({{len .Apps}})</span></span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
     {{if .Apps}}
     <div class="tiles" data-tile-grid>
       {{range $.OrderedApps}}
       <a class="tile {{if .Degraded}}tile-degraded{{else}}tile-ok{{end}}" href="/apps/{{pathEscape .Project}}" draggable="true" data-project="{{.Project}}">
         <div class="tile-name">{{.DisplayName}}{{if .Rich}} <span class="badge">RICH</span>{{end}}</div>
-        <div class="tile-stat">{{.UpCount}}/{{.Total}} up</div>
+        <div class="tile-stat">
+          {{if .Degraded}}<span class="pill pill-down">{{.UpCount}}/{{.Total}} up</span>{{else}}<span class="pill pill-ok">{{.UpCount}}/{{.Total}} up</span>{{end}}
+        </div>
       </a>
       {{end}}
     </div>
@@ -36,6 +55,16 @@
 {{else}}
   <p class="muted">Collecting metrics…</p>
 {{end}}
+{{end}}
+
+{{/* meter renders a CSP-safe progress bar as an SVG (rect width is an attribute,
+     not CSS — inline style="" is forbidden under style-src 'self'). The dot is the
+     percentage as a 0..100 float. */}}
+{{define "meter"}}
+<svg class="meter {{meterClass .}}" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
+  <rect class="meter-bg" x="0" y="0" width="100" height="6" rx="3"></rect>
+  <rect class="meter-fill" x="0" y="0" width="{{pct1 .}}" height="6" rx="3"></rect>
+</svg>
 {{end}}
 
 {{define "appdetail"}}

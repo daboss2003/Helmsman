@@ -61,7 +61,7 @@
     </table>
     {{else}}<p class="muted">No channels.</p>{{end}}
     <pre id="deploy-output" class="stream" hidden></pre>
-    <form method="post" action="/alerts/channels" class="stack" style="margin-top:1rem">
+    <form method="post" action="/alerts/channels" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <label>Name <input type="text" name="name" placeholder="ops-email" required></label>
       <label>Kind
@@ -112,7 +112,7 @@
       </tbody>
     </table>
     {{else}}<p class="muted">No rules.</p>{{end}}
-    <form method="post" action="/alerts/rules" class="stack" style="margin-top:1rem">
+    <form method="post" action="/alerts/rules" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <label>Name <input type="text" name="name" placeholder="host cpu high" required></label>
       <label>Kind

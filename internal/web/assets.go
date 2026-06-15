@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helmsman/helmsman/internal/monitor"
 	"github.com/helmsman/helmsman/internal/ops"
 )
 
@@ -30,6 +31,36 @@ var templateFuncs = template.FuncMap{
 	// health scores (0..1). The values are numeric (never app strings), so the
 	// output is safe to embed in an html/template-escaped attribute.
 	"sparkPoints": sparkPoints,
+	// ratioPct returns used/total as a 0..100 float (0 when total==0). Used for
+	// the dashboard meter widths, which are SVG rect attributes (NOT CSS) — the CSP
+	// is style-src 'self', so inline style="" is forbidden.
+	"ratioPct": func(used, total uint64) float64 {
+		if total == 0 {
+			return 0
+		}
+		return float64(used) / float64(total) * 100
+	},
+	// meterClass buckets a 0..100 value into a severity class for the meter fill.
+	"meterClass": func(p float64) string {
+		switch {
+		case p >= 90:
+			return "is-down"
+		case p >= 75:
+			return "is-warn"
+		default:
+			return ""
+		}
+	},
+	// appsUp counts apps with every service running (for the overview stat card).
+	"appsUp": func(apps []monitor.App) int {
+		n := 0
+		for _, a := range apps {
+			if !a.Degraded() {
+				n++
+			}
+		}
+		return n
+	},
 }
 
 const sparkW, sparkH = 220.0, 32.0

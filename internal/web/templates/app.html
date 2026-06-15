@@ -44,16 +44,16 @@
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <label>Service <input type="text" name="service" placeholder="web" required></label>
       <div class="row">
-        <label>Min <input type="number" name="min" value="1" min="1" style="width:5rem"></label>
-        <label>Max <input type="number" name="max" value="3" min="1" style="width:5rem"></label>
-        <label>Per-replica memory (MiB) <input type="number" name="per_replica_mem_mib" value="256" min="16" style="width:7rem"></label>
-        <label>Per-replica CPU (milli) <input type="number" name="per_replica_cpu_milli" value="500" min="50" style="width:7rem"></label>
+        <label>Min <input type="number" name="min" value="1" min="1" class="w-num"></label>
+        <label>Max <input type="number" name="max" value="3" min="1" class="w-num"></label>
+        <label>Per-replica memory (MiB) <input type="number" name="per_replica_mem_mib" value="256" min="16" class="w-num-lg"></label>
+        <label>Per-replica CPU (milli) <input type="number" name="per_replica_cpu_milli" value="500" min="50" class="w-num-lg"></label>
       </div>
       <div class="row">
-        <label>Scale-up CPU% <input type="number" name="up_cpu" value="80" style="width:5rem"></label>
-        <label>Scale-down CPU% <input type="number" name="down_cpu" value="40" style="width:5rem"></label>
-        <label>Scale-up mem% <input type="number" name="up_mem" value="80" style="width:5rem"></label>
-        <label>Scale-down mem% <input type="number" name="down_mem" value="40" style="width:5rem"></label>
+        <label>Scale-up CPU% <input type="number" name="up_cpu" value="80" class="w-num"></label>
+        <label>Scale-down CPU% <input type="number" name="down_cpu" value="40" class="w-num"></label>
+        <label>Scale-up mem% <input type="number" name="up_mem" value="80" class="w-num"></label>
+        <label>Scale-down mem% <input type="number" name="down_mem" value="40" class="w-num"></label>
       </div>
       <label class="check"><input type="checkbox" name="attest"> I confirm this service is stateless and edge-fronted, with no fixed host port and no read-write volume.</label>
       <label class="check"><input type="checkbox" name="enabled"> Enable auto-scaling for this service</label>

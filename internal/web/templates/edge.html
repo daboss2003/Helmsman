@@ -34,7 +34,7 @@
     </table>
     {{else}}<p class="muted">No routes yet — a fresh edge proxies to nothing and exposes no admin surface.</p>{{end}}
 
-    <form method="post" action="/edge/routes" class="stack" style="margin-top:1rem">
+    <form method="post" action="/edge/routes" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <label>App id <span class="muted">(the owning app)</span> <input type="text" name="app_id" autocomplete="off"></label>
       <label>Hostname <span class="muted">(public FQDN; no wildcards)</span>
@@ -49,7 +49,7 @@
       <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
       <button type="submit">Save route</button>
     </form>
-    <p class="muted" style="margin-top:1rem">Helmsman generates and owns the entire edge (Caddy) configuration from these
+    <p class="muted mt1">Helmsman generates and owns the entire edge (Caddy) configuration from these
       settings — there is no Caddy file to edit and nothing to manage by hand. Everything originates from your
       Helmsman configuration.</p>
   </section>
