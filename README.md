@@ -398,7 +398,7 @@ Tuning for `scaling.*`, `selfheal.*`, and `supervisor.*` (host-capacity reservat
 
 ## 13. License, contributing, support
 
-- **License** — see [LICENSE](./LICENSE) in the repository root.
+- **License** — [Apache License 2.0](./LICENSE) (see also [NOTICE](./NOTICE)).
 - **Contributing** — see [CONTRIBUTING.md](./CONTRIBUTING.md). Because Helmsman's paramount requirement is safety, any change touching a blast-radius module (the exec wrapper, the SSRF client, the allowlist/XFF derivation, crypto/secret store, the setup sandbox, ACME, or the edge renderer) re-triggers the relevant security gates before merge. Custom lint rules enforce the invariants — among them: no `exec.Command` with request/DB/app-derived args outside the §5.6 validator, no `sh -c`, no un-confined path from external input, no `text/template`/`template.HTML` on app content, and no secret type whose `String()`/`MarshalJSON` isn't redacted.
 - **Security reports** — please report vulnerabilities privately per [SECURITY.md](./docs/security.md) rather than opening a public issue.
 - **Support** — open a GitHub issue for bugs and feature requests. Start with the [Documentation](#documentation) table and the [FAQ](#12-faq--troubleshooting) above.

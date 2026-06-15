@@ -30,6 +30,8 @@ archives:
     formats: ["tar.gz"]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
+      - LICENSE
+      - NOTICE
       - README.md
       - docs/**/*
       - deploy/systemd/helmsman.service
@@ -45,7 +47,7 @@ nfpms:
     description: |-
       Security-first self-hosted ops dashboard. Run your apps on your own server
       with automatic HTTPS, monitoring, and safe deploys — managed from one dashboard.
-    license: TBD
+    license: Apache-2.0
     formats: [deb, rpm]
     # Install the binary at /usr/local/bin so the packaged and manual installs use the
     # same path the shipped systemd unit's ExecStart expects.
@@ -57,6 +59,10 @@ nfpms:
         dst: /usr/share/helmsman/socket-proxy/docker-compose.yml
       - src: deploy/nfpm/config.example.yaml
         dst: /usr/share/helmsman/config.example.yaml
+      - src: LICENSE
+        dst: /usr/share/doc/helmsman/LICENSE
+      - src: NOTICE
+        dst: /usr/share/doc/helmsman/NOTICE
     scripts:
       postinstall: deploy/nfpm/postinstall.sh
       preremove: deploy/nfpm/preremove.sh
