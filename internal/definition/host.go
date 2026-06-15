@@ -45,6 +45,10 @@ type AppSource struct {
 // before §5.6). It carries ONLY the Tier-3 subset of knobs — never edge.routes or
 // git.ref (which don't exist here by construction) and never a Tier-1 field. A
 // default may TIGHTEN a posture but never silently WIDEN one (see posture.go).
+//
+// POSTURE-SENSITIVE: every field here must be handled by PostureWidenings() in
+// posture.go. TestDefaultsFieldsAllPostureChecked enforces this — adding a field
+// without a widening check fails that test, so the predicate stays closed.
 type Defaults struct {
 	Scaling     *DefaultScaling `yaml:"scaling,omitempty"`
 	SelfHealing *bool           `yaml:"self_healing,omitempty"` // enable/disable the supervisor
@@ -106,9 +110,29 @@ func (s *HostSpec) validate() error {
 			return err
 		}
 	}
+	if s.Defaults != nil {
+		if err := s.Defaults.validate(); err != nil {
+			return err
+		}
+	}
 	if s.Orchestration != nil {
 		if err := s.Orchestration.validate(known); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validate enforces the semantic rules on the host defaults (every other section is
+// validated, so a nonsensical default — negative or inverted replica bounds — must
+// be rejected at parse, not discovered at apply).
+func (d *Defaults) validate() error {
+	if d.Scaling != nil {
+		if d.Scaling.Max < 0 || d.Scaling.Min < 0 {
+			return fmt.Errorf("defaults.scaling: min/max replicas must be >= 0")
+		}
+		if d.Scaling.Max > 0 && d.Scaling.Min > d.Scaling.Max {
+			return fmt.Errorf("defaults.scaling.min (%d) cannot exceed max (%d)", d.Scaling.Min, d.Scaling.Max)
 		}
 	}
 	return nil

@@ -1,9 +1,43 @@
 package definition
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
+
+// Closedness guard: every field of Defaults must be accounted for by the posture
+// predicate. If someone ADDS a Defaults field without handling it in
+// PostureWidenings (posture.go), this fails — so a new knob can't silently widen.
+func TestDefaultsFieldsAllPostureChecked(t *testing.T) {
+	// The fields PostureWidenings inspects. Keep in sync when adding a posture knob.
+	checked := map[string]bool{"Scaling": true, "SelfHealing": true, "AutoDeploy": true}
+	tp := reflect.TypeOf(Defaults{})
+	for i := 0; i < tp.NumField(); i++ {
+		f := tp.Field(i).Name
+		if !checked[f] {
+			t.Errorf("Defaults.%s is not checked by PostureWidenings — add a widening check (posture.go) and list it here", f)
+		}
+	}
+}
+
+func TestDefaultsScalingValidated(t *testing.T) {
+	bad := []string{
+		`apiVersion: helmsman/v1
+kind: Host
+spec:
+  defaults: {scaling: {min: -1}}`,
+		`apiVersion: helmsman/v1
+kind: Host
+spec:
+  defaults: {scaling: {min: 5, max: 2}}`,
+	}
+	for _, src := range bad {
+		if _, err := ParseHost([]byte(src)); err == nil {
+			t.Errorf("invalid defaults.scaling must be rejected: %s", src)
+		}
+	}
+}
 
 const goodHost = `apiVersion: helmsman/v1
 kind: Host

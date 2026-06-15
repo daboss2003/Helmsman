@@ -85,7 +85,8 @@ var tier1Keys = map[string]bool{
 	"encryption_key": true, "encryption_key_previous": true,
 	"ip_allowlist": true, "trusted_proxies": true, "trust_proxy": true,
 	"bind_addr": true, "bind": true,
-	"password_hash": true, "totp_secret": true,
+	"auth": true, "password_hash": true, "totp_secret": true, "username": true,
+	"acme_email": true,
 }
 
 // harden recursively rejects the YAML constructs that enable parser-differential
