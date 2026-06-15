@@ -76,11 +76,12 @@ func TestStreamReorderDetected(t *testing.T) {
 	}
 	// Parse the two non-final chunks and swap them, then decrypt → index AAD mismatch.
 	b := enc.Bytes()
-	rest := b[len(magic):]
+	header := b[:len(magic)+streamIDLen] // magic + stream id
+	rest := b[len(header):]
 	c0, n0 := splitChunk(rest)
 	c1, _ := splitChunk(rest[n0:])
 	var swapped bytes.Buffer
-	swapped.WriteString(magic)
+	swapped.Write(header)
 	swapped.Write(c1)
 	swapped.Write(c0)
 	swapped.Write(rest[n0+len(c1):]) // the final chunk untouched
@@ -94,6 +95,28 @@ func splitChunk(b []byte) ([]byte, int) {
 	clen := int(b[0])<<24 | int(b[1])<<16 | int(b[2])<<8 | int(b[3])
 	total := 4 + nonceLen + clen
 	return b[:total], total
+}
+
+// Cross-stream splice: a chunk from backup A spliced into backup B (SAME key, same
+// index) must fail — the per-backup stream id is authenticated into each chunk's AAD.
+func TestStreamCrossSpliceDetected(t *testing.T) {
+	k := key32()
+	plain := bytes.Repeat([]byte("D"), 2*chunkSize)
+	a := encrypted(t, plain, k) // backup A
+	b := encrypted(t, plain, k) // backup B (different random stream id)
+	// Replace B's first chunk with A's first chunk.
+	hdr := len(magic) + streamIDLen
+	aRest, bRest := a[hdr:], b[hdr:]
+	aC0, _ := splitChunk(aRest)
+	bC0, bN0 := splitChunk(bRest)
+	_ = bC0
+	var spliced bytes.Buffer
+	spliced.Write(b[:hdr]) // B's header (B's stream id)
+	spliced.Write(aC0)     // A's first chunk
+	spliced.Write(bRest[bN0:])
+	if err := Decrypt(&bytes.Buffer{}, bytes.NewReader(spliced.Bytes()), k); err != ErrCorrupt {
+		t.Errorf("a chunk spliced from another backup must fail (stream-id AAD), got %v", err)
+	}
 }
 
 func TestStreamSizeCap(t *testing.T) {

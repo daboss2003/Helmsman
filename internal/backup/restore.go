@@ -66,6 +66,9 @@ func SafeExtract(tr *tar.Reader, w FileWriter, lim ExtractLimits) error {
 		if err != nil {
 			return err
 		}
+		if rel == "." {
+			continue // the archive's root entry ("./") — a no-op, not a real member
+		}
 
 		if h.Typeflag == tar.TypeDir {
 			if err := w.Mkdir(rel); err != nil {
@@ -81,8 +84,10 @@ func SafeExtract(tr *tar.Reader, w FileWriter, lim ExtractLimits) error {
 			return fmt.Errorf("backup: archive exceeds the %d-byte total cap (possible zip bomb)", lim.MaxTotalBytes)
 		}
 		// Bound the actual read to the declared size — a member whose body exceeds its
-		// header size can't blow past the cap.
-		if err := w.WriteFile(rel, h.Mode, io.LimitReader(tr, h.Size)); err != nil {
+		// header size can't blow past the cap. Strip setuid/setgid/sticky from the
+		// archive-provided mode (a restored setuid file is a privilege-escalation
+		// grab) — only permission bits survive.
+		if err := w.WriteFile(rel, h.Mode&0o777, io.LimitReader(tr, h.Size)); err != nil {
 			return err
 		}
 	}

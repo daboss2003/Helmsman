@@ -20,6 +20,18 @@ func TestPruneImageSafe(t *testing.T) {
 	}
 }
 
+// Fail-closed: an unresolved (nil-map) LiveState must refuse every prune, not allow
+// it via the safe-complement branch.
+func TestPruneFailsClosedOnUnresolvedState(t *testing.T) {
+	var empty LiveState // all maps nil (a failed/absent resolve)
+	if ok, _ := PruneImageSafe("sha256:anything", empty); ok {
+		t.Error("an unresolved LiveState must refuse image prune (fail-closed)")
+	}
+	if ok, _ := PruneVolumeSafe("anyvol", empty); ok {
+		t.Error("an unresolved LiveState must refuse volume prune (fail-closed)")
+	}
+}
+
 func TestPruneVolumeSafe(t *testing.T) {
 	s := LiveState{
 		ProtectedVolumes: map[string]bool{"edge_data": true},

@@ -21,10 +21,11 @@ import (
 )
 
 const (
-	chunkSize = 64 << 10 // plaintext bytes per chunk
-	nonceLen  = 12
-	tagLen    = 16
-	magic     = "HMBK1\n" // format magic + version
+	chunkSize   = 64 << 10 // plaintext bytes per chunk
+	nonceLen    = 12
+	tagLen      = 16
+	streamIDLen = 16        // random per-backup id, authenticated into every chunk's AAD
+	magic       = "HMBK1\n" // format magic + version
 )
 
 // ErrCorrupt means the stream failed authentication (tamper / wrong key / reorder /
@@ -43,6 +44,16 @@ func Encrypt(dst io.Writer, src io.Reader, key []byte, maxBytes int64) error {
 	if _, err := io.WriteString(dst, magic); err != nil {
 		return err
 	}
+	// A random per-backup stream id, written in the header and authenticated into
+	// EVERY chunk's AAD, so a chunk from one backup can't be spliced into another
+	// (same key, same index) and still authenticate.
+	streamID := make([]byte, streamIDLen)
+	if _, err := rand.Read(streamID); err != nil {
+		return err
+	}
+	if _, err := dst.Write(streamID); err != nil {
+		return err
+	}
 	buf := make([]byte, chunkSize)
 	var idx uint64
 	var total int64
@@ -58,7 +69,7 @@ func Encrypt(dst io.Writer, src io.Reader, key []byte, maxBytes int64) error {
 		if rerr != nil && !final {
 			return rerr
 		}
-		if err := writeChunk(dst, aead, buf[:n], idx, final); err != nil {
+		if err := writeChunk(dst, aead, buf[:n], streamID, idx, final); err != nil {
 			return err
 		}
 		if final {
@@ -80,9 +91,13 @@ func Decrypt(dst io.Writer, src io.Reader, key []byte) error {
 	if _, err := io.ReadFull(src, hdr); err != nil || string(hdr) != magic {
 		return ErrCorrupt
 	}
+	streamID := make([]byte, streamIDLen)
+	if _, err := io.ReadFull(src, streamID); err != nil {
+		return ErrCorrupt
+	}
 	var idx uint64
 	for {
-		pt, final, err := readChunk(src, aead, idx)
+		pt, final, err := readChunk(src, aead, streamID, idx)
 		if err != nil {
 			return err
 		}
@@ -111,22 +126,24 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// aad binds the chunk index + final flag so reorder/truncation is detected.
-func aad(idx uint64, final bool) []byte {
-	a := make([]byte, 9)
-	binary.BigEndian.PutUint64(a[:8], idx)
+// aad binds the stream id + chunk index + final flag, so reorder, truncation, AND
+// cross-stream splice (a chunk from another backup) are all detected.
+func aad(streamID []byte, idx uint64, final bool) []byte {
+	a := make([]byte, len(streamID)+9)
+	copy(a, streamID)
+	binary.BigEndian.PutUint64(a[len(streamID):len(streamID)+8], idx)
 	if final {
-		a[8] = 1
+		a[len(streamID)+8] = 1
 	}
 	return a
 }
 
-func writeChunk(dst io.Writer, aead cipher.AEAD, pt []byte, idx uint64, final bool) error {
+func writeChunk(dst io.Writer, aead cipher.AEAD, pt, streamID []byte, idx uint64, final bool) error {
 	nonce := make([]byte, nonceLen)
 	if _, err := rand.Read(nonce); err != nil {
 		return err
 	}
-	ct := aead.Seal(nil, nonce, pt, aad(idx, final))
+	ct := aead.Seal(nil, nonce, pt, aad(streamID, idx, final))
 	var lenbuf [4]byte
 	binary.BigEndian.PutUint32(lenbuf[:], uint32(len(ct)))
 	if _, err := dst.Write(lenbuf[:]); err != nil {
@@ -139,7 +156,7 @@ func writeChunk(dst io.Writer, aead cipher.AEAD, pt []byte, idx uint64, final bo
 	return err
 }
 
-func readChunk(src io.Reader, aead cipher.AEAD, idx uint64) (pt []byte, final bool, err error) {
+func readChunk(src io.Reader, aead cipher.AEAD, streamID []byte, idx uint64) (pt []byte, final bool, err error) {
 	var lenbuf [4]byte
 	if _, err := io.ReadFull(src, lenbuf[:]); err != nil {
 		return nil, false, ErrCorrupt // a stream that ends before a final chunk is truncated
@@ -158,10 +175,10 @@ func readChunk(src io.Reader, aead cipher.AEAD, idx uint64) (pt []byte, final bo
 	}
 	// Try final=false first, then final=true — the AAD flag distinguishes them, and
 	// GCM auth tells us which (an attacker can't flip the flag without failing both).
-	if p, e := aead.Open(nil, nonce, ct, aad(idx, false)); e == nil {
+	if p, e := aead.Open(nil, nonce, ct, aad(streamID, idx, false)); e == nil {
 		return p, false, nil
 	}
-	if p, e := aead.Open(nil, nonce, ct, aad(idx, true)); e == nil {
+	if p, e := aead.Open(nil, nonce, ct, aad(streamID, idx, true)); e == nil {
 		return p, true, nil
 	}
 	return nil, false, ErrCorrupt

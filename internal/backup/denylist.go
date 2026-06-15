@@ -30,6 +30,12 @@ func PruneImageSafe(digest string, s LiveState) (bool, string) {
 	if digest == "" {
 		return false, "unresolved image digest — refusing to prune"
 	}
+	// Fail-closed: an unresolved LiveState (nil maps — e.g. the docker list failed)
+	// must NOT let everything fall into the safe-complement branch. The caller MUST
+	// populate every map (even empty) only after a successful, atomic resolve.
+	if s.ProtectedImages == nil || s.ReferencedImages == nil || s.InUseImages == nil {
+		return false, "live state not fully resolved — refusing to prune (fail-closed)"
+	}
 	switch {
 	case s.ProtectedImages[digest]:
 		return false, "protected control-plane image (child-proxy/edge/socket-proxy)"
@@ -47,6 +53,9 @@ func PruneImageSafe(digest string, s LiveState) (bool, string) {
 func PruneVolumeSafe(name string, s LiveState) (bool, string) {
 	if name == "" {
 		return false, "empty volume name"
+	}
+	if s.ProtectedVolumes == nil || s.SoleDataVolumes == nil || s.BackedUpVolumes == nil {
+		return false, "live state not fully resolved — refusing to prune (fail-closed)"
 	}
 	switch {
 	case s.ProtectedVolumes[name]:

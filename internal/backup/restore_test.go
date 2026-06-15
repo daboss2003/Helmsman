@@ -11,13 +11,15 @@ import (
 // memFS records confined writes for assertion.
 type memFS struct {
 	files map[string][]byte
+	modes map[string]int64
 	dirs  []string
 }
 
-func newMemFS() *memFS { return &memFS{files: map[string][]byte{}} }
-func (m *memFS) WriteFile(rel string, _ int64, r io.Reader) error {
+func newMemFS() *memFS { return &memFS{files: map[string][]byte{}, modes: map[string]int64{}} }
+func (m *memFS) WriteFile(rel string, mode int64, r io.Reader) error {
 	b, _ := io.ReadAll(r)
 	m.files[rel] = b
+	m.modes[rel] = mode
 	return nil
 }
 func (m *memFS) Mkdir(rel string) error { m.dirs = append(m.dirs, rel); return nil }
@@ -107,6 +109,29 @@ func TestSafeExtractZipBombCaps(t *testing.T) {
 	many := buildTar(t, hdrs, bodies)
 	if _, err := extract(t, many, ExtractLimits{MaxTotalBytes: 1 << 30, MaxMemberBytes: 1 << 30, MaxMembers: 10}); err == nil {
 		t.Error("exceeding the member-count cap must be rejected")
+	}
+}
+
+func TestSafeExtractStripsSetuid(t *testing.T) {
+	// A member with setuid + setgid + sticky → only permission bits survive.
+	b := buildTar(t, []tar.Header{{Name: "f", Typeflag: tar.TypeReg, Mode: 0o4755}}, map[string]string{"f": "x"})
+	fs, err := extract(t, b, SaneLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fs.modes["f"]&0o7000 != 0 {
+		t.Errorf("setuid/setgid/sticky must be stripped, got mode %o", fs.modes["f"])
+	}
+}
+
+func TestSafeExtractSkipsRootDir(t *testing.T) {
+	// A "./" root entry is a no-op, not an error (normal tarballs include it).
+	b := buildTar(t, []tar.Header{
+		{Name: "./", Typeflag: tar.TypeDir},
+		{Name: "f", Typeflag: tar.TypeReg, Mode: 0o644},
+	}, map[string]string{"f": "x"})
+	if _, err := extract(t, b, SaneLimits()); err != nil {
+		t.Errorf("a './' root entry must be skipped, not error: %v", err)
 	}
 }
 
