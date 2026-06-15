@@ -14,3 +14,6 @@
 
 # Local dev config (the real one lives at /etc/helmsman/config.yaml, never in-repo)
 /config.local.yaml
+
+# APT repo output from deploy/apt/publish.sh (pushed to the gh-pages branch, not main)
+/public/
