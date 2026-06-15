@@ -45,19 +45,19 @@ type Metadata struct {
 // Spec is the managed surface. Each field projects onto an existing artifact.
 type Spec struct {
 	Compose Compose  `yaml:"compose"`
-	Env     []EnvVar `yaml:"env"`
-	Secrets []Secret `yaml:"secrets"`
+	Env     []EnvVar `yaml:"env,omitempty"`
+	Secrets []Secret `yaml:"secrets,omitempty"`
 	Edge    Edge     `yaml:"edge"`
-	Scaling *Scaling `yaml:"scaling"`
-	Git     *Git     `yaml:"git"`
+	Scaling *Scaling `yaml:"scaling,omitempty"`
+	Git     *Git     `yaml:"git,omitempty"`
 }
 
 // Compose is a strict oneOf over the three sources (no inference).
 type Compose struct {
 	Source   string    `yaml:"source"` // generated | repo_path | inline
-	Services []Service `yaml:"services"`
-	Path     string    `yaml:"path"`   // repo_path: a repo-relative compose path
-	Inline   string    `yaml:"inline"` // inline: literal compose YAML
+	Services []Service `yaml:"services,omitempty"`
+	Path     string    `yaml:"path,omitempty"`   // repo_path: a repo-relative compose path
+	Inline   string    `yaml:"inline,omitempty"` // inline: literal compose YAML
 }
 
 // Service is one generated service. There is NO host-publish field — ingress is only
@@ -66,12 +66,12 @@ type Service struct {
 	Name        string   `yaml:"name"`
 	Image       string   `yaml:"image"`
 	Port        int      `yaml:"port"` // internal container port (no host publish)
-	Volumes     []Volume `yaml:"volumes"`
-	Env         []string `yaml:"env"` // env-var names (values live in env/secrets)
-	Command     []string `yaml:"command"`
-	Healthcheck []string `yaml:"healthcheck"`
+	Volumes     []Volume `yaml:"volumes,omitempty"`
+	Env         []string `yaml:"env,omitempty"` // env-var names (values live in env/secrets)
+	Command     []string `yaml:"command,omitempty"`
+	Healthcheck []string `yaml:"healthcheck,omitempty"`
 	Restart     string   `yaml:"restart"`
-	DependsOn   []string `yaml:"depends_on"`
+	DependsOn   []string `yaml:"depends_on,omitempty"`
 }
 
 // Volume is a named volume XOR a run_dir-confined bind.
@@ -98,7 +98,7 @@ type Secret struct {
 
 // Edge is the Layer-1 route input (§6).
 type Edge struct {
-	Routes []Route `yaml:"routes"`
+	Routes []Route `yaml:"routes,omitempty"`
 }
 
 // Route is one managed edge vhost. Upstream is a SELECTOR — "service:port" — resolved

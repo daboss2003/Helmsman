@@ -16,6 +16,11 @@ Usage:
 Server:
   serve            Load config, open the DB, and run the loopback admin server.
 
+Definition file (helmsman.yaml — same validation as the dashboard):
+  validate         Parse + validate a helmsman.yaml through the §5.6/§6.2 chokepoints
+                   (read-only, no DB — safe in CI).
+  init             Scaffold a helmsman.yaml from an existing compose (--from-compose).
+
 Root of trust (run over SSH; secrets read from /dev/tty, never argv):
   gen-key          Generate the AES-256-GCM master key (base64).
   hash-password    Produce an argon2id hash for auth.password_hash.
@@ -42,6 +47,10 @@ func main() {
 	switch cmd {
 	case "serve":
 		err = cmdServe(args)
+	case "validate":
+		err = cmdValidate(args)
+	case "init":
+		err = cmdInit(args)
 	case "gen-key":
 		err = cmdGenKey(args)
 	case "hash-password":
