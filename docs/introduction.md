@@ -1,83 +1,42 @@
 # Introduction
 
-> **Getting started · Page 1 of 3** — [Documentation home](./README.md) · Next: [Installation →](./installation.md)
+> **Getting started, 1 of 3** · Next: [Install it →](./installation.md)
 
-Helmsman is a **single static Go binary** that turns a plain Docker host into a managed, internet-facing application platform — with a dashboard, a CLI, automatic HTTPS, monitoring, and lifecycle automation — while holding to one overriding rule:
+Helmsman turns a plain Linux server into a place you can confidently run your apps — with a dashboard, automatic HTTPS, and live health monitoring — without becoming a full-time sysadmin.
 
-> **Hosting Helmsman must never become the thing that gets your server hacked.**
+You install one small program on a server that has Docker. From then on, you manage everything from a web dashboard: deploy apps, set secrets, point domains at them, watch their health. Helmsman handles the parts people usually get wrong — TLS certificates, reverse proxying, safe deploys — so you don't have to.
 
-Every design decision in this project is subordinate to that requirement. If a feature would widen the attack surface, it is off by default, gated, or simply not expressible.
+## What you get
 
----
+- **Your apps online, over HTTPS, automatically.** Give an app a domain name and Helmsman issues the certificate, renews it, and routes traffic to it. No proxy config, no `certbot`.
+- **A real dashboard.** See every app's health at a glance, view logs, restart a service, roll back a change — all in the browser.
+- **Safe deploys.** Deploy from a guided form or straight from a Git repo. Helmsman checks every change before it goes live and can roll back automatically if something fails.
+- **Secrets done right.** Store passwords and API keys encrypted, never in plain text in your files or your repo.
+- **Peace of mind.** It's locked down by default and won't run anything dangerous on your behalf.
 
-## What Helmsman is
+## How it feels to use
 
-You give Helmsman SSH access to a Linux host running Docker. In return it:
+1. Install Helmsman on your server (a one-time setup over SSH).
+2. Open the dashboard in your browser.
+3. Add an app — fill in a short form, or connect a Git repo.
+4. Give it a domain. It's live over HTTPS in moments.
 
-- **Owns the public edge.** It supervises a child Caddy that takes `:80`/`:443`, runs ACME/Let's Encrypt, terminates TLS, and reverse-proxies the admin UI and each of your apps. You never run a separate proxy or `certbot`.
-- **Monitors your apps and the host.** A read-only plane polls Docker over a loopback socket-proxy — which **Helmsman brings up and manages itself** — and samples host CPU/memory/disk, surfaced as live health on the dashboard.
-- **Deploys and runs apps safely.** A guided form, an importer for existing compose, or a connected git repo — all converging on one validated, gated write path.
-- **Manages secrets and config by reference.** Plaintext credentials stay out of your YAML, your repo, your logs, and your browser.
-- **Gives you a CLI that is a second front door, not a back door** — the same engine, the same validation chokepoint, minus the web-transport gates.
-
-Helmsman is **generic**: it isn't tied to any framework or project. You point it at a host and it manages whatever you deploy.
-
-> **After install, you never run a Docker command.** No `docker`, no `docker compose`, no `certbot` — Helmsman manages the read-only socket-proxy, the edge, and TLS for you. The operator's whole job is **install Helmsman once, then write [`helmsman.yaml`](./definition-file.md)** (or use the dashboard, which writes it for you).
-
----
-
-## What Helmsman is not
-
-- **Not a PaaS that hides your containers.** You still write (or paste, or commit) compose. Helmsman manages *how it's run safely*, not *what* it is.
-- **Not a Kubernetes.** It targets the single-host / small-fleet operator who wants safety and ergonomics without an orchestrator.
-- **Not a place you paste raw proxy config to the internet.** The operator never hand-authors Caddy; edge config is derived from typed structs. (See [Edge & TLS](./edge-and-tls.md).)
-
----
-
-## The mental model
-
-Two ideas explain almost everything in these docs.
-
-### 1. The read plane vs the write plane
-
-| | Read plane | Write plane |
-|---|---|---|
-| **Does** | Observe, report, validate, `git fetch` | `docker compose up/pull/build`, deploy, redeploy |
-| **Mutates Docker?** | Never | Yes |
-| **Host needs** | A small VPS is fine | **≥ 1 GB RAM** (the [resource gate](./architecture.md)) |
-| **Posture** | Always on | Gated, one-docker-child-at-a-time, fail-closed |
-
-A read-plane action can never harm a running app or OOM the box. The write plane is where care concentrates — so that's where the gates are.
-
-### 2. One chokepoint
-
-Every privileged thing — a deploy from the dashboard, a `helmsman apply` from the CLI, an edge route, a config-file render — is forced through **the same typed validation** (the "§5.6 chokepoint") and the **same edge-conflict gate**. There is no second path that skips it. This is why the CLI and the dashboard can both be trusted: they are thin front-ends on one reconciler.
-
----
+After step 1, you don't touch the command line again for day-to-day work. No editing config files on the server, no Docker commands, no certificate wrangling.
 
 ## Who it's for
 
-- **Solo operators and small teams** running real apps on one or a few VPSes, who want HTTPS, monitoring, and safe deploys without standing up a platform team.
-- **People who care about the blast radius of their tooling.** Helmsman assumes the things it touches (a pasted compose, a connected repo, a restored backup, an inbound request) may be hostile, and is built to fail closed.
+Helmsman is for solo developers and small teams who want to run real apps on their own server (a cheap VPS is fine) and would rather not assemble and babysit a stack of DevOps tools. If you've been doing `docker compose up` over SSH and hand-rolling Nginx and Let's Encrypt, this replaces all of that with something you manage from a browser.
 
-If you run a fleet large enough to need a real orchestrator, Helmsman is probably not your tool. For everyone between "a `docker compose up` in an SSH session" and "we adopted Kubernetes," it's built for you.
+It's **not** trying to be Kubernetes. If you're running a large fleet that needs a full orchestrator, this isn't it. For everyone between "one SSH session" and "we hired a platform team," it's built for you.
 
----
+## What makes it different
 
-## The security-first pitch, in five points
+Most self-hosting tools hand you a lot of rope. Helmsman deliberately doesn't:
 
-1. **Fail-closed by default.** Bad config, empty allowlist, wrong-length key, insecure file perms → Helmsman refuses to boot rather than run insecure.
-2. **Loopback admin + IP-allowlisted edge.** The dashboard binds `127.0.0.1`; reach it over an SSH tunnel or behind the edge's IP allowlist.
-3. **Secrets by reference.** The definition file is never secret-bearing and is safe to commit; values arrive out-of-band and are stored encrypted (AES-256-GCM), shown only via an audited reveal.
-4. **A CI push can't deploy itself.** Git is auto-*fetch*, manual-*deploy*, sha-pinned — closing the "a push triggers a surprise on-box build" vector.
-5. **An assurance program gates releases.** Static-analysis gates, fuzz targets for every untrusted-input parser, and an authz route-posture gate regenerated from the route table. See [Security model](./security.md).
+- **You configure apps through the tool**, not by pasting raw Docker or proxy config. That keeps things simple — and means a typo or a bad snippet can't quietly weaken your server.
+- **It's secure by default.** Fresh install, zero tuning: the dashboard is private, traffic is HTTPS, secrets are encrypted, and a risky setting makes it refuse to start rather than run unsafe.
+- **Nothing happens behind your back.** A push to your repo never deploys itself unless you explicitly ask it to. You stay in control of what ships and when.
 
 ---
 
-## Where to go next
-
-You now have the model. Time to run it.
-
-> **Next: [Installation →](./installation.md)** — get the binary on a host, generate the root of trust over SSH, and boot Helmsman.
-
-See also: [Architecture](./architecture.md) · [Security model](./security.md) · [CLI reference](./cli.md)
+> **Next: [Install it →](./installation.md)**
