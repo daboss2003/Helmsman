@@ -52,6 +52,10 @@ type tmplData struct {
 	// API tokens screen (view + revoke).
 	APITokenRows []apiTokenRow
 
+	// Backups screen (view + create + delete + download).
+	BackupRows    []backupRow
+	BackupEnabled bool
+
 	// Incidents screen: aggregated open alerts / unhealthy apps / circuit-open / fails.
 	Incidents *incidentsView
 

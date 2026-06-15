@@ -23,6 +23,10 @@ Definition file (helmsman.yaml — same validation as the dashboard):
   secret import    Import a .env into an app's encrypted store (§7.9: classify,
                    literal-secret hard stop, by-reference; values from the file).
 
+Disaster recovery:
+  restore          Restore Helmsman's database from an encrypted backup archive
+                   (.hmbk). Run with the service stopped; needs the same master key.
+
 Scoped machine API tokens (§17.1 — minted ONLY here, never from the web):
   token mint       Mint a scoped, CIDR-bound, expiring bearer token (shown once).
   token list       List tokens (id, state, expiry, scopes — never the secret).
@@ -62,6 +66,8 @@ func main() {
 		err = cmdSecret(args)
 	case "token":
 		err = cmdToken(args)
+	case "restore":
+		err = cmdRestore(args)
 	case "gen-key":
 		err = cmdGenKey(args)
 	case "hash-password":

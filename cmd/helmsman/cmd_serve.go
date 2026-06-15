@@ -16,6 +16,7 @@ import (
 	"github.com/helmsman/helmsman/internal/alertengine"
 	"github.com/helmsman/helmsman/internal/alertstore"
 	"github.com/helmsman/helmsman/internal/apitoken"
+	"github.com/helmsman/helmsman/internal/backupstore"
 	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/docker"
@@ -189,6 +190,12 @@ func cmdServe(args []string) error {
 	selfHealStore := selfheal.NewStore(db)
 	scalingStore := scale.NewStore(db)
 	apiTokenStore := apitoken.NewStore(db)
+	// Encrypted Helmsman-state backups (master key reused as the AES-256 key; restore
+	// needs the same key, which the operator already backs up out-of-band).
+	var backupStore *backupstore.Store
+	if key, kerr := config.DecodeKey(cfg.EncryptionKey); kerr == nil {
+		backupStore = backupstore.New(db, filepath.Join(cfg.DataDir, "backups"), key)
+	}
 	var edgeRecon *edge.Reconciler
 	edgeReason := ""
 	if cfg.Edge.Mode == config.EdgeManaged {
@@ -240,6 +247,7 @@ func cmdServe(args []string) error {
 		Scaling:    scalingStore,
 		DockerSem:  dockerSem,
 		APITokens:  apiTokenStore,
+		Backups:    backupStore,
 	})
 	if err != nil {
 		return err

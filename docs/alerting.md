@@ -8,6 +8,41 @@ See also: [Helmsman README](../README.md) · [Ops Interface & discovery](./defin
 
 ---
 
+## Getting set up
+
+Alerting is **off until you turn it on**. Enable it in `config.yaml` and reload:
+
+```yaml
+alerting:
+  enabled: true
+  quiet_start_hour: 22      # optional: suppress non-critical alerts overnight
+  quiet_end_hour: 7
+  dead_mans_url: "https://hc-ping.com/your-uuid"   # the heartbeat target (below)
+  admin_url: "https://admin.example.com"           # so alerts can link back to the dashboard
+```
+
+Everything else is managed on the **Alerts** page in the dashboard — channels, rules, and the list of currently-open alerts. Open problems also roll up onto the **Incidents** screen.
+
+### How an alert reaches you
+
+You add one or more **channels** on the Alerts page, and an alert is delivered to each:
+
+| Channel | Notes |
+|---|---|
+| **Email** (SMTP) | Sent over TLS, and hardened against header injection (app/host names can't forge headers). The message links back to the dashboard rather than dumping logs. |
+| **Webhook** | An HTTP POST with an **HMAC-signed** body, so your receiver can verify the call really came from Helmsman. |
+| **Slack** | Incoming webhook / bot. |
+| **Discord** | Incoming webhook. |
+| **Telegram** | Bot API. |
+
+Sending runs in a **separate, globally rate-limited notifier** — so a hung SMTP server or a slow bot API can never stall monitoring or turn Helmsman into a spam-cannon. Alerts are **deduplicated** (one problem = one page, not a flood) and respect **quiet hours** (non-critical alerts are held overnight; critical ones always page).
+
+### Knowing Helmsman itself is alive (the dead-man's switch)
+
+A dashboard that's down can't alert you that it's down. So Helmsman also runs an **externalized dead-man's switch**: it sends a periodic heartbeat to an outside URL you choose (`dead_mans_url` — e.g. a free [healthchecks.io](https://healthchecks.io) check). As long as Helmsman is healthy, the pings keep coming. If Helmsman — or the whole server — dies, the pings stop, and that outside service pages you. Set it up once and you're covered even for total-host failure.
+
+---
+
 ## Table of contents
 
 - [1. The problem alerting solves](#1-the-problem-alerting-solves)

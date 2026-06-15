@@ -19,6 +19,7 @@ import (
 	"github.com/helmsman/helmsman/internal/alertstore"
 	"github.com/helmsman/helmsman/internal/apitoken"
 	"github.com/helmsman/helmsman/internal/audit"
+	"github.com/helmsman/helmsman/internal/backupstore"
 	"github.com/helmsman/helmsman/internal/cfgstore"
 	"github.com/helmsman/helmsman/internal/config"
 	"github.com/helmsman/helmsman/internal/crypto"
@@ -102,6 +103,7 @@ type Deps struct {
 	Scaling    *scale.Store          // auto-scaling policies + state (may be nil)
 	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
 	APITokens  *apitoken.Store       // scoped read/deploy API tokens (M19; may be nil → /api/v1 disabled)
+	Backups    *backupstore.Store    // encrypted Helmsman-state backups (may be nil)
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
@@ -135,6 +137,7 @@ type Server struct {
 	scaling        *scale.Store                  // auto-scaling policies + state (may be nil)
 	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
 	apiTokens      *apitoken.Store               // scoped API tokens (M19; nil → /api/v1 disabled)
+	backups        *backupstore.Store            // encrypted Helmsman-state backups (may be nil)
 	githubClient   *github.Client                // GitHub connect (M20; nil → feature off)
 	dockerSem      *dockerexec.Semaphore         // global one-docker-child semaphore (may be nil)
 	setupConfirm   *confirmStore                 // single-use setup confirm tokens
@@ -184,6 +187,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		selfHeal:     d.SelfHeal,
 		scaling:      d.Scaling,
 		apiTokens:    d.APITokens,
+		backups:      d.Backups,
 		dockerSem:    d.DockerSem,
 		setupConfirm: newConfirmStore(5 * time.Minute),
 		webhookRL:    newRateLimiter(30, time.Minute),
@@ -385,6 +389,11 @@ func (s *Server) Handler() http.Handler {
 	// API tokens (M19): read-only view + revoke. Minting stays CLI-only by design.
 	mux.HandleFunc("GET /settings/api-tokens", s.requireAuth(s.withCSRFToken(s.handleAPITokens)))
 	mux.HandleFunc("POST /settings/api-tokens/revoke", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAPITokenRevoke))))
+	// Backups: encrypted Helmsman-state snapshots — view, create, download, delete.
+	mux.HandleFunc("GET /settings/backups", s.requireAuth(s.withCSRFToken(s.handleBackups)))
+	mux.HandleFunc("GET /settings/backups/download", s.requireAuth(s.handleBackupDownload))
+	mux.HandleFunc("POST /settings/backups/create", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleBackupCreate))))
+	mux.HandleFunc("POST /settings/backups/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleBackupDelete))))
 
 	// Scoped machine API (M19, plan §17.1): bearer-ONLY, cookie-REJECTING,
 	// CSRF-EXEMPT (no ambient credential to abuse). requireToken is the sole gate —
