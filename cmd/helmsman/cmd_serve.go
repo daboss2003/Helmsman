@@ -165,6 +165,12 @@ func cmdServe(args []string) error {
 	// the evaluator + notifier + heartbeat are joined before the deferred db.Close.
 	alertStore := alertstore.New(db, cipher)
 	if cfg.Alerting.Enabled {
+		// The "open in dashboard" link in notifications is derived from admin.hostname
+		// (we already know where the dashboard lives) — no separate admin_url.
+		adminURL := ""
+		if cfg.Admin.Hostname != "" {
+			adminURL = "https://" + cfg.Admin.Hostname
+		}
 		eng := alertengine.New(alertStore, mon.Snapshot, alertengine.Config{
 			EvalInterval:      cfg.Alerting.EvalInterval.D(),
 			NotifyMinInterval: cfg.Alerting.NotifyMinInterval.D(),
@@ -172,7 +178,7 @@ func cmdServe(args []string) error {
 			QuietEndHour:      cfg.Alerting.QuietEndHour,
 			DeadMansURL:       cfg.Alerting.DeadMansURL,
 			DeadMansInterval:  cfg.Alerting.DeadMansInterval.D(),
-			AdminURL:          cfg.Alerting.AdminURL,
+			AdminURL:          adminURL,
 		}, log)
 		wg.Add(3)
 		go func() { defer wg.Done(); eng.RunEvaluator(ctx) }()

@@ -208,7 +208,8 @@ type AlertingConfig struct {
 	QuietEndHour      int      `yaml:"quiet_end_hour"`
 	DeadMansURL       string   `yaml:"dead_mans_url"` // outbound heartbeat to an external cron-monitor
 	DeadMansInterval  Duration `yaml:"dead_mans_interval"`
-	AdminURL          string   `yaml:"admin_url"` // dashboard link included in notifications (optional)
+	// (The "open in dashboard" link in notifications is derived from admin.hostname —
+	// no separate admin_url is needed.)
 }
 
 // RetentionConfig is the Tier-1 (SSH-only, SIGHUP-reloadable) audit-retention

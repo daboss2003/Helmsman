@@ -62,18 +62,26 @@ func (s *Store) Create(ctx context.Context, now time.Time) (Record, error) {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return Record{}, fmt.Errorf("backupstore: mkdir: %w", err)
 	}
+	_ = os.Chmod(s.dir, 0o700) // tighten a pre-existing, looser dir (MkdirAll won't)
 	id, err := randHex(12)
 	if err != nil {
 		return Record{}, err
 	}
 	tmp := filepath.Join(s.dir, "."+id+".snapshot")
 	final := filepath.Join(s.dir, id+".hmbk")
+	// Register cleanup BEFORE the snapshot, so a VACUUM that fails mid-write (disk full,
+	// I/O error, cancellation) can't leave a partial PLAINTEXT copy of the DB behind.
+	defer os.Remove(tmp)
 	// VACUUM INTO writes a consistent copy of the live DB (committed WAL included) to a
 	// NEW file. The path is server-generated (not user input); bind it as a parameter.
 	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", tmp); err != nil {
 		return Record{}, fmt.Errorf("backupstore: snapshot: %w", err)
 	}
-	defer os.Remove(tmp) // never keep the plaintext snapshot
+	// The transient snapshot is a full plaintext copy of the DB. VACUUM INTO honors the
+	// process umask (often 0022 → 0644), so force owner-only before we read it.
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return Record{}, fmt.Errorf("backupstore: secure snapshot: %w", err)
+	}
 
 	in, err := os.Open(tmp)
 	if err != nil {

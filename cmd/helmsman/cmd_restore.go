@@ -62,7 +62,14 @@ func cmdRestore(args []string) error {
 		return err
 	}
 
-	// 2. Validate by opening it (also migrates + refuses a downgrade).
+	// 2a. Reject anything that isn't actually a Helmsman database (a blank or foreign
+	// SQLite file must NEVER be installed over the live DB — store.Open alone would
+	// happily migrate a fresh/empty file, so check the real schema first, read-only).
+	if _, err := store.Inspect(tmp); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("the archive is not a valid helmsman backup: %w", err)
+	}
+	// 2b. Open it too (also runs migrations + refuses a downgrade from a newer binary).
 	vdb, err := store.Open(tmp)
 	if err != nil {
 		os.Remove(tmp)

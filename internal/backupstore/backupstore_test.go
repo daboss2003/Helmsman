@@ -52,6 +52,15 @@ func TestCreateListDeleteRoundTrip(t *testing.T) {
 		t.Errorf("plaintext snapshot left behind: %v", matches)
 	}
 
+	// The encrypted archive is owner-only.
+	fi, err := os.Stat(s.FilePath(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("archive perms = %o, want 0600", fi.Mode().Perm())
+	}
+
 	// It's listed.
 	list, err := s.List(ctx)
 	if err != nil || len(list) != 1 || list[0].ID != rec.ID {

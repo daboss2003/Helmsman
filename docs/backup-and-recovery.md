@@ -1,189 +1,50 @@
-# Backup & recovery
+# Backups & recovery
 
-> Helmsman hardens the control plane and makes your *config* reproducible — but an app's **data** (its
-> volumes) is the one thing a definition file can't recreate. This page covers protecting that data,
-> and recovering Helmsman itself onto a fresh box.
+Helmsman makes your setup reproducible, but two things deserve real backups: **Helmsman's own configuration** (every app's settings, secrets, routes, and definitions) and your **apps' data** (their databases and uploaded files). This page covers both, and how to recover onto a fresh server.
 
-Two distinct things live here:
-
-1. **App data backup/restore** (§1–§3) — per-app volume backups, DB dumps, and gated restore. A
-   *write-plane* feature you drive from the dashboard or CLI.
-2. **Helmsman own-state DR** (§4) — backing up and restoring Helmsman's *own* DB + master key onto a
-   fresh host. An **SSH/root-only** procedure, because Helmsman is its own systemd unit (not a
-   container it can target).
-
-Everything is **write-plane, static-argv** — it **never** goes through the read-only socket-proxy
-(`VOLUMES=0`/`EXEC=0`/`IMAGES=0` stay forever) — and passes the §0 ≥ 1 GB gate + the one-docker-child
-semaphore + a memory-headroom floor, one operation at a time. See [security.md](./security.md) and
-[architecture.md](./architecture.md) for those invariants.
+See also: [Alerts](./alerting.md) · [Deploy from a Git repo](./gitops.md)
 
 ---
 
-## 1. Tier 1 — generic volume backup (the floor)
+## Backing up Helmsman
 
-Works for any app, no app cooperation needed.
+This is the "get everything back on a new server" backup. It captures Helmsman's entire state — all your apps' config, definitions, edge routes, and secrets (which stay encrypted) — in one encrypted file.
 
-- **Volume discovery** comes from the **validated typed compose model**, never `docker volume ls`
-  (`VOLUMES=0`). Helmsman resolves the **actual** volume name (handling `external: true` and `name:`
-  overrides — it does *not* blindly assume `<project>_<vol>`), **asserts it exists** via the read-only
-  proxy, and **fails closed** on an empty/auto-created or foreign mount. Edge/ACME/socket-proxy volumes
-  can never be a backup target.
-- Each volume is backed up by **one throwaway container**: `docker run --rm --network none --read-only
-  --cap-drop ALL --security-opt no-new-privileges` with the volume mounted **read-only** and a scratch
-  out-dir — so it has **zero network** and **physically cannot mutate** the live data. Digest-pinned
-  image, one volume at a time under the gate + semaphore.
-- The **stream never buffers in RSS** (critical on a small box): `tar → size-cap counting reader →
-  streaming gzip → chunked AES-256-GCM (per-chunk nonce + a running MAC chain)` → sink. The header
-  records format version, app slug, volume name, plaintext + ciphertext SHA-256 (computed streaming),
-  and `key_id`.
-- **Destinations:** a local backup dir (`0600`, `keep_last`/`keep_days` retention) and/or an
-  **S3-compatible** target. S3 credentials are `secret:`-referenced, materialized to a `0600`
-  PrivateTmp file for the upload (**never argv/logs**, shredded after), and the uploader uses the
-  host-pinned **SSRF-safe** client (scheme allowlist; loopback/metadata/private CIDRs blocked) so a
-  malicious endpoint can't pivot to `169.254.169.254`/`:9000`.
+Open **System → Backups** in the dashboard:
 
-> **The master-key footgun, stated plainly.** Backups are encrypted with the **same master key** that
-> protects the secret store (Tier-1 config only). **Lose the key → the backup is unrecoverable**,
-> exactly as the secret store is. Run [`helmsman backup verify`](./cli.md) (it streams a
-> decrypt+MAC+SHA check) so the footgun fires at *backup* time, not at 3 a.m. during a restore; and
-> back up the **key separately/offsite from the data** (§4). `--no-encrypt` exists **only** as an
-> SSH/root flag with a loud ack — it is **local-only, never shipped offsite, never retained**, and
-> **refused for secret-bearing / run_dir-env volumes** (those routinely contain the rendered `.env`).
+- **Back up now** takes a snapshot. It appears in the list with its date, size, and a checksum.
+- **Download** saves the encrypted archive so you can keep it off-site. It's locked with your master key, so it's safe to store anywhere — only someone with that key can read it.
+- **Delete** removes a snapshot you no longer need.
+
+> **Keep your master key.** A backup is encrypted with the same master key you generated at install. Store that key somewhere safe and separate from the backups — restoring needs it.
+
+### Restoring Helmsman onto a fresh server
+
+Restoring replaces Helmsman's database, so it's a deliberate command-line step rather than a dashboard button:
+
+1. Install Helmsman on the new server with the **same `encryption_key`** as the original.
+2. Stop the service: `systemctl stop helmsman`.
+3. Restore from your archive:
+
+   ```bash
+   helmsman restore --from helmsman-backup-<id>.hmbk --force
+   ```
+
+   Helmsman decrypts and verifies the archive before swapping it in, and keeps the existing database aside (as a `.pre-restore-*` copy) just in case.
+4. Start it again: `systemctl start helmsman`.
+
+Your apps' definitions and settings are back; redeploy them and Helmsman rebuilds their files and re-issues certificates.
 
 ---
 
-## 2. Tier 2 — curated DB-dump recipes (the consistent path)
+## Backing up your apps' data
 
-A raw volume tar of a *hot* database risks a torn write. For Postgres/MySQL/Redis, take a **logical
-dump** instead — same machinery, different producer:
+Helmsman's own backup brings back *configuration*, but not the data **inside** your apps — a database's contents, a volume of uploaded files. Those live in Docker volumes and need their own snapshots.
 
-- A one-shot `docker compose run --rm --no-deps` **sidecar** generated by Helmsman from a **curated,
-  digest-pinned recipe** (a typed struct through §5.6 — *not* an operator free-form command), hardened
-  (`cap_drop ALL`, no-new-privileges, RO rootfs, mem/pids caps, on the app network only). **Never
-  `docker exec`** (`EXEC=0`). `--no-deps` so it never recreates the live DB.
-- Recipes: Postgres `pg_dump --format=custom --no-owner --no-acl` (+ `pg_dumpall --roles-only`),
-  MySQL/MariaDB `mysqldump --single-transaction --quick`, Redis `BGSAVE` then tar the rdb.
-- **The connection secret stays out of the *environment*, not just argv.** A `PGPASSWORD`-style env var
-  is readable at `/proc/<pid>/environ`, so every engine uses a **`0600` PrivateTmp file credential**
-  (`.pgpass` / `--defaults-extra-file` / redis pass-file), in an isolated network + non-shared PID ns,
-  with a hard-timeout `--rm`. `Redacted`-guarded, shredded after.
-- Output flows through the **identical Tier-1 stream pipeline**, tagged `db_dump` with the engine +
-  recipe digest so restore picks the logical path.
+> **Status:** an in-dashboard flow for per-app data-volume backups is on the roadmap. For now, snapshot an app's volumes with your usual Docker volume-backup method, and rely on Helmsman's own backup (above) for everything else.
 
----
+Worth remembering either way:
 
-## 3. Tier 3 — restore (the most dangerous op; never automatic)
-
-Restore writes over live data, so it treats the archive as **hostile** and gates hard.
-
-1. **Verify + confine.** Decrypt and verify the MAC chain (ciphertext-SHA before, plaintext-SHA after,
-   streaming). Then §5.6(d)-confine **every tar member** under a fresh staging dir
-   (canonicalize-then-`Rel`; reject `..`/absolute/leading-`/`/NUL/CRLF names); **reject
-   symlink/hardlink/device/FIFO** entries (regular files + dirs only); cap decompressed size,
-   member-count, and inflate-ratio (zip-bomb defense).
-2. **Quiesce.** Set the [§8.5](./scaling-and-self-healing.md) `expected_down` bounded lease (so
-   self-healing doesn't restart-fight; cleared fail-closed on crash so a crashed restore can't leave
-   the app silently down and un-paged), then `docker compose stop` the data consumers.
-3. **Confirm with a full-tuple token.** `restore/plan` shows the verified checksums, the **resolved
-   target volume(s)**, the **service bindings**, decompressed size, and member count, and requires
-   typing the app slug. The single-use confirm token binds the **whole operation tuple** (checksum **+
-   resolved target volumes + service-binding set + sizes**), re-derived under the held write-plane lock
-   at execute time and **voided on any drift** — so a force-pushed/swapped archive *or* a changed
-   target can't slip through. No schedule/webhook/git event can mint it.
-4. **Fresh volume, then swap — never in-place.** Restore into a new `<vol>__restore_<ts>` (fails closed
-   if the name already exists) via a throwaway `--network none --read-only` container whose only
-   writable mount is the new volume → for a logical dump, load into a fresh engine and health-check →
-   **swap** by re-pointing the service at the new volume (keeping the old as `<vol>__pre_restore_<ts>`)
-   → `up` + health-check. On **any** failure the original is untouched and Helmsman **auto-rolls back**
-   to `__pre_restore_`. The old volume is GC'd only after a retention window + explicit confirm.
-
----
-
-## 4. Scheduling
-
-The narrow, validated "scheduled task" subset — a typed **backup job**, **not** a free-form cron
-runner. A `spec.backup` block on the app ([definition-file.md](./definition-file.md)) + a
-`spec.backup_schedule` block on the host ([host-file.md](./host-file.md), Tier-2). An evaluator
-**enqueues** the typed job through the same write-plane gates (it *defers*, never queues N docker
-children); retention applies only after a **verified** success. There is no field that can launch an
-arbitrary command. Alerts: `backup_failed`, `backup_overdue`, `backup_verify_failed`,
-`backup_dest_unreachable` (see [alerting.md](./alerting.md)).
-
-```yaml
-# in an app's helmsman.yaml
-spec:
-  backup:
-    encrypt: true                 # default; --no-encrypt is SSH/local-only
-    volumes: all                  # all | none | [list]
-    include_run_dir_files: true
-    recipes:
-      - engine: postgres
-        database: app
-        conn_secret: { secret: DATABASE_URL }
-    destinations:
-      - { kind: local, retention: { keep_last: 7 } }
-      - { kind: s3, bucket: backups, prefix: app/, region: eu-west-3,
-          access_key: { secret: S3_KEY }, secret_key: { secret: S3_SECRET },
-          retention: { keep_days: 30 } }
-```
-
----
-
-## 5. Helmsman own-state disaster recovery (SSH/root only)
-
-The app-data feature above can **never** touch Helmsman's own DB or master key. Recovering *Helmsman
-itself* onto a fresh box is a separate, SSH/root-only procedure (it's its own systemd unit, not a
-container).
-
-### `helmsman backup-self`
-
-Produces one **integrity-protected bundle**:
-
-- the Tier-1 config + master key — backed up to a **separate offsite** from the DB (key and ciphertext
-  must never co-locate; a single stolen backup must not yield both);
-- a **consistent DB snapshot** via `VACUUM INTO` (not a live-file copy);
-- the per-app canonical def/version trees + config-file templates (`*_enc` columns stay encrypted —
-  useless without the key in the separate bundle);
-- app data volumes **by reference** (via `backup_inventory`, never inlined — streaming multi-GB into
-  RSS would violate the small-box invariant).
-
-A **separate `backup_hmac_key`** (distinct from the AES master key) signs the snapshot + manifest, so
-an attacker can't swap the DB or re-point the manifest at a malicious def/volume. (Using the encryption
-key for this would let one key compromise forge a "valid" malicious backup.)
-
-### `helmsman restore-self`
-
-**Strict-ordered, fail-closed, verify-before-trust:**
-
-```bash
-helmsman restore-self --config <ref> --db <ref> --defs <ref> [--volumes <ref>] [--dry-run]
-```
-
-1. Write the Tier-1 config + key **first** (`0600 root`), run the fail-closed boot validation — without
-   the key the DB ciphertext is meaningless; no web route is up yet.
-2. **Verify the bundle HMAC/signature** with the restored `backup_hmac_key` — refuse on mismatch (the
-   "a tamper can't become loaded state" principle, applied to the whole DB).
-3. Restore the DB (atomic rename of the verified snapshot).
-4. **`verify-key`** — decrypt one column to confirm the restored key matches the restored ciphertext
-   *before* the first write re-encrypts anything. Mismatch → stop + page.
-5. Restore the def/canonical trees, **re-validated through §5.6 as untrusted input**.
-6. Reconcile apps through the one reconciler (each through §5.6 + §0 + the semaphore); rebuild the edge
-   via `edge restore-default` then re-derive Layer 1 from the restored routes.
-7. If `--volumes`, restore app data (sha-verified vs the inventory, confined) before each owning app's
-   `up`.
-
-`--dry-run` validates the entire chain without writing live state — this is the rehearsal the §15 IR
-runbook requires (run it, plus `helmsman verify-backup`, on a recurring cadence). `restore-self` is the
-**fresh-box sibling** of the one-command binary rollback: rollback recovers a *running* box, restore-self
-rebuilds a *destroyed* one — both end by re-deriving from the canonical defs through the same reconciler.
-
----
-
-## See also
-
-- [security.md](./security.md) — the read-only proxy, the §5.6 chokepoint, secrets at rest, the master-key model.
-- [cli.md](./cli.md) — `backup plan/list/verify/now/restore`, `backup-self`/`restore-self`/`verify-backup`, `disk reclaim`.
-- [architecture.md](./architecture.md) — write-plane vs read-plane, the §16 retention/VACUUM/disk housekeeping.
-- [alerting.md](./alerting.md) — the backup/disk/restore alert kinds.
-- [host-file.md](./host-file.md) / [definition-file.md](./definition-file.md) — the `spec.backup` / `spec.backup_schedule` blocks.
-- [README](../README.md) — the project front page.
+- **A definition file recreates the app, not its data.** Redeploying gives you a fresh, empty volume — so a database needs its own backup.
+- **Keep backups off the server** where you can, so losing the box doesn't lose the backups too.
+- **Test a restore occasionally.** A backup you've never restored is a hope, not a plan.

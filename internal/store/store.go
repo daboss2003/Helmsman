@@ -6,6 +6,7 @@ package store
 import (
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,6 +57,26 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// Inspect opens path READ-ONLY and returns the highest recorded schema version,
+// erroring if the file is not a Helmsman database (missing/empty schema_meta). Unlike
+// Open it never creates or migrates — restore uses it to reject a blank or foreign
+// archive before it would otherwise be installed as the live DB.
+func Inspect(path string) (int, error) {
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(2000)&mode=ro&_pragma=query_only(ON)")
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	var v int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_meta`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("not a Helmsman database (no schema_meta): %w", err)
+	}
+	if v == 0 {
+		return 0, errors.New("not a Helmsman database (empty schema)")
+	}
+	return v, nil
 }
 
 type migration struct {
