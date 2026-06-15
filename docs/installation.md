@@ -11,9 +11,19 @@ This is the one part you do over SSH. It takes about five minutes: put the progr
 - **SSH access** to the server.
 - **1 GB of RAM or more** if you want to deploy and build apps on the box. Monitoring and HTTPS run fine on a smaller server.
 
-## 1. Put the program on your server
+## 1. Install the program
 
-Helmsman is a single file. Copy it onto your server and make it runnable:
+**Debian / Ubuntu (recommended)** — install from the APT repo and get `apt upgrade` updates:
+
+```bash
+curl -fsSL https://apt.helmsman.sh/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
+echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://apt.helmsman.sh stable main" | sudo tee /etc/apt/sources.list.d/helmsman.list
+sudo apt update && sudo apt install helmsman
+```
+
+The package creates the `helmsman` service user and installs the systemd unit; skip the user/dir setup in Step 4. (Fedora/RHEL: a matching `.rpm` is on each [release](https://github.com/helmsman/helmsman/releases).)
+
+**Any Linux (manual)** — download the binary for your architecture from the [releases page](https://github.com/helmsman/helmsman/releases) and install it:
 
 ```bash
 install -m0755 helmsman /usr/local/bin/helmsman

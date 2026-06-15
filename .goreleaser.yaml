@@ -1,0 +1,95 @@
+# GoReleaser config — build the static binary for linux amd64/arm64, package it as a
+# .deb and .rpm (binary + systemd unit + the socket-proxy reference compose), produce
+# checksums, GPG-sign them, and cut a GitHub release on each `vX.Y.Z` tag.
+#   local check:  goreleaser check
+#   dry run:      goreleaser release --snapshot --clean
+version: 2
+
+project_name: helmsman
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: helmsman
+    main: ./cmd/helmsman
+    binary: helmsman
+    env:
+      - CGO_ENABLED=0 # pure-Go (modernc sqlite) → a fully static binary
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{ .Version }}
+
+archives:
+  - id: helmsman
+    ids: [helmsman]
+    formats: ["tar.gz"]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - docs/**/*
+      - deploy/systemd/helmsman.service
+      - deploy/socket-proxy/docker-compose.yml
+
+nfpms:
+  - id: helmsman
+    ids: [helmsman]
+    package_name: helmsman
+    vendor: Helmsman
+    homepage: https://github.com/helmsman/helmsman
+    maintainer: Helmsman maintainers <maintainers@example.com>
+    description: |-
+      Security-first self-hosted ops dashboard. Run your apps on your own server
+      with automatic HTTPS, monitoring, and safe deploys — managed from one dashboard.
+    license: TBD
+    formats: [deb, rpm]
+    # Install the binary at /usr/local/bin so the packaged and manual installs use the
+    # same path the shipped systemd unit's ExecStart expects.
+    bindir: /usr/local/bin
+    contents:
+      - src: deploy/systemd/helmsman.service
+        dst: /usr/lib/systemd/system/helmsman.service
+      - src: deploy/socket-proxy/docker-compose.yml
+        dst: /usr/share/helmsman/socket-proxy/docker-compose.yml
+      - src: deploy/nfpm/config.example.yaml
+        dst: /usr/share/helmsman/config.example.yaml
+    scripts:
+      postinstall: deploy/nfpm/postinstall.sh
+      preremove: deploy/nfpm/preremove.sh
+
+checksum:
+  name_template: "checksums.txt"
+
+# GPG-sign the checksums file so users can verify downloads + the APT repo trusts it.
+signs:
+  - id: checksums
+    cmd: gpg
+    artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+release:
+  github:
+    owner: helmsman
+    name: helmsman
+  draft: false
+  prerelease: auto
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

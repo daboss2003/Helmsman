@@ -1,0 +1,28 @@
+# Helmsman configuration. Copy to /etc/helmsman/config.yaml (owned root:helmsman,
+# mode 0640) and fill in the generated values. See `docs/installation.md`.
+#
+#   helmsman gen-key        -> encryption_key
+#   helmsman hash-password  -> auth.password_hash
+#   helmsman gen-totp       -> auth.totp_secret (optional 2FA)
+
+bind_addr: "127.0.0.1:9000"          # the dashboard binds loopback; the edge fronts it
+
+encryption_key: "<from gen-key>"
+
+ip_allowlist:                         # who may reach the dashboard (your IP / VPN)
+  - "203.0.113.10/32"
+
+auth:
+  username: "operator"
+  password_hash: "<from hash-password>"
+  # totp_secret: "<from gen-totp>"
+
+edge:
+  mode: "managed"                     # Helmsman runs the web server + HTTPS for you
+  acme_email: "you@example.com"
+
+admin:
+  hostname: "admin.example.com"       # Helmsman serves the dashboard here over HTTPS,
+                                      # behind ip_allowlist. Omit to use an SSH tunnel.
+
+data_dir: "/var/lib/helmsman"
