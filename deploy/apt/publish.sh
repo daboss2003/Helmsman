@@ -23,14 +23,19 @@ trap 'rm -rf "$workdir"' EXIT
 # For a private repo, export GH_AUTH=1 to send a token.
 echo ">> downloading ${VERSION} .deb assets from ${REPO}"
 ver="${VERSION#v}"
-auth=()
-if [ "${GH_AUTH:-}" = "1" ]; then auth=(-H "Authorization: Bearer $(gh auth token)"); fi
+# Optional auth header for a private repo (no bash arrays — macOS bash 3.2 trips
+# over an empty array under `set -u`).
+hdr=""
+if [ "${GH_AUTH:-}" = "1" ]; then hdr="Authorization: Bearer $(gh auth token)"; fi
 for arch in $ARCHES; do
     f="helmsman_${ver}_linux_${arch}.deb"
     echo "   $f"
-    curl -fSL --retry 3 --retry-delay 2 "${auth[@]}" \
-        -o "$workdir/$f" \
-        "https://github.com/${REPO}/releases/download/${VERSION}/${f}"
+    url="https://github.com/${REPO}/releases/download/${VERSION}/${f}"
+    if [ -n "$hdr" ]; then
+        curl -fSL --retry 3 --retry-delay 2 -H "$hdr" -o "$workdir/$f" "$url"
+    else
+        curl -fSL --retry 3 --retry-delay 2 -o "$workdir/$f" "$url"
+    fi
 done
 
 # Create the aptly repo on first run; ignore if it already exists.
