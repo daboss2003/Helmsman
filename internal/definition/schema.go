@@ -148,6 +148,7 @@ type Build struct {
 	Start    []string          `yaml:"start,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty"`
 	Packages []string          `yaml:"packages,omitempty"`
+	Output   string            `yaml:"output,omitempty"` // build output dir to ship (e.g. static: "dist")
 	Nonroot  *bool             `yaml:"run_as_nonroot,omitempty"`
 }
 
@@ -429,6 +430,11 @@ func validateBuild(svc string, b *Build) error {
 	for _, p := range b.Packages {
 		if p == "" || strings.ContainsAny(p, "\x00\n ") {
 			return fmt.Errorf("service %q build.packages entry %q is invalid", svc, p)
+		}
+	}
+	if b.Output != "" {
+		if err := relConfined(b.Output); err != nil {
+			return fmt.Errorf("service %q build.output %q: %w", svc, b.Output, err)
 		}
 	}
 	return nil

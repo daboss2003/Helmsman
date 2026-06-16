@@ -116,6 +116,7 @@ func buildSpecFor(name string, svc definition.Service) builder.Spec {
 		Start:    b.Start,
 		Env:      b.Env,
 		Packages: b.Packages,
+		Output:   b.Output,
 		Nonroot:  nonroot,
 	}
 }

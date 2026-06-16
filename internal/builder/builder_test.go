@@ -50,10 +50,26 @@ func TestNodeDockerfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"FROM node:20-alpine AS build", "COPY package*.json ./", "RUN npm ci", "RUN npm run build", "USER app", `CMD ["node", "dist/main"]`} {
+	for _, want := range []string{"FROM node:20-alpine AS build", "COPY package*.json ./", "RUN npm ci", "RUN npm run build", "RUN npm prune --omit=dev", "USER app", `CMD ["node", "dist/main"]`} {
 		if !strings.Contains(df, want) {
 			t.Errorf("node Dockerfile missing %q:\n%s", want, df)
 		}
+	}
+}
+
+// static with a build ships ONLY the output dir (not source + node_modules).
+func TestStaticDockerfileShipsOutputDir(t *testing.T) {
+	df, err := Generate(Spec{Language: "static", Build: "npm run build", Output: "dist"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(df, "COPY --from=build /app/dist /usr/share/nginx/html") {
+		t.Errorf("static must serve only the output dir:\n%s", df)
+	}
+	// no build → serve the repo as-is
+	df2, _ := Generate(Spec{Language: "static"}, nil)
+	if !strings.Contains(df2, "COPY . /usr/share/nginx/html") {
+		t.Errorf("static without build should serve the repo:\n%s", df2)
 	}
 }
 

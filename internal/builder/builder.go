@@ -28,6 +28,7 @@ type Spec struct {
 	Start    []string          // container start (exec form) → Dockerfile CMD
 	Env      map[string]string // build-time env
 	Packages []string          // extra OS packages
+	Output   string            // build output dir to ship (static: served dir, e.g. "dist")
 	Nonroot  bool              // run the image as a non-root user (default true at the caller)
 }
 
