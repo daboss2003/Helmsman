@@ -214,6 +214,33 @@ func TestDeployBuildServiceGeneratesDockerfile(t *testing.T) {
 	}
 }
 
+// A repo's own .dockerignore is preserved; Helmsman MERGES .helmsman into it (it does
+// not overwrite the operator's entries).
+func TestDeployMergesRepoDockerignore(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+		"  compose:\n    source: generated\n    services:\n      api:\n        build: {language: go}\n"
+	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
+		"helmsman.yaml": yaml,
+		"go.mod":        "module x\n\ngo 1.23\n",
+		"main.go":       "package main\nfunc main(){}\n",
+		".dockerignore": "node_modules\n*.log\n", // the operator's own entries
+	})
+	cfg := configureRepo(t, e, slug, sha)
+	_ = e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	di, err := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".dockerignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"node_modules", "*.log", "\n.helmsman\n"} {
+		if !strings.Contains(string(di), want) {
+			t.Errorf("merged .dockerignore must keep the operator's entries AND add .helmsman; missing %q:\n%s", want, di)
+		}
+	}
+}
+
 // No helmsman.yaml in the repo → Helmsman scaffolds a default from the detected stack
 // (go.mod → a go build service) and generates the Dockerfile.
 func TestDeployScaffoldsWhenNoHelmsmanYAML(t *testing.T) {
