@@ -15,10 +15,11 @@ In the dashboard, click **Connect repo**. Two ways in:
 **Connect any repo.** Provide:
 
 - the **repository URL** and **branch**,
-- the **path to your Compose file** in the repo (e.g. `docker-compose.yml`),
 - for a **private** repo, a deploy key or access token.
 
 Credentials are stored encrypted and never appear in the UI or logs.
+
+Your repo carries a **`helmsman.yaml`** (see [the definition file](./definition-file.md)) describing the app — its services, build, env, and routes. Helmsman reads it, **generates the `docker-compose.yml` and any Dockerfiles**, and deploys — you never commit a compose file. If the repo has no `helmsman.yaml`, Helmsman scaffolds a sensible default from the stack it detects (e.g. a Node or Go project).
 
 ## How updates work
 
@@ -35,7 +36,7 @@ You'll find this on the app's page (a **Repository & updates** panel) and on the
 - **Nothing deploys until you click** (unless you explicitly turn on auto-deploy). A push to your repo can't trigger a surprise build on your server.
 - **Deploys are pinned to the reviewed commit** — what you saw in the diff is exactly what runs.
 - **Fetching can't run code.** Helmsman only downloads commits in the background; building and running happen only on the deploy you trigger, and only when the server has the resources for it.
-- **Touching a repo is treated as untrusted.** Helmsman validates the Compose it pulls before running anything, and a force-push / rewritten history is flagged for you to review rather than deployed silently.
+- **Touching a repo is treated as untrusted.** Helmsman generates the compose from your `helmsman.yaml` and validates it before running anything, and a force-push / rewritten history is flagged for you to review rather than deployed silently.
 
 ## Connect with GitHub — one-time setup
 

@@ -1,13 +1,13 @@
 # `helmsman.yaml` — Definition File Reference
 
-The **definition file** (`helmsman.yaml`) is the declarative source of truth for an app's Helmsman-managed surface. It is **complementary to your `docker-compose.yml`**: compose describes the containers; `helmsman.yaml` describes *how Helmsman manages them* — env, secrets (by reference), templated config files, cert bindings, edge routes, scaling, self-healing, ops-interface coordinates, and GitOps behavior.
+The **definition file** (`helmsman.yaml`) is the declarative source of truth for an app. You describe your **stack** — one or more services, each either pulling an image or built from your repo, plus env, secrets (by reference), config files, cert bindings, edge routes, scaling, and GitOps behaviour — and **Helmsman generates and owns the `docker-compose.yml` and the Dockerfile**. You never hand-write a compose file or a Dockerfile.
 
-There are two ways to drive it, and they are **the same trust path**, not two:
+There are two ways to author it, and they are **the same trust path**, not two:
 
-- The **dashboard writes back to it** on every settings change.
-- A CLI/SSH operator can author and commit it in their repo and run `helmsman apply` **without ever opening the dashboard**.
+- The **dashboard** edits it through forms.
+- You **commit it to your repo**; when Helmsman deploys that repo it reads the `helmsman.yaml`, generates the compose, and rolls it out.
 
-Both are thin front-ends onto the **one reconciler** and the **one §5.6 allowlist validator** the dashboard uses. The definition file is a new front *door*, never a new trust *path* — nothing in it reaches `docker compose` unvalidated.
+Both are thin front-ends onto the **one validator** that judges every generated compose. The definition file is a new front *door*, never a new trust *path* — nothing in it reaches `docker compose` unvalidated.
 
 > **See also:** [README](../README.md) · [Managed config files](./config-files-and-secrets.md) · [Cert bindings](./edge-and-tls.md) · [GitOps / repo-path apps](./gitops.md) · [Managed edge & routes](./edge-and-tls.md) · [Secrets](./config-files-and-secrets.md) · [Auto-scaling](./scaling-and-self-healing.md) · [Self-healing](./scaling-and-self-healing.md) · [CLI reference](./cli.md)
 
@@ -19,7 +19,6 @@ Both are thin front-ends onto the **one reconciler** and the **one §5.6 allowli
 - [How parsing works (and what is rejected)](#how-parsing-works-and-what-is-rejected)
 - [The `spec` sections](#the-spec-sections)
   - [`compose`](#speccompose)
-  - [`env`](#specenv)
   - [`secrets`](#specsecrets)
   - [`config_files`](#specconfig_files)
   - [`cert_bindings`](#speccert_bindings)
@@ -93,129 +92,111 @@ After a clean parse, `${VAR}` / `.env` interpolation is **resolved first** (vali
 
 Each `spec` section is a **projection onto an existing artifact** — there are no new artifact types. Authoring a section in `helmsman.yaml` is exactly equivalent to filling in the corresponding dashboard panel; both feed the same typed sub-struct.
 
-| Section | Projects onto | Plan ref | Default if omitted |
-|---|---|---|---|
-| `compose` | the validated compose source | §7.6 | required (repo_path or inline) |
-| `env` | the encrypted `env_blob` | §5.5 | empty |
-| `secrets` | the AES-256-GCM secret store (names only) | §7.7 | empty |
-| `config_files` | managed config files | §7.4 | empty |
-| `cert_bindings` | `app_cert_bindings` | §7.5 | empty |
-| `edge.routes` | `app_routes` (Layer-1 edge input) | §6 | empty (no public exposure) |
-| `scaling` | `scaling_policy` | §8A | disabled (opt-in) |
-| `self_healing` | `supervisor_state` policy | §8.5 | on (defaults) |
-| `ops_interface` | the ops-interface record | §4 | basic / auto-discover |
-| `git` | the GitOps fields on the `apps` row | §7.6 | `auto_deploy: false` |
-| `resources` | §0 capacity hints | §0 | none |
+| Section | What it configures | Default if omitted |
+|---|---|---|
+| `compose` | your **stack** — the services Helmsman generates the compose from | **required** |
+| `secrets` | secret **names** (declared here; values are set out-of-band) | empty |
+| `edge.routes` | public HTTPS routes (the managed edge) | empty (no public exposure) |
+| `scaling` | opt-in auto-scaling for a service | disabled |
+| `git` | GitOps behaviour (repo, ref, auto-deploy) | `auto_deploy: false` |
+| `setup` | an advanced per-app setup script | none |
+
+Per-service, you also declare `env`, `secret_files`, `config_files`, `cert_bindings`, `volumes`, and (for built services) `build` — all under `compose.services`, below.
 
 ### `spec.compose`
 
-Where Helmsman gets the compose bytes. A strict `oneOf` selected by an explicit `source:` (no
-inference) — **exactly one** of `generated`, `repo_path`, or `inline`.
+Helmsman **generates and owns** the compose — `source` is always `generated` (the default; the old
+`repo_path`/`inline` sources are gone). You declare your services under `compose.services`, a **map
+keyed by service name**.
 
 ```yaml
 compose:
-  source: generated     # generated | repo_path | inline
+  source: generated          # the only value
+  services:
+    api:
+      build: { language: auto }              # image XOR build
+      ports: [{ internal: 3000 }]            # internal only — reach it via an edge route
+      env:
+        NODE_ENV: production                 # a literal (inline)
+        DB_PASSWORD: { secret: DB_PASSWORD } # a reference (the value never touches the YAML)
+      secret_files: [jwt_private_key]        # mounted as a file at /run/secrets/<name>
+      depends_on: [emqx]
+      healthcheck: [wget, -qO-, http://localhost:3000/health/live]   # exec form
+      restart: unless-stopped
+    emqx:
+      image: emqx/emqx:5.8.3                 # XOR build
+      ports:
+        - { internal: 8883, publish: true, public: true }   # a public, non-HTTP TLS port
+        - { internal: 18083 }                                # internal only
+      config_files:
+        - { repo: docker/emqx/emqx.conf, mount: /opt/emqx/etc/emqx.conf }
+      volumes:
+        - { name: emqx_data, target: /opt/emqx/data }
 ```
 
-| `source` | Use when | Notes |
-|---|---|---|
-| `generated` | **you don't want to hand-write compose/Dockerfile** — declare services in `spec.services` and Helmsman generates the compose. | Requires `spec.services` (and `spec.services` present with `source != generated` is a hard reject). The generator emits only safe keys — see below. |
-| `repo_path` | you already have a compose in your repo | `repo_path` (+ optional `dockerfile_path`) read via `git cat-file` from the **pinned commit's object store** — never a working-tree read. All compose-relative paths (build context, `env_file`, `include`/`extends`, binds) canonicalize-then-`Rel`-confine **under the app's checkout subtree**; tree mode `120000`/`160000` on the path rejected. |
-| `inline` | you want to paste a compose body in the definition | Validated through the *same* §5.6 chokepoint. |
-
-> A `build: ../../other-app` or an `env_file:` climbing toward Helmsman's config is rejected —
-> confinement is to the app's own subtree, never a sibling app or `repos_dir`. A build is always a
-> **write-plane, manually-promoted** action (§0 gate); declaring a build never causes one.
-
-### `spec.services` (with `source: generated`)
-
-Declare what you want and Helmsman generates the compose (and a Dockerfile, if you build from
-source). You never hand-write either file; the dashboard form is just a view over this section.
-
-```yaml
-compose: { source: generated }
-services:
-  api:
-    image: registry.example.com/api:1.4.2   # XOR build:
-    ports: { internal: [8080] }             # internal only — NO host-publish field
-    env:
-      LOG_LEVEL: info
-      DB_PASSWORD: { secret: DB_PASSWORD }   # by reference
-    healthcheck: { test: ["CMD", "/bin/health"], interval: 10s }   # exec-form only
-    restart: unless-stopped
-    edge: { route: { hostname: api.example.com, port: 8080, scheme: http } }
-  builder-from-source:
-    build:
-      generate:                              # OR: dockerfile_path: deploy/Dockerfile
-        runtime: go                          # curated, digest-pinned bases only
-        build_cmd: ["go", "build", "-o", "/app/server", "./cmd/server"]
-        run_cmd:   ["/app/server"]
-        expose: 8080
-        user: app                            # non-root enforced
-```
+#### A service
 
 | Field | Notes |
 |---|---|
-| `image` **XOR** `build` | one of. `build.dockerfile_path` points at an existing Dockerfile (read via `git cat-file`, never written); `build.generate{}` emits a minimal **multi-stage** Dockerfile from a curated digest-pinned base. |
-| `ports.internal` | container-internal only. **There is no publish/host-port field** — ingress is *only* an `edge.route`. A value in `{9000, 2019, 2375}` (control-plane ports) is rejected at parse. |
-| `env` | literal · `{secret: NAME}` · `{service: NAME}` (intra-project DNS). Secret refs never reach the YAML; they're rendered into the `0600 --env-file` at deploy. |
-| `volumes` | a managed named volume, or a bind whose source is `Rel`-confined under run_dir. |
-| `healthcheck` / `command` / `entrypoint` | **exec-array form only** (no shell-string smuggling). |
-| `depends_on` / `restart` / `resources` / `scaling` / `self_healing` / `edge.route` | siblings only / enum / §0 hints / §8A / §8.5 / a Layer-1 edge route. |
+| `image` **XOR** `build` | pull a registry image, or have Helmsman build it from your repo (below). Exactly one. |
+| `ports` | a list of `{ internal, publish, public }`. `internal` is the container port; omit `publish` for internal-only (the usual case — expose it with an `edge` route). `publish: true` maps it to the host loopback; add `public: true` for all interfaces (e.g. a non-HTTP TLS port like MQTT). Control-plane ports (9000/2019/2375) are rejected. |
+| `env` | a **map**: `KEY: value` (a non-secret literal, rendered inline) or `KEY: { secret: NAME }` (a reference to a declared secret, resolved from the encrypted store at deploy — the value never touches the YAML). A literal containing `${…}` is rejected (use a secret reference). |
+| `secret_files` | a list of declared secret names; each is written to a file and mounted at `/run/secrets/<name>` (the `*_FILE` pattern). |
+| `config_files` | app config files Helmsman renders and bind-mounts read-only — see [`config_files`](#specconfig_files). |
+| `cert_bindings` | a managed cert synced into the service — see [`cert_bindings`](#speccert_bindings). |
+| `volumes` | `{ name, target }` (a managed named volume) or `{ source, target, read_only }` (a bind under the app's directory; the directory is created for you). |
+| `depends_on` / `healthcheck` / `command` / `restart` | sibling services / exec-array / exec-array / enum. |
 
-**The dangerous keys simply don't exist in this schema** — `privileged`, `cap_add`, host namespaces,
-host binds, any host-publish — so no input can generate them (the generator always emits
-`cap_drop:[ALL]` + `no-new-privileges`). And the generated YAML is **still re-run through §5.6**
-(defense in depth). `spec.services` is the source of truth; a hand-edit of the generated compose
-surfaces `generated_drift` → **regenerate-from-spec** or **detach-to-inline** (a one-way escape hatch
-whose bytes go through the **full §5.6 chokepoint as a hard gate** before becoming canonical). See
-[gitops.md](./gitops.md) for build gating and [scaling-and-self-healing.md](./scaling-and-self-healing.md)
-for whether a generated service is auto-scalable.
+The dangerous keys (`privileged`, `cap_add`, host namespaces, host binds, host-publish) **cannot be
+expressed** — no input can generate them, and the generated compose is re-checked by the validator
+anyway.
 
-### `spec.setup` (when the setup script runs)
+#### `build:` — Helmsman generates the Dockerfile
 
-A per-app setup-script trigger. **The trigger is a *planner* input, never an *executor*.**
+A `build:` service has no Dockerfile for you to write — you declare the build and Helmsman generates a
+hardened, non-root, multi-stage Dockerfile.
+
+```yaml
+build:
+  language: auto         # auto (default, detect) | node | python | go | ruby | php | static | generic
+  version: "22"          # runtime version (a sane default is picked)
+  install: npm ci        # dependency install (one line)
+  build: npm run build   # build / compile (one line)
+  start: [node, dist/main]   # how the container starts (exec form)
+  env: { NODE_OPTIONS: "--max-old-space-size=1024" }   # build-time env
+  packages: [git]        # extra OS packages
+  run_as_nonroot: true   # default true
+```
+
+- `language: auto` (the default) detects the stack from your repo's top-level files (`package.json`,
+  `go.mod`, `requirements.txt` / `pyproject.toml`, `Gemfile`, `composer.json`, `index.html`, …).
+- For a stack Helmsman doesn't recognise, use `language: generic` with your own `base:` image plus
+  `install` / `build` / `start`.
+- `install` / `build` run as build steps; each must be a single line (a newline is rejected so a value
+  can't inject extra build steps). The build context is your repo checkout, confined to the app's
+  directory.
+
+### `spec.setup` (an advanced setup script)
+
+A per-app setup script — **declared here**, never typed into the dashboard (the dashboard shows it
+read-only and runs it behind a confirmation).
 
 ```yaml
 setup:
-  script_ref: scripts/bootstrap.sh   # or inline:
-  trigger: on_first_deploy           # never (default) | on_demand | on_first_deploy | before_each_deploy
-  limits: { mem_mb: 256, wall_clock_s: 120, network: none }
-  produces:
-    secrets: [NODE_COOKIE]
-    files: [certs/internal.pem]
+  script: |
+    #!/bin/sh
+    # one-off bootstrap …
+  trigger: on_first_deploy   # never (default) | on_demand | on_first_deploy | before_each_deploy
+  produces: [env:NODE_COOKIE, file:certs/internal.pem]
 ```
 
-- A setup script runs **only** inside an operator-initiated, confirm-token-gated deploy — **never**
-  from a webhook, git fetch, auto-deploy, or boot. An auto path that *would* include setup **omits**
-  it and pages.
-- `trigger ∈ {on_first_deploy, before_each_deploy}` together with `git.auto_deploy: true` is a
-  **parse-time hard reject**.
-- `produces` land **only** in this app's own `(slug, name)` namespace — no implicit cross-app flow;
-  cross-app sharing is an explicit, confirmed copy. Cross-app *ordering* lives in the host definition
-  ([host-file.md](./host-file.md)).
-- `on_first_deploy` is idempotent on a `setup_runs` row keyed by the **full** `script_set_checksum`
-  (bytes + `limits` + `produces` + `trigger` + pinned-sha).
+- It runs **only** from an operator-initiated, confirmed deploy — never from a webhook, a fetch,
+  auto-deploy, or boot.
+- `trigger: on_first_deploy` / `before_each_deploy` together with `git.auto_deploy: true` is rejected.
+- Its declared outputs land only in this app's own namespace.
 
-> Bringing an existing `.env`? See [env-import.md](./env-import.md) — Helmsman owns the live `.env`
-> and ingests your file's values into the encrypted store. Server-wide settings across multiple apps
+> Bringing an existing `.env`? See [env-import.md](./env-import.md). Server-wide settings across apps
 > live in the host definition: [host-file.md](./host-file.md).
-
-### `spec.env`
-
-Non-secret literals **or** references into the secret store. Maps to the encrypted `env_blob` delivered as a `0600 --env-file` at deploy time (never baked into YAML).
-
-```yaml
-env:
-  LOG_LEVEL: info                 # a non-secret literal
-  REGION: eu-west-1
-  DB_PASSWORD: { secret: DB_PASSWORD }   # a reference, resolved from this app's secret namespace
-```
-
-| Form | Meaning |
-|---|---|
-| `KEY: value` | A non-secret literal. The save-time literal lint (see [Secrets are by reference only](#secrets-are-by-reference-only)) **rejects** a value that looks like key material / a token / long base64 — those must be a `secret:` ref. |
-| `KEY: { secret: NAME }` | A reference. `NAME` resolves **only within this app's `(slug, NAME)` namespace**. A missing value is a **hard deploy failure**, never an empty string. |
 
 ### `spec.secrets`
 
@@ -243,44 +224,71 @@ Generate semantics (all three are load-bearing):
 2. **Mints only on explicit operator action** — declaring a `generate` hint does not auto-create the secret on parse; you opt in to minting it.
 3. **Never overwrites an already-provisioned secret** — re-applying a file with a `generate` hint will not rotate a live secret out from under a running app.
 
-### `spec.config_files`
+### `config_files` (per service)
 
-Managed config files (§7.4) — a **third kind** of artifact beside env and file-mounted secrets. A structured template that Helmsman renders **host-side**, filling **only** its own `{{hm.KEY}}` delimiter while the app's own `${…}` placeholders survive byte-identical. The template is encrypted at rest **iff** it is secret-bearing.
-
-```yaml
-config_files:
-  - path: etc/broker/broker.conf        # rendered destination, confined under run_dir, bind-mounted RO
-    template_ref: deploy/broker.conf.tmpl  # template source in the repo (read via cat-file from pinned commit)
-    format: ini                          # a hint for preview only — NEVER trusted for a security decision
-    bindings:
-      NODE_COOKIE: { secret: NODE_COOKIE }
-      LISTENER_CRT: { cert: broker-tls.crt }
-      PUBLIC_HOST:  { app: public_hostname }
-```
-
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `path` | string | required | The rendered destination, **relative to the app run_dir**. Re-asserts the full §5.6(d) protected-path landing rejection: `..`/absolute/symlink/NUL/CR-LF rejected; never lands on the proxy data/ACME-key dir, edge binary, socket-proxy, `--env-file`, or Helmsman config/DB/master-key; never a `:80/:443` publish; unique among active config files. |
-| `template_ref` | string | — | A repo path to the template, read via `git cat-file` from the **pinned commit**. (Or `template:` inline.) |
-| `template` | string | — | Inline template body. |
-| `format` | enum | — | `ini`/`conf`/`yaml`/… — used **only** to shape the preview. **CR/LF/NUL hygiene is enforced regardless of `format`** — never trust an attacker-influenced format hint for a security decision. |
-| `bindings` | map | — | The **explicit allowlist** of `{{hm.KEY}}` keys this file may resolve. A `{{hm.X}}` resolves only if `X` is here; unknown/dup/malformed → hard error at save **and** at render. |
-
-**Rendered-file behavior (every redeploy):** resolve all bindings → render (single-pass byte scanner) → write atomically → record `rendered_sha256` → bind-mount read-only. A host hand-edit is *detected* (sha mismatch → "host-edited, will be overwritten") — detection only, never auto-merge, never execute. Permissions default to `0640`, and `0600` when secret-bearing — never `0644`. A secret-bearing rendered file joins the read-only file-secret panel and **can never become an edge cert**.
-
-> See [Managed config files](./config-files-and-secrets.md) for the full renderer contract.
-
-### `spec.cert_bindings`
-
-Wires Helmsman's **cert-only / shared-cert** edge pattern (§6) to the app: the edge is the ACME agent for a hostname (which must match one of this app's routes), and the **cert-sync helper** copies the leaf cert + key to a per-consumer `0600` path under the run_dir.
+An app config file Helmsman renders and bind-mounts **read-only** into a service — declared **on the
+service** (e.g. an `emqx.conf`, an nginx snippet, a prometheus config). The content comes from a path
+in your repo (read at the pinned commit) **or** an inline body. Helmsman writes the file under the
+app's own directory and mounts it; you never place it yourself.
 
 ```yaml
-cert_bindings:
-  - name: broker-tls
-    hostname: broker.example.com    # must match one of this app's edge.routes hostnames
-    sync_dir: certs/broker          # per-consumer sync dir under run_dir (0600, consumer-uid-owned)
-    required: true                  # blocks the consumer's start until the cert exists (no spin-loop)
+services:
+  emqx:
+    image: emqx/emqx:5.8.3
+    config_files:
+      - repo: docker/emqx/emqx.conf      # a path in your repo (read at the pinned commit), XOR template:
+        mount: /opt/emqx/etc/emqx.conf   # bind-mounted read-only here
+      - template: |                      # an inline body
+          level = info
+        mount: /etc/app/app.conf
 ```
+
+| Field | Notes |
+|---|---|
+| `repo` **XOR** `template` | content from a repo path (read at the pinned commit; traversal-free) or an inline body. |
+| `mount` | absolute container path; the file is bind-mounted **read-only** there. |
+
+The file is written `0640` under the app's directory and re-rendered on every deploy. *(Injecting
+Helmsman-managed secrets / cert paths into a config file via `{{hm.*}}` tokens is a forthcoming
+addition.)*
+
+### `secret_files` (per service)
+
+Mount declared secrets as files (the `*_FILE` pattern). Each name must be a declared `spec.secrets`
+entry; Helmsman writes its value `0600` under the app's directory and mounts it at
+`/run/secrets/<name>`.
+
+```yaml
+services:
+  api:
+    image: ghcr.io/acme/api:1
+    secret_files: [jwt_private_key, mongodb_uri]   # → /run/secrets/jwt_private_key, …
+```
+
+### `cert_bindings` (per service)
+
+Sync a managed cert (issued + renewed by Helmsman's edge) into a service — so a broker like EMQX can
+terminate its own TLS without you running a cert-reload sidecar. Declared on the service.
+
+```yaml
+services:
+  emqx:
+    image: emqx/emqx:5.8.3
+    cert_bindings:
+      - hostname: mqtt.example.com    # a hostname Helmsman's edge issues a cert for
+        mount: /etc/certs             # the cert is synced into this directory
+```
+
+| Field | Notes |
+|---|---|
+| `hostname` | the FQDN Helmsman issues/renews the cert for. |
+| `mount` | absolute container path the cert directory is mounted at. |
+
+*(The edge-driven cert sync for `cert_bindings` is being wired up; the declaration is validated today.)*
+
+> The older standalone cert-binding (`sync_dir`/`required`) below is the dashboard-managed form.
+
+#### `spec.cert_bindings` (dashboard-managed)
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -555,83 +563,90 @@ Properties to rely on:
 
 ---
 
-## Worked example A — a stateful broker
+## Where your app's files live
 
-A TLS-terminating MQTT-style broker. It is **stateful**, so scaling is *not* applicable (it would be rejected at candidacy — so we simply do not declare it). It ships a templated config with **deploy-time `{{hm.*}}` blanks mixed with its own `${clientid}` / `${topic}` runtime placeholders**, a **cert binding** for its TLS listener via the edge's cert-only pattern, env + secret refs, and a **cert-only edge route** (the edge is ACME agent only; the broker terminates TLS itself).
+You write **relative** paths (a bind `source:`, a repo path); a `config_files` `mount` is a *container*
+path. **Helmsman owns the location on disk** — you never need an absolute host path. Each app gets its
+own directory on the server:
+
+```
+/var/lib/helmsman-apps/<app>/
+```
+
+(`/var/lib/helmsman` is the data dir; the app tree is the sibling `…-apps`.) Relative paths resolve
+inside that directory — a bind `source: data` becomes `…/<app>/data` — and Helmsman writes the
+generated compose, the generated Dockerfile(s) (`.helmsman/Dockerfile.<svc>`), rendered config files,
+and materialized secret files there, creating the directories for you. Everything is confined to the
+app's own folder; a bind or config file can't point outside it.
+
+---
+
+## Worked example A — a multi-service stack (API + broker)
+
+A NestJS API **built from the repo**, plus an EMQX broker that terminates its own MQTT/TLS. Helmsman
+generates and owns the compose and the API's Dockerfile; the edge fronts the API over HTTPS and issues
+the broker's cert.
 
 ```yaml
 apiVersion: helmsman/v1            # exact-match; an unknown version is rejected, never best-effort parsed
 kind: App
 metadata:
-  slug: broker                     # immutable after first apply
+  slug: credlock                   # immutable after first apply
 
 spec:
-  # ---- compose from the pinned commit's tree (Mode 4) ----------------------
   compose:
-    repo_path: deploy/docker-compose.yml   # read via `git cat-file`; paths confined to the checkout subtree
+    source: generated              # Helmsman generates & owns the compose
+    services:
+      api:
+        build:                     # no Dockerfile to write — Helmsman generates a hardened one
+          language: node
+          version: "22"
+          install: npm ci
+          build: npm run build
+          start: [node, dist/main]
+          env: { NODE_OPTIONS: "--max-old-space-size=1024" }
+        ports: [{ internal: 3000 }]            # internal — reached via the edge route below
+        env:
+          NODE_ENV: production                 # a literal
+          MQTT_BROKER_URL: mqtt://emqx:1883    # reach a sibling by its service name
+          MONGODB_URI: { secret: MONGODB_URI } # a reference — the value stays in the store
+        secret_files: [jwt_private_key]        # mounted at /run/secrets/jwt_private_key
+        depends_on: [emqx]
+        healthcheck: [wget, -qO-, http://localhost:3000/health/live]
+        restart: unless-stopped
 
-  # ---- env: a literal + a secret REFERENCE (value lives only in the store) --
-  env:
-    BROKER_LOG_LEVEL: warn
-    BROKER_ADMIN_PASSWORD: { secret: BROKER_ADMIN_PASSWORD }
+      emqx:
+        image: emqx/emqx:5.8.3
+        ports:
+          - { internal: 8883, publish: true, public: true }   # public MQTT/TLS
+          - { internal: 18083 }                                # dashboard — internal only
+        env:
+          MQTT_DOMAIN: mqtt.example.com
+          EMQX_DASHBOARD_PASSWORD: { secret: EMQX_DASHBOARD_PASSWORD }
+        config_files:
+          - { repo: docker/emqx/emqx.conf, mount: /opt/emqx/etc/emqx.conf }
+        cert_bindings:
+          - { hostname: mqtt.example.com, mount: /etc/certs }   # the edge issues + renews this cert
+        volumes:
+          - { name: emqx_data, target: /opt/emqx/data }
+        restart: unless-stopped
 
-  # ---- secrets: NAMES ONLY (never values) ----------------------------------
-  secrets:
-    - name: BROKER_ADMIN_PASSWORD          # provisioned out-of-band: `helmsman secret set BROKER_ADMIN_PASSWORD`
-    - name: NODE_COOKIE
-      generate: { type: hex, bytes: 32 }   # mint on explicit action; entropy-floored; never overwrites a live one
+  secrets:                          # NAMES only — values set out-of-band (`helmsman secret set` / dashboard)
+    - name: MONGODB_URI
+    - name: jwt_private_key
+    - name: EMQX_DASHBOARD_PASSWORD
 
-  # ---- a templated config file: {{hm.*}} blanks + the app's own ${...} ------
-  config_files:
-    - path: etc/broker/broker.conf         # rendered RO under run_dir; 0600 because it is secret-bearing
-      template_ref: deploy/broker.conf.tmpl
-      format: ini                          # PREVIEW hint only — CR/LF/NUL hygiene applies regardless
-      bindings:
-        NODE_COOKIE:  { secret: NODE_COOKIE }          # secret: => file is secret-bearing => 0600 + encrypted
-        ADMIN_PW:     { secret: BROKER_ADMIN_PASSWORD }
-        LISTENER_CRT: { cert: broker-tls.crt }         # the cert-sync'd path (see cert_bindings below)
-        LISTENER_KEY: { cert: broker-tls.key }
-        PUBLIC_HOST:  { app: public_hostname }         # from the validated route row, not free text
-
-  # ---- cert binding: edge issues the cert; cert-sync drops it under run_dir -
-  cert_bindings:
-    - name: broker-tls
-      hostname: broker.example.com         # must match an edge.routes hostname below
-      sync_dir: certs/broker               # per-consumer 0600 path; proxy keys never chmod-broadened
-      required: true                       # hard ordering gate: `up` blocks until the cert exists; no spin-loop
-
-  # ---- edge: a CERT-ONLY route (edge is ACME agent only; broker serves TLS) -
   edge:
     routes:
-      - hostname: broker.example.com
-        cert_only: true                    # no proxy traffic on this host; the broker terminates TLS at L4
-
-  # ---- scaling intentionally ABSENT: a broker is stateful => not a candidate -
-
-  self_healing:
-    enabled: true
-    ladder_max: recreate                   # `recreate` re-runs the template render + cert-sync, healing drift
-
-  resources:
-    reservation: 192MiB
+      - hostname: api.example.com   # Helmsman terminates HTTPS and routes to api:3000
+        service: api
+        port: 3000
 ```
 
-The corresponding template (`deploy/broker.conf.tmpl`) shows the split clearly — Helmsman fills `{{hm.*}}`; the broker's own entrypoint expands `${clientid}` / `${topic}` at container start, **byte-identical**:
-
-```ini
-# === filled by Helmsman at deploy time (its own delimiter) ===
-node.cookie       = {{hm.NODE_COOKIE}}
-admin.password    = {{hm.ADMIN_PW}}
-listener.tls.cert = {{hm.LISTENER_CRT}}
-listener.tls.key  = {{hm.LISTENER_KEY}}
-advertise.host    = {{hm.PUBLIC_HOST}}
-
-# === left untouched — the broker's OWN runtime placeholders (data to Helmsman) ===
-acl.topic.pattern = devices/${clientid}/${topic}
-client.id.default = ${clientid}
-```
-
-**Preview** masks the secret bindings — e.g. `‹secret:NODE_COOKIE (32 B)›` — so you can confirm the *structure* and that `${clientid}` / `${topic}` survived, while **no secret byte is ever sent to the browser**.
+Notice what you did **not** write: a `docker-compose.yml`, a Dockerfile, a Caddy config, or a
+cert-reload sidecar. Helmsman generates the compose and the API's Dockerfile, fronts the API over
+HTTPS, and issues the broker's cert — and the dangerous compose keys (`privileged`, host mounts, host
+namespaces) simply cannot be expressed here.
 
 ---
 
@@ -647,24 +662,28 @@ metadata:
 
 spec:
   compose:
-    repo_path: deploy/docker-compose.yml
-    dockerfile_path: deploy/Dockerfile   # a hint only; a build is still the gated, manually-promoted write path
-
-  env:
-    LOG_LEVEL: info
-    DATABASE_URL: { secret: DATABASE_URL }   # reference; resolved only within (web-api, DATABASE_URL)
+    source: generated
+    services:
+      api:
+        build: { language: auto }            # Helmsman detects the stack + generates the Dockerfile
+        ports: [{ internal: 8080 }]          # internal — reached via the edge route
+        env:
+          LOG_LEVEL: info
+          DATABASE_URL: { secret: DATABASE_URL }   # reference; the value lives only in the store
+        healthcheck: [wget, -qO-, http://localhost:8080/health]
+        restart: unless-stopped
 
   secrets:
     - name: DATABASE_URL                     # `helmsman secret set DATABASE_URL --from-file ./db.url`
     - name: SHARED_AUTH_TOKEN
       generate: { type: base64, bytes: 32 }  # a SHARED auth secret is fine for a stateless service (not an identity)
 
-  # ---- a public edge route; upstream is a SELECTOR against discovered containers
+  # ---- a public edge route; the upstream is a SELECTOR against this app's containers
   edge:
     routes:
       - hostname: api.example.com
-        upstream: api                        # resolved to this app's container; never a literal dial target
-        upstream_scheme: http
+        service: api                         # resolved to this app's container; never a literal dial target
+        port: 8080
         path_prefix: /
         redirect_http: true
         hsts: true
@@ -711,17 +730,17 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `apiVersion` | string (`helmsman/v1`) | yes | — |
 | `kind` | string (`App`) | yes | — |
 | `metadata.slug` | string (immutable) | yes | — |
-| `spec.compose.repo_path` \| `.inline` | string | one of | — |
-| `spec.compose.dockerfile_path` | string | no | — |
-| `spec.env.<KEY>` | literal \| `{secret: NAME}` | no | — |
+| `spec.compose.source` | `generated` | no (default) | `generated` |
+| `spec.compose.services.<name>.image` \| `.build` | string \| object | exactly one | — |
+| `…services.<name>.build.language` | enum (auto/node/python/go/ruby/php/static/generic) | no | `auto` |
+| `…services.<name>.ports[]` | `{internal, publish, public}` | no | — |
+| `…services.<name>.env.<KEY>` | literal \| `{secret: NAME}` | no | — |
+| `…services.<name>.secret_files[]` | string (a declared secret name) | no | — |
+| `…services.<name>.config_files[]` | `{repo\|template, mount}` | no | — |
+| `…services.<name>.cert_bindings[]` | `{hostname, mount}` | no | — |
+| `…services.<name>.volumes[]` | `{name\|source, target, read_only}` | no | — |
 | `spec.secrets[].name` | string | yes (per entry) | — |
 | `spec.secrets[].generate` | `{type, bytes}` | no | — |
-| `spec.config_files[].path` | string (run_dir-rel) | yes | — |
-| `spec.config_files[].template_ref` \| `.template` | string | one of | — |
-| `spec.config_files[].format` | enum (preview hint) | no | — |
-| `spec.config_files[].bindings.<KEY>` | `{env\|secret\|cert\|app: …}` | no | — |
-| `spec.cert_bindings[].name` / `.hostname` / `.sync_dir` | string | yes | — |
-| `spec.cert_bindings[].required` | bool | no | `false` |
 | `spec.edge.routes[].hostname` | string | yes | — |
 | `spec.edge.routes[].upstream` | selector | for proxy routes | — |
 | `spec.edge.routes[].upstream_scheme` | enum | no | `http` |
