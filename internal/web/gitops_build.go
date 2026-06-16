@@ -111,6 +111,62 @@ func buildSpecFor(name string, svc definition.Service) builder.Spec {
 	}
 }
 
+// materializeManaged renders each service's config_files (from the repo @ pinned
+// commit, or an inline template) and writes each secret_files value (from the
+// encrypted store) into the run dir at the Helmsman-managed paths — the read-only
+// bind mounts for these were already emitted into the generated compose by reconcile.
+// All writes are confined + symlink-safe (atomicWrite). secret values are 0600.
+// (cert_bindings sync is a follow-on — it integrates with the edge cert issuance.)
+func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd, project string, def *definition.Definition) error {
+	names := make([]string, 0, len(def.Spec.Compose.Services))
+	for n := range def.Spec.Compose.Services {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		svc := def.Spec.Compose.Services[name]
+		for i, cf := range svc.ConfigFiles {
+			var content []byte
+			if cf.Repo != "" {
+				b, err := repo.CatFile(ctx, sha, cf.Repo) // pinned commit; rejects symlinks/gitlinks
+				if err != nil {
+					return fmt.Errorf("service %q config file %q: %w", name, cf.Repo, err)
+				}
+				content = b
+			} else {
+				content = []byte(cf.Template)
+			}
+			dest := filepath.Join(rd, filepath.FromSlash(definition.ManagedConfigPath(name, i)))
+			if !confinedUnder(dest, rd) {
+				return fmt.Errorf("service %q config file path escapes the run dir", name)
+			}
+			if err := atomicWrite(dest, content, 0o640, rd); err != nil {
+				return fmt.Errorf("service %q config file: %w", name, err)
+			}
+		}
+		for _, sec := range svc.SecretFiles {
+			if s.envStore == nil {
+				return fmt.Errorf("service %q secret_files %q: secret store unavailable", name, sec)
+			}
+			val, ok, err := s.envStore.Reveal(project, sec)
+			if err != nil {
+				return fmt.Errorf("service %q secret_files %q: %w", name, sec, err)
+			}
+			if !ok {
+				return fmt.Errorf("service %q secret_files %q: secret has no value — set it before deploying", name, sec)
+			}
+			dest := filepath.Join(rd, filepath.FromSlash(definition.ManagedSecretPath(name, sec)))
+			if !confinedUnder(dest, rd) {
+				return fmt.Errorf("service %q secret file path escapes the run dir", name)
+			}
+			if err := atomicWrite(dest, []byte(val), 0o600, rd); err != nil {
+				return fmt.Errorf("service %q secret file: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
 // defBindSources is every run_dir-relative bind source declared across the stack's
 // services (named volumes excluded — Docker manages those).
 func defBindSources(def *definition.Definition) []string {

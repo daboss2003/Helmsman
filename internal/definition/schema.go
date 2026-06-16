@@ -227,6 +227,19 @@ type Setup struct {
 // SourceGenerated is the only accepted compose source.
 const SourceGenerated = "generated"
 
+// ManagedConfigPath / ManagedSecretPath are the run-dir-relative paths where Helmsman
+// materializes a service's config file / secret file (and the compose bind source).
+// Kept here so reconcile (which emits the mount) and the deploy (which writes the
+// content) always agree. The service name, secret name, and index are schema-validated,
+// so the path is traversal-free.
+func ManagedConfigPath(service string, i int) string {
+	return fmt.Sprintf(".helmsman/cfg/%s/%d", service, i)
+}
+
+func ManagedSecretPath(service, name string) string {
+	return fmt.Sprintf(".helmsman/secrets/%s/%s", service, name)
+}
+
 func (d *Definition) validateEnvelope() error {
 	if d.APIVersion != APIVersion {
 		return fmt.Errorf("apiVersion must be exactly %q (got %q) — unknown versions are rejected", APIVersion, d.APIVersion)

@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/Helmsman/internal/envstore"
 	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/Helmsman/internal/secret"
 )
 
 // repoHelmsmanYAML is a clean generated-stack definition committed into test repos —
@@ -270,6 +272,66 @@ func TestMaterializeBindDirsSymlinkSafe(t *testing.T) {
 	}
 	if fi, err := os.Lstat(filepath.Join(rd, "data")); err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
 		t.Errorf("data must be created as a real directory: %v", err)
+	}
+}
+
+// config_files (from the repo) and secret_files (from the store) are materialized into
+// the run dir at the managed paths, and the generated compose carries their RO mounts.
+func TestDeployMaterializesConfigAndSecretFiles(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	if _, err := e.srv.envStore.Save(context.Background(), slug,
+		[]envstore.Entry{{Key: "jwt", Value: secret.New("SECRETVAL"), Secret: true}}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+		"  compose:\n    source: generated\n    services:\n      web:\n        image: nginx:1.27\n" +
+		"        config_files:\n          - {repo: conf/app.conf, mount: /etc/app.conf}\n" +
+		"        secret_files: [jwt]\n  secrets: [{name: jwt}]\n"
+	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
+		"helmsman.yaml": yaml,
+		"conf/app.conf": "marker-config\n",
+	})
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "up failed") {
+		t.Fatalf("expected up to fail (write disabled) AFTER materialization, got %v", err)
+	}
+	rd := e.srv.appRunDir(slug)
+	cf, rerr := os.ReadFile(filepath.Join(rd, ".helmsman", "cfg", "web", "0"))
+	if rerr != nil || string(cf) != "marker-config\n" {
+		t.Errorf("config file not materialized: %v %q", rerr, cf)
+	}
+	sf := filepath.Join(rd, ".helmsman", "secrets", "web", "jwt")
+	sb, serr := os.ReadFile(sf)
+	if serr != nil || string(sb) != "SECRETVAL" {
+		t.Errorf("secret file not materialized: %v %q", serr, sb)
+	}
+	if fi, _ := os.Stat(sf); fi != nil && fi.Mode().Perm() != 0o600 {
+		t.Errorf("secret file mode = %v, want 0600", fi.Mode().Perm())
+	}
+	cmp, _ := os.ReadFile(filepath.Join(rd, "docker-compose.yml"))
+	for _, want := range []string{"/etc/app.conf:ro", "/run/secrets/jwt:ro"} {
+		if !strings.Contains(string(cmp), want) {
+			t.Errorf("generated compose missing managed mount %q:\n%s", want, cmp)
+		}
+	}
+}
+
+// A secret_files reference with no stored value blocks the deploy (fail-closed).
+func TestDeploySecretFileWithoutValueBlocks(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+		"  compose:\n    source: generated\n    services:\n      web:\n        image: nginx:1.27\n" +
+		"        secret_files: [jwt]\n  secrets: [{name: jwt}]\n"
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "set it before deploying") {
+		t.Fatalf("a secret_files ref with no value must block the deploy, got %v", err)
 	}
 }
 

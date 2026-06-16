@@ -41,6 +41,14 @@ func toProvisionSpec(d *Definition) provision.Spec {
 		for _, v := range svc.Volumes {
 			s.Volumes = append(s.Volumes, provision.Volume{Name: v.Name, Source: v.Source, Target: v.Target, ReadOnly: v.ReadOnly})
 		}
+		// Managed config-file / secret-file mounts (Helmsman renders the content into
+		// the run dir at deploy; here we emit the read-only bind into the compose).
+		for i, cf := range svc.ConfigFiles {
+			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedConfigPath(name, i), Target: cf.Mount, ReadOnly: true})
+		}
+		for _, sec := range svc.SecretFiles {
+			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedSecretPath(name, sec), Target: "/run/secrets/" + sec, ReadOnly: true})
+		}
 		ekeys := make([]string, 0, len(svc.Env))
 		for k := range svc.Env {
 			ekeys = append(ekeys, k)

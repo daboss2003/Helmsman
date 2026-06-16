@@ -651,6 +651,12 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 		s.gitStore.SetState(bg, slug, "update_blocked")
 		return err
 	}
+	// Render managed config files + secret files into the run dir (the read-only bind
+	// mounts are already in the generated compose).
+	if err := s.materializeManaged(ctx, repo, sha, rd, slug, def); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return err
+	}
 	app := &monitor.App{Project: slug, WorkingDir: rd, ConfigFiles: []string{composeAbs}}
 	if err := s.materializeConfigFiles(app, env); err != nil {
 		s.gitStore.SetState(bg, slug, "update_blocked")
