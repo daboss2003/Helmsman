@@ -65,34 +65,36 @@ func relPath(flag, p string) error {
 	return nil
 }
 
-// cmdInit scaffolds a helmsman.yaml from an existing compose file (`--from-compose`),
-// pointing at it via source: repo_path. The operator then fills in env/secrets/edge.
+// cmdInit scaffolds a generated helmsman.yaml skeleton (Helmsman owns the compose —
+// there is no compose/Dockerfile to point at). The operator edits the seed service
+// (image: or build:) and fills in env/secrets/edge.
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	fromCompose := fs.String("from-compose", "", "scaffold from this compose file (repo-relative path)")
 	slug := fs.String("slug", "", "app slug (immutable after first apply)")
+	image := fs.String("image", "nginx:1.27", "image for the seed service (replace, or switch to build:)")
+	port := fs.Int("port", 0, "internal container port for the seed service (optional)")
 	out := fs.String("out", "helmsman.yaml", "output path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *fromCompose == "" || *slug == "" {
-		return fmt.Errorf("usage: helmsman init --slug <slug> --from-compose <compose.yml> [--out helmsman.yaml]")
+	if *slug == "" {
+		return fmt.Errorf("usage: helmsman init --slug <slug> [--image <image>] [--port <n>] [--out helmsman.yaml]")
 	}
-	// Both paths must be repo-relative + non-traversing — fail fast at scaffold time
-	// rather than relying on the apply-time confinement, and never write outside the
+	// --out must be repo-relative + non-traversing — never write outside the
 	// operator's working directory.
-	if err := relPath("--from-compose", *fromCompose); err != nil {
-		return err
-	}
 	if err := relPath("--out", *out); err != nil {
 		return err
+	}
+	svc := definition.Service{Image: *image}
+	if *port > 0 {
+		svc.Ports = []definition.Port{{Internal: *port}}
 	}
 	d := &definition.Definition{
 		APIVersion: definition.APIVersion,
 		Kind:       "App",
 		Metadata:   definition.Metadata{Slug: *slug},
 		Spec: definition.Spec{
-			Compose: definition.Compose{Source: definition.SourceRepoPath, Path: *fromCompose},
+			Compose: definition.Compose{Source: definition.SourceGenerated, Services: map[string]definition.Service{"web": svc}},
 		},
 	}
 	// Round-trip through Parse so the scaffold is guaranteed valid before it's written.
@@ -109,6 +111,6 @@ func cmdInit(args []string) error {
 	if err := os.WriteFile(*out, canon, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s — edit spec.env / spec.secrets / spec.edge.routes, then `helmsman validate`\n", *out)
+	fmt.Printf("wrote %s — edit spec.compose.services (image: or build:), spec.env / spec.secrets / spec.edge.routes, then `helmsman validate`\n", *out)
 	return nil
 }

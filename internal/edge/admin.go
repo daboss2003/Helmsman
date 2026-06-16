@@ -74,17 +74,29 @@ func (a *Admin) Load(ctx context.Context, configJSON []byte) error {
 // pushes it via the admin API. It retains the last-known-good document so a
 // caller can revert (SBD-8).
 type Reconciler struct {
-	store    *RouteStore
-	admin    *Admin
-	base     BaseConfig
-	log      *slog.Logger
-	mu       sync.Mutex // serializes Reconcile/Revert: read→render→Load→lastGood is atomic
-	lastGood []byte
+	store     *RouteStore
+	admin     *Admin
+	base      BaseConfig
+	log       *slog.Logger
+	certHosts func() []string // cert-only ACME subjects (spec.cert_bindings); may be nil
+	mu        sync.Mutex      // serializes Reconcile/Revert: read→render→Load→lastGood is atomic
+	lastGood  []byte
 }
 
 // NewReconciler builds a Reconciler.
 func NewReconciler(store *RouteStore, admin *Admin, base BaseConfig, log *slog.Logger) *Reconciler {
 	return &Reconciler{store: store, admin: admin, base: base, log: log}
+}
+
+// SetCertHosts registers a provider for cert-only ACME subjects (hostnames Helmsman
+// must obtain a cert for without a proxy route — spec.cert_bindings).
+func (r *Reconciler) SetCertHosts(fn func() []string) { r.certHosts = fn }
+
+func (r *Reconciler) certOnly() []string {
+	if r.certHosts == nil {
+		return nil
+	}
+	return r.certHosts()
 }
 
 // Reconcile renders the current route set and applies it. On a render error
@@ -102,7 +114,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("edge: list routes: %w", err)
 	}
-	cfg, err := Render(r.base, routes)
+	cfg, err := Render(r.base, routes, r.certOnly())
 	if err != nil {
 		return fmt.Errorf("edge: render: %w", err) // unsafe route → never applied
 	}
@@ -121,7 +133,7 @@ func (r *Reconciler) RevertToLastGood(ctx context.Context) error {
 	cfg := r.lastGood
 	if cfg == nil {
 		var err error
-		if cfg, err = Render(r.base, nil); err != nil {
+		if cfg, err = Render(r.base, nil, nil); err != nil {
 			return err
 		}
 	}

@@ -13,15 +13,14 @@ spec:
   compose:
     source: generated
     services:
-      - name: web
+      web:
         image: ghcr.io/acme/web:1.2
-        port: 8080
-        env: [DATABASE_URL]
+        ports:
+          - internal: 8080
+        env:
+          DATABASE_URL: { secret: DATABASE_URL }
   secrets:
     - name: DATABASE_URL
-  env:
-    - name: DATABASE_URL
-      secret: DATABASE_URL
   edge:
     routes:
       - hostname: shop.example.com
@@ -37,6 +36,13 @@ func TestParseHappyPath(t *testing.T) {
 	}
 	if d.Metadata.Slug != "shop" || d.Spec.Compose.Source != "generated" || len(d.Spec.Compose.Services) != 1 {
 		t.Errorf("parsed shape wrong: %+v", d)
+	}
+	web, ok := d.Spec.Compose.Services["web"]
+	if !ok || len(web.Ports) != 1 || web.Ports[0].Internal != 8080 {
+		t.Errorf("web service not parsed: %+v", web)
+	}
+	if ev := web.Env["DATABASE_URL"]; ev.Secret != "DATABASE_URL" {
+		t.Errorf("per-service secret env not parsed: %+v", web.Env)
 	}
 }
 
@@ -54,8 +60,8 @@ func TestParseRejectsBadEnvelope(t *testing.T) {
 	}
 }
 
-// The parser-differential defenses: anchors, aliases, merge keys, duplicate keys,
-// unknown keys, and a second document are all hard-rejected.
+// Parser-differential defenses: anchors, aliases, merge keys, duplicate keys, unknown
+// keys, and a second document are hard-rejected (independent of compose content).
 func TestParseRejectsParserDifferentialConstructs(t *testing.T) {
 	cases := map[string]string{
 		"anchor+alias": `apiVersion: helmsman/v1
@@ -63,7 +69,7 @@ kind: App
 metadata: &m
   slug: shop
 spec:
-  compose: { source: inline, inline: "x" }
+  compose: { source: generated, services: {web: {image: nginx:1}} }
 extra: *m`,
 		"merge key": `apiVersion: helmsman/v1
 kind: App
@@ -71,20 +77,20 @@ metadata:
   slug: shop
   <<: {kind: Host}
 spec:
-  compose: { source: inline, inline: "x" }`,
+  compose: { source: generated, services: {web: {image: nginx:1}} }`,
 		"duplicate key": `apiVersion: helmsman/v1
 kind: App
 kind: Host
 metadata: { slug: shop }
 spec:
-  compose: { source: inline, inline: "x" }`,
+  compose: { source: generated, services: {web: {image: nginx:1}} }`,
 		"unknown key": `apiVersion: helmsman/v1
 kind: App
 metadata: { slug: shop }
 spec:
-  compose: { source: inline, inline: "x" }
+  compose: { source: generated, services: {web: {image: nginx:1}} }
   danger: true`,
-		"second document": goodDef + "\n---\napiVersion: helmsman/v1\nkind: App\nmetadata: {slug: evil}\nspec: {compose: {source: inline, inline: x}}\n",
+		"second document": goodDef + "\n---\napiVersion: helmsman/v1\nkind: App\nmetadata: {slug: evil}\nspec: {compose: {source: generated, services: {web: {image: nginx:1}}}}\n",
 	}
 	for name, src := range cases {
 		if _, err := Parse([]byte(src)); err == nil {
@@ -93,50 +99,65 @@ spec:
 	}
 }
 
-func TestParseComposeOneOf(t *testing.T) {
+// Helmsman owns the compose: legacy repo_path/inline, compose.path, an unknown source,
+// and a service-less generated compose are all rejected.
+func TestParseRejectsLegacyComposeSources(t *testing.T) {
 	bad := map[string]string{
-		"generated+path": `apiVersion: helmsman/v1
+		"inline source": `apiVersion: helmsman/v1
+kind: App
+metadata: {slug: shop}
+spec:
+  compose: { source: inline, inline: "services: {}" }`,
+		"repo_path source": `apiVersion: helmsman/v1
+kind: App
+metadata: {slug: shop}
+spec:
+  compose: { source: repo_path, path: docker-compose.yml }`,
+		"compose.path set": `apiVersion: helmsman/v1
 kind: App
 metadata: {slug: shop}
 spec:
   compose:
     source: generated
     path: docker-compose.yml
-    services: [{name: web, image: nginx, port: 80}]`,
-		"repo_path without path": `apiVersion: helmsman/v1
-kind: App
-metadata: {slug: shop}
-spec:
-  compose: { source: repo_path }`,
+    services: {web: {image: nginx:1}}`,
 		"unknown source": `apiVersion: helmsman/v1
 kind: App
 metadata: {slug: shop}
 spec:
-  compose: { source: magic }`,
+  compose: { source: magic, services: {web: {image: nginx:1}} }`,
+		"no services": `apiVersion: helmsman/v1
+kind: App
+metadata: {slug: shop}
+spec:
+  compose: { source: generated }`,
 	}
 	for name, src := range bad {
 		if _, err := Parse([]byte(src)); err == nil {
-			t.Errorf("%s: oneOf must be rejected", name)
+			t.Errorf("%s: must be rejected (Helmsman owns the compose; generated-only)", name)
 		}
 	}
 }
 
 func TestParseRejectsControlPlanePortAndBadRefs(t *testing.T) {
 	cases := map[string]string{
-		"control-plane service port": strings.Replace(goodDef, "port: 8080\n        env", "port: 9000\n        env", 1),
+		"control-plane service port": strings.Replace(goodDef, "internal: 8080", "internal: 9000", 1),
 		"undeclared secret ref": `apiVersion: helmsman/v1
 kind: App
 metadata: {slug: shop}
 spec:
-  compose: { source: inline, inline: "x" }
-  env:
-    - name: TOK
-      secret: NOPE`,
+  compose:
+    source: generated
+    services:
+      web:
+        image: nginx:1
+        env:
+          TOK: { secret: NOPE }`,
 		"edge route literal (no service)": `apiVersion: helmsman/v1
 kind: App
 metadata: {slug: shop}
 spec:
-  compose: { source: inline, inline: "x" }
+  compose: { source: generated, services: {web: {image: nginx:1}} }
   edge:
     routes:
       - hostname: shop.example.com
@@ -149,8 +170,7 @@ spec:
 	}
 }
 
-// Canonical re-marshal round-trips and re-parses cleanly (write-back is always the
-// typed render, never operator bytes).
+// Canonical re-marshal round-trips and re-parses cleanly.
 func TestCanonicalRoundTrip(t *testing.T) {
 	d, err := Parse([]byte(goodDef))
 	if err != nil {

@@ -232,10 +232,59 @@ func ValidateBytes(raw []byte, env Env, runDir string, opts Options) Result {
 				for _, v := range checkPorts(name, field.val) {
 					add(v)
 				}
+			case "build":
+				for _, v := range checkBuild(name, field.val, conf) {
+					add(v)
+				}
 			}
 		}
 	}
 	return res
+}
+
+// checkBuild confines a service's `build:` context (and Dockerfile) under run_dir,
+// the same canonicalize-then-Rel discipline as bind mounts. Short form is a scalar
+// context; long form is {context, dockerfile, ...}. The Dockerfile is resolved
+// relative to the context, so context/dockerfile must also stay under run_dir — this
+// blocks a build that reads or sends host files outside the app's checkout (plan §5.6).
+func checkBuild(svc string, node *yaml.Node, c confiner) []Violation {
+	var vs []Violation
+	bad := func(line int, msg string) {
+		vs = append(vs, Violation{Service: svc, Key: "build", Message: msg, Line: line})
+	}
+	switch node.Kind {
+	case yaml.ScalarNode: // short form: build: <context>
+		if msg := c.bind(node.Value); msg != "" {
+			bad(node.Line, msg)
+		}
+	case yaml.MappingNode:
+		context, dockerfile := ".", ""
+		ctxLine, dfLine := node.Line, node.Line
+		for _, f := range pairs(node) {
+			switch f.key.Value {
+			case "context":
+				if f.val.Value != "" {
+					context = f.val.Value
+				}
+				ctxLine = f.val.Line
+			case "dockerfile":
+				dockerfile = f.val.Value
+				dfLine = f.val.Line
+			}
+		}
+		if msg := c.bind(context); msg != "" {
+			bad(ctxLine, msg)
+		}
+		if dockerfile != "" {
+			// The Dockerfile path is relative to the context; confine context/dockerfile.
+			if msg := c.bind(filepath.Join(context, dockerfile)); msg != "" {
+				bad(dfLine, "build dockerfile "+quote(dockerfile)+": "+msg)
+			}
+		}
+	default:
+		bad(node.Line, "build must be a context path or a mapping")
+	}
+	return vs
 }
 
 // resolveAliases replaces every YAML alias node with a deep copy of its target,

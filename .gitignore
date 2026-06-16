@@ -17,3 +17,6 @@
 
 # APT repo output from deploy/apt/publish.sh (pushed to the gh-pages branch, not main)
 /public/
+
+# Local working plan (never committed)
+/M20_PLAN.md

@@ -110,15 +110,10 @@ X-Helmsman-Signature: hex(HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;nonce&gt;")
         <input type="text" name="repo_url" value="{{.RepoURL}}" placeholder="https://github.com/org/repo.git" required></label>
       <label>Ref <span class="muted">(fully-qualified)</span>
         <input type="text" name="git_ref" value="{{.Ref}}" placeholder="refs/heads/main"></label>
-      <label>Compose path <span class="muted">(relative to the repo root)</span>
-        <input type="text" name="compose_path" value="{{.ComposePath}}" placeholder="docker-compose.yml"></label>
-      <label>Dockerfile path <span class="muted">(optional; relative to repo root)</span>
-        <input type="text" name="dockerfile_path" value="{{.DockerfilePath}}" placeholder=""></label>
-      <label>Build policy
-        <select name="build_policy">
-          <option value="never" {{if eq .BuildPolicy "never"}}selected{{end}}>never (pull/use existing images)</option>
-          <option value="on_missing" {{if eq .BuildPolicy "on_missing"}}selected{{end}}>on_missing (build on-box if needed)</option>
-        </select></label>
+      <p class="muted">Helmsman reads a <code>helmsman.yaml</code> from your repo and generates the
+        compose (and the Dockerfile, from each service's <code>build:</code>). If the repo has no
+        <code>helmsman.yaml</code>, Helmsman scaffolds a sensible default from the detected stack. You never
+        commit a <code>docker-compose.yml</code>.</p>
       <label class="check"><input type="checkbox" name="auto_deploy" {{if .AutoDeploy}}checked{{end}}> Auto-deploy on webhook (default off)</label>
       <fieldset>
         <legend>Credentials</legend>

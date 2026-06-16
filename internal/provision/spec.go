@@ -43,17 +43,53 @@ type Volume struct {
 	ReadOnly bool   `json:"read_only"`
 }
 
-// Service is one generated service. Only safe fields exist here by construction.
+// EnvVar is a generated service's env entry: a literal Value XOR a Secret reference.
+// A secret renders as ${Secret} (resolved from the encrypted store's 0600 --env-file
+// at deploy); a literal renders inline. Exactly one of Value/Secret.
+type EnvVar struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	Secret string `json:"secret"`
+}
+
+// Service is one generated service. Only safe fields exist here by construction. A
+// service is `Image` (pull) XOR `Build` (Helmsman generates the Dockerfile).
 type Service struct {
 	Name        string   `json:"name"`
 	Image       string   `json:"image"`
+	Build       *Build   `json:"build,omitempty"`
 	Ports       []Port   `json:"ports"`
 	Volumes     []Volume `json:"volumes"`
-	EnvKeys     []string `json:"env_keys"`    // names only; values live in the encrypted store
+	Env         []EnvVar `json:"env"`         // per-service env: literal XOR secret ref
 	Command     []string `json:"command"`     // exec form (no shell)
 	Healthcheck []string `json:"healthcheck"` // exec form, e.g. ["curl","-f","http://localhost/health"]
 	Restart     string   `json:"restart"`
 	DependsOn   []string `json:"depends_on"` // sibling service names
+}
+
+// Build marks a service whose image Helmsman BUILDS from a generated Dockerfile.
+// Context is the build context (run_dir-relative; "." = the app's checkout) and
+// Dockerfile is the run_dir-relative path of the Helmsman-generated Dockerfile. Both
+// stay under the run dir — the §5.6 validator re-confines the context at deploy time.
+type Build struct {
+	Context    string `json:"context"`
+	Dockerfile string `json:"dockerfile"`
+}
+
+func (b Build) validate() error {
+	for _, p := range []struct{ what, v string }{{"build context", b.Context}, {"build dockerfile", b.Dockerfile}} {
+		v := p.v
+		if v == "" {
+			return fmt.Errorf("%s is required", p.what)
+		}
+		if strings.ContainsAny(v, "\x00\n:") || strings.HasPrefix(v, "/") || strings.HasPrefix(v, "~") {
+			return fmt.Errorf("%s %q must be a relative path under the app directory (no ':')", p.what, v)
+		}
+		if v == ".." || strings.HasPrefix(v, "../") || strings.Contains(v, "/../") || strings.HasSuffix(v, "/..") {
+			return fmt.Errorf("%s %q must not traverse outside the app directory", p.what, v)
+		}
+	}
+	return nil
 }
 
 // Spec is the Mode-1 form, the source of truth for a generated app.
@@ -93,7 +129,14 @@ func (s Spec) Validate() error {
 }
 
 func (svc Service) validate(siblings map[string]bool) error {
-	if err := validateImageRef(svc.Image); err != nil {
+	if svc.Build != nil {
+		if svc.Image != "" {
+			return fmt.Errorf("a service sets both image and build (pick one)")
+		}
+		if err := svc.Build.validate(); err != nil {
+			return err
+		}
+	} else if err := validateImageRef(svc.Image); err != nil {
 		return err
 	}
 	if !validRestart[svc.Restart] {
@@ -112,9 +155,19 @@ func (svc Service) validate(siblings map[string]bool) error {
 			return err
 		}
 	}
-	for _, k := range svc.EnvKeys {
-		if !envKeyRe.MatchString(k) {
-			return fmt.Errorf("env key %q is invalid", k)
+	for _, e := range svc.Env {
+		if !envKeyRe.MatchString(e.Key) {
+			return fmt.Errorf("env key %q is invalid", e.Key)
+		}
+		if e.Value != "" && e.Secret != "" {
+			return fmt.Errorf("env %q sets both value and secret", e.Key)
+		}
+		if e.Secret != "" && !envKeyRe.MatchString(e.Secret) {
+			return fmt.Errorf("env %q secret name %q is invalid", e.Key, e.Secret)
+		}
+		// A literal must not smuggle a compose ${...} interpolation or control chars.
+		if strings.Contains(e.Value, "${") || strings.ContainsAny(e.Value, "\x00\n") {
+			return fmt.Errorf("env %q literal value is unsafe", e.Key)
 		}
 	}
 	if err := validateExec(svc.Command); err != nil {

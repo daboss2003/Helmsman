@@ -217,3 +217,30 @@ func TestRejectsReservedHostPortsIPv6(t *testing.T) {
 		t.Error("IPv6 host-IP :8443 publish should be allowed")
 	}
 }
+
+// §5.6 build-context confinement: a Helmsman-generated build directive (context "."
+// + a run_dir-relative Dockerfile) passes; an abs/traversing context or Dockerfile is
+// rejected so a build can't read or send host files outside the app's checkout.
+func TestBuildContextConfinement(t *testing.T) {
+	ok := []string{
+		"services:\n  web:\n    build:\n      context: .\n      dockerfile: .helmsman/Dockerfile.web\n",
+		"services:\n  web:\n    build: ./sub\n",
+	}
+	for _, y := range ok {
+		if r := ValidateBytes([]byte(y), Env{}, "/srv/app", Options{}); !r.OK() {
+			t.Errorf("a confined build context must pass: %v\n%s", r.Violations, y)
+		}
+	}
+	bad := map[string]string{
+		"abs context":          "services:\n  web:\n    build:\n      context: /etc\n",
+		"traversal context":    "services:\n  web:\n    build:\n      context: ../../etc\n",
+		"traversal dockerfile": "services:\n  web:\n    build:\n      context: .\n      dockerfile: ../../../etc/passwd\n",
+		"short traversal":      "services:\n  web:\n    build: ../../etc\n",
+		"docker.sock context":  "services:\n  web:\n    build: /var/run\n",
+	}
+	for name, y := range bad {
+		if ValidateBytes([]byte(y), Env{}, "/srv/app", Options{}).OK() {
+			t.Errorf("%s: build context must be rejected", name)
+		}
+	}
+}

@@ -23,26 +23,31 @@
   </section>
 
   <section class="panel">
-    <h2>Script</h2>
-    <form method="post" action="/apps/{{pathEscape .Project}}/setup" class="stack">
+    <h2>Script <span class="muted">(declared in <code>helmsman.yaml</code> · <code>spec.setup</code>)</span></h2>
+    <p class="muted">The setup script is part of your <code>helmsman.yaml</code> — you don't type it here.
+      Upload your <code>helmsman.yaml</code> to sync <code>spec.setup</code> into Helmsman; running it is a
+      separate, confirmed step below.</p>
+    {{if .Script}}
+    <table class="grid"><tbody>
+      <tr><td>Trigger</td><td class="mono">{{.Trigger}}</td></tr>
+      {{if .Produces}}<tr><td>Produces</td><td class="mono">{{.Produces}}</td></tr>{{end}}
+    </tbody></table>
+    <pre class="mono" aria-label="setup script (read-only)">{{.Script}}</pre>
+    {{else}}
+    <p class="muted">No setup script synced for this app.</p>
+    {{end}}
+    <form method="post" action="/apps/{{pathEscape .Project}}/setup/sync" class="stack" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <label>Script <span class="muted">(runs with /bin/sh in the jail)</span>
-        <textarea name="script" rows="12" class="mono" spellcheck="false" placeholder="#!/bin/sh&#10;# bootstrap app config/secrets into /work">{{.Script}}</textarea></label>
-      <label>Trigger
-        <select name="trigger">
-          <option value="never" {{if eq .Trigger "never"}}selected{{end}}>never</option>
-          <option value="on_demand" {{if eq .Trigger "on_demand"}}selected{{end}}>on_demand</option>
-          <option value="on_first_deploy" {{if eq .Trigger "on_first_deploy"}}selected{{end}}>on_first_deploy</option>
-          <option value="before_each_deploy" {{if eq .Trigger "before_each_deploy"}}selected{{end}}>before_each_deploy</option>
-        </select></label>
-      <label>Produces <span class="muted">(one per line: <code>env:NAME</code> or <code>file:relpath</code> — only declared outputs are captured)</span>
-        <textarea name="produces" rows="3" class="mono" spellcheck="false" placeholder="env:DB_PASSWORD&#10;file:certs/tls.pem">{{.Produces}}</textarea></label>
+      <label>helmsman.yaml <span class="muted">(only <code>spec.setup</code> is read)</span>
+        <input type="file" name="definition" accept=".yaml,.yml" required></label>
       <div class="queue-actions">
-        <button type="submit">Save script</button>
-        <form method="post" action="/apps/{{pathEscape .Project}}/setup/delete" class="inline" data-confirm="Delete the setup script for {{.Project}}?">
+        <button type="submit">Sync from helmsman.yaml</button>
+        {{if .Script}}
+        <form method="post" action="/apps/{{pathEscape .Project}}/setup/delete" class="inline" data-confirm="Delete the synced setup script for {{.Project}}?">
           <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
           <button type="submit" class="link">delete</button>
         </form>
+        {{end}}
       </div>
     </form>
   </section>

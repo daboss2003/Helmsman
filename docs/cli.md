@@ -42,7 +42,7 @@ Every command is in exactly one of two planes. **This distinction is a safety pr
 
 | Plane | What it may do | Resource floor | Commands |
 |---|---|---|---|
-| **Read plane** | Parse, validate, diff, fetch git objects, list, read logs, scaffold — **touches nothing live** (no `docker compose`, no build, no config re-render) | **Safe below the §0 1 GB floor** | `validate`, `plan` / `diff`, `status`, `fetch`, `secret list`, `logs`, `init --from-compose`, `schema` |
+| **Read plane** | Parse, validate, diff, fetch git objects, list, read logs, scaffold — **touches nothing live** (no `docker compose`, no build, no config re-render) | **Safe below the §0 1 GB floor** | `validate`, `plan` / `diff`, `status`, `fetch`, `secret list`, `logs`, `init`, `schema` |
 | **Write plane** | Mutate the running system — apply a definition, deploy a commit, restart, roll back, set/remove a secret value | **Gated: ≥ 1 GB RAM + global one-docker-child semaphore + memory-headroom floor; one service at a time** | `apply`, `deploy` / `promote --sha`, `restart`, `def rollback`, `secret set` / `secret rm` |
 | **Root-of-trust** | Generate/verify the credentials and keys in the SSH-edited config; rebuild the edge base | n/a (local crypto / config) | `hash-password`, `gen-key`, `gen-totp`, `verify-key`, `edge restore-default` |
 
@@ -294,20 +294,17 @@ $ helmsman logs --app billing-api --service api -f
 2026-06-13T10:02:11Z api  health: all dependencies up
 ```
 
-#### `helmsman init --from-compose`
+#### `helmsman init`
 
-- **Purpose:** **scaffold a `helmsman.yaml`** from an existing compose file so you can adopt an app declaratively without hand-writing the envelope. Produces a starting definition you then review, commit, and `apply`.
-- **Usage:** `helmsman init --from-compose docker-compose.yml [--slug <slug>]`
-- **Key flags:** `--from-compose <path>`; `--slug <slug>` (the immutable app slug; must match `^[a-z][a-z0-9-]{1,30}$`).
+- **Purpose:** **scaffold a generated `helmsman.yaml`** skeleton (one service) you then edit — Helmsman owns the compose, so there's no compose/Dockerfile to point at.
+- **Usage:** `helmsman init --slug <slug> [--image <image>] [--port <n>] [--out helmsman.yaml]`
+- **Key flags:** `--slug <slug>` (the immutable app slug; must match `^[a-z][a-z0-9-]{1,30}$`); `--image` (seed image, or switch the service to `build:`); `--port` (optional internal port).
 - **Plane:** read (writes only the scaffold file you asked for — no live change).
-- **Notes:** the scaffold declares secret **names** (by reference), never values; you fill values later with `secret set`.
+- **Notes:** edit `spec.compose.services` (set `image:` or `build:`), then add env / secrets / edge routes and `helmsman validate`.
 
 ```console
-$ helmsman init --from-compose docker-compose.yml --slug billing-api
-Wrote helmsman.yaml (apiVersion: helmsman/v1, kind: App, slug: billing-api)
-  spec.compose.repo_path: docker-compose.yml
-  spec.secrets: [DB_PASSWORD]   # declared by name; set the value with `helmsman secret set`
-Review it, commit it, then: helmsman validate -f helmsman.yaml
+$ helmsman init --slug billing-api --image nginx:1.27 --port 8080
+wrote helmsman.yaml — edit spec.compose.services (image: or build:), spec.env / spec.secrets / spec.edge.routes, then `helmsman validate`
 ```
 
 #### `helmsman schema`
@@ -473,7 +470,7 @@ This is the canonical workflow for an operator who lives in the terminal. **You 
 
 ```console
 # In your app repo, on your workstation:
-$ helmsman init --from-compose docker-compose.yml --slug billing-api   # scaffold (or hand-write)
+$ helmsman init --slug billing-api   # scaffold a generated helmsman.yaml (or hand-write)
 $ git add helmsman.yaml docker-compose.yml
 $ git commit -m "Add Helmsman definition + compose"
 $ git push

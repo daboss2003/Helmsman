@@ -15,7 +15,6 @@ func TestValidateGeneratedHappyPath(t *testing.T) {
 }
 
 func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
-	// The generated compose must pass §5.6 (no dangerous keys exist by construction).
 	d := base()
 	raw, err := ComposeBytes(d)
 	if err != nil {
@@ -26,45 +25,82 @@ func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
 	}
 }
 
-func TestValidateInlineDangerousRejectedBy56(t *testing.T) {
-	src := `apiVersion: helmsman/v1
-kind: App
-metadata: {slug: shop}
-spec:
-  compose:
-    source: inline
-    inline: |
-      services:
-        web:
-          image: nginx
-          privileged: true
-`
-	d, err := Parse([]byte(src))
+// A build service generates a compose `build:` directive pointing at the Helmsman-
+// generated Dockerfile path; it must NOT emit an image for that service.
+func TestComposeBytesGeneratesBuild(t *testing.T) {
+	d := base()
+	web := d.Spec.Compose.Services["web"]
+	web.Image = ""
+	web.Build = &Build{Language: "node"}
+	web.Env = nil
+	d.Spec.Compose.Services["web"] = web
+	raw, err := ComposeBytes(d)
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatalf("a build service must generate: %v", err)
 	}
-	// The envelope/oneOf accept it, but the §5.6 chokepoint must reject privileged.
-	if err := Validate(d, "/run/app", compose.Env{}, nil); err == nil {
-		t.Error("an inline compose with privileged:true must be rejected by §5.6")
+	out := string(raw)
+	if !strings.Contains(out, "build:") || !strings.Contains(out, ".helmsman/Dockerfile.web") {
+		t.Errorf("generated compose must carry the build directive:\n%s", out)
+	}
+	if strings.Contains(out, "image:") {
+		t.Errorf("a build service must not emit image:\n%s", out)
 	}
 }
 
-func TestValidateInlinePortPublishRejected(t *testing.T) {
-	src := `apiVersion: helmsman/v1
+const stackDef = `apiVersion: helmsman/v1
 kind: App
-metadata: {slug: shop}
+metadata: {slug: credlock}
 spec:
   compose:
-    source: inline
-    inline: |
-      services:
-        web:
-          image: nginx
-          ports: ["80:80"]
+    source: generated
+    services:
+      api:
+        image: ghcr.io/acme/api:1
+        ports:
+          - internal: 3000
+        env:
+          NODE_ENV: production
+          DB_PASSWORD: { secret: DB_PASSWORD }
+        depends_on: [emqx]
+      emqx:
+        image: emqx/emqx:5.8.3
+        ports:
+          - internal: 8883
+            publish: true
+            public: true
+          - internal: 18083
+        volumes:
+          - name: emqx_data
+            target: /opt/emqx/data
+  secrets:
+    - name: DB_PASSWORD
+  edge:
+    routes:
+      - hostname: api.example.com
+        service: api
+        port: 3000
 `
-	d, _ := Parse([]byte(src))
-	if err := Validate(d, "/run/app", compose.Env{}, nil); err == nil {
-		t.Error("an inline compose grabbing host :80 must be rejected by §5.6 (edge owns it)")
+
+// A multi-service stack (the CredLock shape) parses, and Helmsman GENERATES a compose
+// carrying the public port publish, the named volume, the inline literal env, and the
+// per-service secret reference (KEY=${NAME}).
+func TestGeneratedMultiServiceStack(t *testing.T) {
+	d, err := Parse([]byte(stackDef))
+	if err != nil {
+		t.Fatalf("multi-service stack rejected: %v", err)
+	}
+	if len(d.Spec.Compose.Services) != 2 {
+		t.Fatalf("want 2 services, got %d", len(d.Spec.Compose.Services))
+	}
+	raw, err := ComposeBytes(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	for _, want := range []string{"8883:8883", "emqx_data", "NODE_ENV=production", "DB_PASSWORD=${DB_PASSWORD}"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated compose missing %q:\n%s", want, out)
+		}
 	}
 }
 

@@ -181,6 +181,25 @@ func (s *Store) CertBindings(project string) ([]CertBinding, error) {
 	return out, rows.Err()
 }
 
+// AllCertHostnames returns the distinct hostnames across all apps' cert bindings —
+// the cert-only ACME subjects the managed edge must issue (spec.cert_bindings).
+func (s *Store) AllCertHostnames() []string {
+	rows, err := s.db.Query(`SELECT DISTINCT hostname FROM app_cert_bindings ORDER BY hostname`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return out
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
 // SaveCertBinding upserts a cert binding (validating the sync dir is confinable).
 func (s *Store) SaveCertBinding(ctx context.Context, project string, cb CertBinding) error {
 	if !cfgfile.ValidKey(cb.BindingName) {

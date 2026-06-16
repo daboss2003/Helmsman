@@ -320,7 +320,9 @@ func (s *Server) buildMode1Spec(r *http.Request) (provision.Spec, []envstore.Ent
 	svc.Volumes = parseVolumeLines(r.PostFormValue("volumes"))
 	literals := parseEnvLiterals(r.PostFormValue("env"))
 	for _, e := range literals {
-		svc.EnvKeys = append(svc.EnvKeys, e.Key)
+		// The portal stores values in the encrypted env store; the generated compose
+		// references them by name (KEY=${KEY}) — emitted via the secret-ref form.
+		svc.Env = append(svc.Env, provision.EnvVar{Key: e.Key, Secret: e.Key})
 	}
 	if hc := strings.Fields(r.PostFormValue("healthcheck")); len(hc) > 0 {
 		svc.Healthcheck = hc

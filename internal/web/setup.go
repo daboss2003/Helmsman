@@ -14,6 +14,7 @@ import (
 
 	"github.com/daboss2003/Helmsman/internal/audit"
 	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/envstore"
 	"github.com/daboss2003/Helmsman/internal/sandbox"
 	"github.com/daboss2003/Helmsman/internal/secret"
@@ -128,51 +129,59 @@ func (s *Server) handleSetupGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleSetupSave(w http.ResponseWriter, r *http.Request) {
+// handleSetupSync ingests the setup script from an uploaded helmsman.yaml — the setup
+// script is DECLARED in the definition (spec.setup), never typed into the dashboard.
+// The file goes through the hardened definition parser; only spec.setup is extracted
+// and persisted (encrypted) into the setup store. Running it is still a separate,
+// confirm-token-gated step.
+func (s *Server) handleSetupSync(w http.ResponseWriter, r *http.Request) {
 	if s.setupStore == nil {
 		http.Error(w, "setup unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	_ = r.ParseForm()
 	project := r.PathValue("project")
 	if s.cfg.IsProtectedProject(project) {
 		http.Error(w, "protected project", http.StatusForbidden)
 		return
 	}
-	ss := sandbox.ScriptSet{
-		Script:   r.PostFormValue("script"),
-		Trigger:  r.PostFormValue("trigger"),
-		Produces: splitNonEmptyLines(r.PostFormValue("produces")),
+	if err := r.ParseMultipartForm(512 << 10); err != nil {
+		http.Error(w, "attach your helmsman.yaml", http.StatusBadRequest)
+		return
 	}
-	// auto-setup + git.auto_deploy is a hard reject (plan §7).
+	file, _, err := r.FormFile("definition")
+	if err != nil {
+		http.Error(w, "attach your helmsman.yaml (field 'definition')", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, 512<<10))
+	if err != nil {
+		http.Error(w, "could not read the upload", http.StatusBadRequest)
+		return
+	}
+	d, err := definition.Parse(raw)
+	if err != nil {
+		http.Error(w, "helmsman.yaml rejected: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if d.Spec.Setup == nil {
+		http.Error(w, "the uploaded helmsman.yaml has no spec.setup", http.StatusUnprocessableEntity)
+		return
+	}
+	// auto-setup + git.auto_deploy is a hard reject (plan §7); setupStore.Save re-validates.
 	autoDeploy := false
 	if s.gitStore != nil {
 		if cfg, ok, _ := s.gitStore.Get(project); ok {
 			autoDeploy = cfg.AutoDeploy
 		}
 	}
+	ss := sandbox.ScriptSet{Script: d.Spec.Setup.Script, Trigger: d.Spec.Setup.Trigger, Produces: d.Spec.Setup.Produces}
 	if err := s.setupStore.Save(r.Context(), project, ss, autoDeploy); err != nil {
 		http.Error(w, "setup rejected: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "setup_save", Target: project, Outcome: audit.OK, Level: audit.Security})
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "setup_sync", Target: project, Outcome: audit.OK, Level: audit.Security})
 	http.Redirect(w, r, "/apps/"+project+"/setup", http.StatusSeeOther)
-}
-
-// handleSetupPlan is the STATIC analysis preview — it NEVER executes anything.
-func (s *Server) handleSetupPlan(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	p := sandbox.Plan(r.PostFormValue("script"))
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	fmt.Fprintf(w, "static analysis (no execution): %d bytes, %d lines\n", p.Bytes, p.Lines)
-	if len(p.Findings) == 0 {
-		fmt.Fprint(w, "no notable patterns.\n")
-		return
-	}
-	for _, f := range p.Findings {
-		fmt.Fprintf(w, "  - %s\n", f)
-	}
 }
 
 func (s *Server) handleSetupDelete(w http.ResponseWriter, r *http.Request) {
@@ -477,14 +486,4 @@ func upsertSecret(entries []envstore.Entry, key, value string) []envstore.Entry 
 		}
 	}
 	return append(out, envstore.Entry{Key: key, Value: secret.New(value), Secret: true})
-}
-
-func splitNonEmptyLines(s string) []string {
-	var out []string
-	for _, line := range strings.Split(s, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			out = append(out, line)
-		}
-	}
-	return out
 }

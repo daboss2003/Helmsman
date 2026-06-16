@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git --no-pager diff main...HEAD -- internal/web/gitops_build.go)"
+    ]
+  }
+}

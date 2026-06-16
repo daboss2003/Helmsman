@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/daboss2003/Helmsman/internal/builder"
 	"github.com/daboss2003/Helmsman/internal/compose"
 	"github.com/daboss2003/Helmsman/internal/edge"
 	"github.com/daboss2003/Helmsman/internal/provision"
@@ -21,38 +22,62 @@ import (
 // service can never publish a port (Publish stays false).
 func toProvisionSpec(d *Definition) provision.Spec {
 	ps := provision.Spec{Slug: d.Metadata.Slug}
-	for _, svc := range d.Spec.Compose.Services {
+	for _, name := range d.Spec.serviceNames() { // sorted → deterministic compose
+		svc := d.Spec.Compose.Services[name]
 		s := provision.Service{
-			Name: svc.Name, Image: svc.Image, EnvKeys: svc.Env,
+			Name:    name,
 			Command: svc.Command, Healthcheck: svc.Healthcheck, Restart: svc.Restart, DependsOn: svc.DependsOn,
 		}
-		if svc.Port > 0 {
-			s.Ports = []provision.Port{{Internal: svc.Port}} // internal only, never published
+		if svc.Build != nil {
+			// Helmsman generates the Dockerfile into the run dir at deploy; the compose
+			// build context is the app's checkout (".").
+			s.Build = &provision.Build{Context: ".", Dockerfile: builder.DockerfilePath(name)}
+		} else {
+			s.Image = svc.Image
+		}
+		for _, p := range svc.Ports {
+			s.Ports = append(s.Ports, provision.Port{Internal: p.Internal, Publish: p.Publish, Public: p.Public})
 		}
 		for _, v := range svc.Volumes {
 			s.Volumes = append(s.Volumes, provision.Volume{Name: v.Name, Source: v.Source, Target: v.Target, ReadOnly: v.ReadOnly})
+		}
+		// Managed config-file / secret-file mounts (Helmsman renders the content into
+		// the run dir at deploy; here we emit the read-only bind into the compose).
+		for i, cf := range svc.ConfigFiles {
+			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedConfigPath(name, i), Target: cf.Mount, ReadOnly: true})
+		}
+		for _, sec := range svc.SecretFiles {
+			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedSecretPath(name, sec), Target: "/run/secrets/" + sec, ReadOnly: true})
+		}
+		for _, cb := range svc.CertBindings {
+			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedCertDir(name, cb.Hostname), Target: cb.Mount, ReadOnly: true})
+		}
+		ekeys := make([]string, 0, len(svc.Env))
+		for k := range svc.Env {
+			ekeys = append(ekeys, k)
+		}
+		sort.Strings(ekeys)
+		for _, k := range ekeys {
+			ev := svc.Env[k]
+			s.Env = append(s.Env, provision.EnvVar{Key: k, Value: ev.Value, Secret: ev.Secret})
 		}
 		ps.Services = append(ps.Services, s)
 	}
 	return ps
 }
 
-// ComposeBytes returns the compose document this definition would deploy: generated
-// from the typed services, or the inline literal. repo_path is resolved from the
-// pinned commit at apply time (it needs the checkout), so it is not produced here.
+// ComposeBytes returns the compose document this definition would deploy: ALWAYS
+// generated from the typed services — Helmsman owns the compose. There is no raw
+// (repo_path/inline) source.
 func ComposeBytes(d *Definition) ([]byte, error) {
-	switch d.Spec.Compose.Source {
-	case SourceGenerated:
-		ps := toProvisionSpec(d)
-		if err := ps.Validate(); err != nil { // M8 field-level gate before generation
-			return nil, err
-		}
-		return provision.Generate(ps)
-	case SourceInline:
-		return []byte(d.Spec.Compose.Inline), nil
-	default:
-		return nil, fmt.Errorf("compose source %q is resolved from the repo at apply time", d.Spec.Compose.Source)
+	if src := d.Spec.Compose.Source; src != "" && src != SourceGenerated {
+		return nil, fmt.Errorf("compose.source %q is not supported — Helmsman generates the compose", src)
 	}
+	ps := toProvisionSpec(d)
+	if err := ps.Validate(); err != nil { // field-level gate before generation
+		return nil, err
+	}
+	return provision.Generate(ps)
 }
 
 // Validate runs the full reconcile validation: §5.6 over the (generated or inline)
@@ -60,24 +85,22 @@ func ComposeBytes(d *Definition) ([]byte, error) {
 // literal dial targets). Returns the first violation. env is for inline ${VAR}
 // resolution; runDir is the app run dir bind mounts must stay under.
 func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []string) error {
-	if d.Spec.Compose.Source != SourceRepoPath {
-		raw, err := ComposeBytes(d)
-		if err != nil {
-			return fmt.Errorf("compose: %w", err)
-		}
-		if res := compose.ValidateBytes(raw, env, runDir, compose.Options{ProtectedPaths: protectedPaths}); !res.OK() {
-			return fmt.Errorf("§5.6 compose validation failed: %s", res.Violations[0].String())
-		}
+	raw, err := ComposeBytes(d)
+	if err != nil {
+		return fmt.Errorf("compose: %w", err)
+	}
+	if res := compose.ValidateBytes(raw, env, runDir, compose.Options{ProtectedPaths: protectedPaths}); !res.OK() {
+		return fmt.Errorf("§5.6 compose validation failed: %s", res.Violations[0].String())
 	}
 	// §6.2 edge gate: each route's upstream is a selector (service:port) resolved
 	// against THIS app's containers — validated like any Layer-1 route (no
 	// control-plane port, no loopback, FQDN host).
 	declared := map[string]bool{}
-	for _, svc := range d.Spec.Compose.Services {
-		declared[svc.Name] = true
+	for name := range d.Spec.Compose.Services {
+		declared[name] = true
 	}
 	for _, r := range d.Spec.Edge.Routes {
-		if d.Spec.Compose.Source == SourceGenerated && !declared[r.Service] {
+		if !declared[r.Service] {
 			return fmt.Errorf("edge route %q targets unknown service %q", r.Hostname, r.Service)
 		}
 		port := r.Port
