@@ -111,6 +111,6 @@ func cmdInit(args []string) error {
 	if err := os.WriteFile(*out, canon, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s — edit spec.compose.services (image: or build:), spec.env / spec.secrets / spec.edge.routes, then `helmsman validate`\n", *out)
+	fmt.Printf("wrote %s — edit spec.compose.services (each service's image:/build:, env, ports), spec.secrets, and spec.edge.routes, then `helmsman validate`\n", *out)
 	return nil
 }

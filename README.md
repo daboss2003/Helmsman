@@ -21,7 +21,15 @@ Think of it as your own small Heroku or Netlify, running on a server you own. It
 
 ## Install
 
-**Debian / Ubuntu (recommended):**
+Helmsman is third-party, so (like Docker or Tailscale) `apt` needs to know where to find it. Two ways:
+
+**Quickest** — grab the `.deb` from the [latest release](https://github.com/daboss2003/Helmsman/releases/latest) and install it directly:
+
+```bash
+sudo apt install ./helmsman_<version>_amd64.deb
+```
+
+**For automatic `apt upgrade` updates** — add the signed APT repo once, then install:
 
 ```bash
 curl -fsSL https://daboss2003.github.io/Helmsman/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
@@ -29,12 +37,12 @@ echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github
 sudo apt update && sudo apt install helmsman
 ```
 
-A matching `.rpm` and prebuilt binaries are on every [release](https://github.com/daboss2003/Helmsman/releases). Full setup — generating your login + key, the config file, and starting the service — is in the [installation guide](./docs/installation.md).
+A matching `.rpm` and standalone binaries are on every [release](https://github.com/daboss2003/Helmsman/releases). Full setup — generating your login + key, the config file, and starting the service — is in the [installation guide](./docs/installation.md).
 
 ## Quickstart
 
 1. **[Install it](./docs/installation.md)** and generate your login + master key over SSH.
-2. Open the dashboard (Helmsman serves it at your `admin.hostname` over HTTPS, behind your IP allowlist).
+2. Open the dashboard at your `admin.hostname`.
 3. **[Deploy your first app](./docs/first-steps.md)** — add it from a form or connect a repo, set its secrets, and give it a domain.
 
 After install, you work entirely in the dashboard.

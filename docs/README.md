@@ -24,7 +24,7 @@ That's the whole on-ramp. After that, you live in the dashboard.
 
 ## Reference
 
-- **[The `helmsman.yaml` file](./definition-file.md)** — the optional config file that describes an app. The dashboard writes it for you; you can also write it yourself.
+- **[The `helmsman.yaml` file](./definition-file.md)** — the file that describes an app (the single source of truth). The dashboard writes it for you; you can also write it yourself.
 - **[Running many apps on one server](./host-file.md)** — server-wide settings and coordination.
 - **[Command-line reference](./cli.md)** — for installation and the occasional power-user task. You rarely need it.
 - **[How it works & why it's safe](./architecture.md)** · **[Security](./security.md)** — the engineering details, if you're curious or evaluating.

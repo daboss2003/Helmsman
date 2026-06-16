@@ -2,7 +2,7 @@
 
 > **The paramount requirement of Helmsman is that it must be extremely safe and effectively bug-free.** Hosting it must never become *the thing that gets your server hacked*. Every design choice in Helmsman is subordinate to that single goal. This document is the security model in full: the request pipeline, the validation chokepoint, the secrets architecture, the secure-by-default baseline, the threat model, and the assurance program that gates every release.
 
-This is a long page on purpose. If you operate a Helmsman install, read at least [§1](#1-the-paramount-requirement) and [§5](#5-the-secure-by-default-baseline-sbd-18); if you edit the Caddy config or write `compose` files, also read [§3](#3-the-56-validator--one-allowlist-chokepoint); if you assess the risk of running Helmsman at all, read [§6](#6-threat-model-trust-boundaries-and-attacker-classes) and [§9](#9-residual-risk-the-honest-part).
+This is a long page on purpose. If you operate a Helmsman install, read at least [§1](#1-the-paramount-requirement) and [§5](#5-the-secure-by-default-baseline-sbd-18); if you author apps or routes in a `helmsman.yaml`, also read [§3](#3-the-56-validator--one-allowlist-chokepoint); if you assess the risk of running Helmsman at all, read [§6](#6-threat-model-trust-boundaries-and-attacker-classes) and [§9](#9-residual-risk-the-honest-part).
 
 See also: the project [README](../README.md), the [edge / Caddy docs](./edge-and-tls.md), the [provisioning modes](./gitops.md), the [configuration reference](./architecture.md), and the [operations runbook](./architecture.md).
 
@@ -80,7 +80,7 @@ Crucially, the webhook is **fetch-only and trigger-only**: it performs a `git fe
 
 ## 3. The §5.6 validator — one allowlist chokepoint
 
-**Everything** that reaches `docker compose` — whether form-generated, pasted, script-produced, repo-backed, or authored in a `helmsman.yaml` — passes through **one** validator. There is exactly one chokepoint, and it is an **allowlist, not a denylist**. The dashboard, the `helmsman apply` CLI, and SSH all funnel into it: a new authoring surface is a new *front door*, never a new *trust path*.
+**Everything** that reaches `docker compose` — whether form-generated, script-produced, or authored in a `helmsman.yaml` — passes through **one** validator. There is exactly one chokepoint, and it is an **allowlist, not a denylist**. The dashboard and the Git deploys it triggers funnel into it, and `helmsman validate` runs that very same validator read-only: a new authoring surface is a new *front door*, never a new *trust path*.
 
 The validator does its work in this order, and the order is load-bearing:
 
@@ -247,7 +247,7 @@ A mandatory abuse test — **"the descriptor cannot move the outbound host"** �
 
 ### 6.4 Authority is never an exemption from validation
 
-This is worth stating loudly because it surprises people: **having SSH access — or being the operator — does not exempt input from validation.** SSH is the highest trust tier (an operator who can edit the root-owned config already holds the master key, so `helmsman secret set` over SSH grants nothing new). But **authority decides *who may invoke*; it never widens *what `apply` may do*.** A hostile or typo'd definition authored over SSH is still run through the *same* fail-closed §5.6 validator + edge-conflict gate as a dashboard edit. The CLI and the dashboard are two thin front-ends producing the *same* typed reconcile request through the *one* chokepoint — the **only** thing the CLI skips is the *web transport* gates (IP-allowlist / session / CSRF), because it isn't on the web. There is no "trusted path" that smuggles unvalidated bytes to `docker compose`.
+This is worth stating loudly because it surprises people: **having SSH access — or being the operator — does not exempt input from validation.** SSH is the highest trust tier (an operator who can edit the root-owned config already holds the master key, so `helmsman secret import` over SSH grants nothing new). But **authority decides *who may invoke*; it never widens *what a deploy may do*.** A hostile or typo'd definition is still run through the *same* fail-closed §5.6 validator + edge-conflict gate no matter how it arrives — and `helmsman validate` exercises that very validator read-only, so you can check a file in CI before it ever reaches the write plane. There is no "trusted path" that smuggles unvalidated bytes to `docker compose`.
 
 ---
 
@@ -411,6 +411,6 @@ These ten principles are the spine the rest of the model hangs on:
 
 - [README](../README.md) — what Helmsman is and how to install it.
 - [Configuration reference](./architecture.md) — every key in `config.yaml`, including `ip_allowlist`, `trusted_proxies`, and `edge.mode`.
-- [Managed edge / Caddy](./edge-and-tls.md) — the three-layer config model and the validated editor.
+- [Managed edge / Caddy](./edge-and-tls.md) — the typed, generated edge config and the route model.
 - [Provisioning modes](./gitops.md) — the four input modes, the setup-script sandbox, and the git deploy fences.
 - [Operations runbook](./architecture.md) — key rotation, backups, and the IR runbook.

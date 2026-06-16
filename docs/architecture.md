@@ -4,8 +4,6 @@
 
 How Helmsman is put together: the processes that make up a running install, where each one sits on the host, how data is split between them, and the small number of choke points every privileged action is forced through.
 
-Helmsman is a **single static Go binary** plus a small supporting cast of OS processes it supervises. It is a generic tool an operator points at a Docker host — not tied to any project. The overriding design constraint: hosting Helmsman must never become the thing that gets the server hacked. Almost every structural decision below is subordinate to that requirement.
-
 Helmsman is a **single static Go binary** plus a small supporting cast of OS processes it supervises. It is a generic tool an operator points at a Docker host — not tied to any project. The overriding design constraint is stated plainly in the build plan: hosting Helmsman *must never become the thing that gets the server hacked*. Almost every structural decision below is subordinate to that requirement.
 
 ---
@@ -21,7 +19,7 @@ A running install is not one process — it is a small set of cooperating proces
 | **docker-socket-proxy** | A read-only proxy in front of the real Docker socket, with a deny-by-default verb allowlist (`CONTAINERS`/`INFO`/`VERSION` only). | Loopback-only, internal-only network, `read_only`, `cap_drop: ALL`. | The raw `docker.sock` is root-equivalent. It is mounted **only** into this proxy — **never** into Helmsman. The core reads container state *through* this proxy. |
 | **SQLite** | The embedded application database (`modernc.org/sqlite`, pure-Go, CGO-free). | A file owned by the Helmsman user, opened with `umask 0077`. | Holds app state and **ciphertext only** — never the key that decrypts it (see §3). |
 | **cert-sync helper** | A small helper that copies the edge's leaf cert + key to a per-consumer `0600` path, watches mtime, and signals the consumer. | Invoked by the core with **static argv only**. | Lets a non-HTTP service (e.g. an MQTT-over-TLS broker) reuse an ACME cert **without** broadening permissions on the proxy's key directory. |
-| **The CLI** (`helmsman`) | The same binary, invoked over SSH for config, key management, and `apply`/`deploy`/`secret set`. | The operator's SSH session. | SSH is the highest trust tier. The CLI is a *second front door* onto the same reconciler — never a bypass (see §7). |
+| **The CLI** (`helmsman`) | The same binary, invoked over SSH for key management, config validation (`validate`), `secret import`, and DB `restore`. | The operator's SSH session. | SSH is the highest trust tier. `validate` runs the *same* reconciler the dashboard does, read-only — never a bypass (see §7). Deploys themselves happen in the dashboard. |
 
 The build plan's stack decisions behind this:
 
@@ -147,7 +145,7 @@ The read plane is everything that *observes*: container status via the socket-pr
 
 The write plane is everything that *changes the host*: `docker compose up/pull/build`, redeploy, on-box image builds, managed config-file materialization, and the setup-script sandbox. **These are gated on a host with ≥ 1 GB RAM.**
 
-This is a safety gate because of how a small box fails. A `docker compose pull` or a sandbox run that OOMs a tiny host can cascade the *whole* host into a crash-loop — and the proxy/edge dies first, taking the dashboard offline exactly when you need it. The build plan calls this out as a class of real outage (see the [VPS constraints](./architecture.md) for the small-host story). On a small or near-OOM host, write-plane operations are disabled **but the edge still serves** its minimum-safe base.
+This is a safety gate because of how a small box fails. A `docker compose pull` or a sandbox run that OOMs a tiny host can cascade the *whole* host into a crash-loop — and the proxy/edge dies first, taking the dashboard offline exactly when you need it. The build plan calls this out as a class of real outage (see the [VPS constraints](./backup-and-recovery.md) for the small-host story). On a small or near-OOM host, write-plane operations are disabled **but the edge still serves** its minimum-safe base.
 
 ### Three controls keep any plane from OOM-killing the control plane
 
@@ -176,7 +174,7 @@ Note the asymmetry: the **edge is part of the baseline, not gated**. On an under
 
 ## 5. How a `docker compose` action flows through the §5.6 chokepoint
 
-**Everything** that reaches `docker compose` — whether it was generated from a form, pasted by an operator, produced by a setup script, read from a git repo, or written back by `helmsman apply` — passes through **one** validator. This single chokepoint is the heart of the write-path safety story.
+**Everything** that reaches `docker compose` — whether it was generated from a form, produced by a setup script, read from a git repo, or authored in a `helmsman.yaml` — passes through **one** validator. This single chokepoint is the heart of the write-path safety story.
 
 ```
    form gen ─┐
@@ -214,12 +212,12 @@ The rule is symmetric: **apps can't define the edge, and the edge can't be route
 
 ## 6. One reconciler, many front doors
 
-There are two ways to drive Helmsman — the dashboard and the `helmsman` CLI — and they are **two thin front-ends onto exactly one reconciler.** This is a core design principle, not an implementation detail.
+The write plane has one front door — the **dashboard** (and the **Git deploys** it triggers) — funnelling into **exactly one reconciler.** The `helmsman validate` CLI runs that *same* validator read-only, so the chokepoint is identical whether you're deploying or just checking a file in CI. This is a core design principle, not an implementation detail.
 
 ```
-   Dashboard (htmx)                helmsman apply / CLI (over SSH)
+   Dashboard / Git deploy          helmsman validate (SSH / CI, read-only)
         │                                   │
-        │  typed reconcile request          │  typed reconcile request
+        │  typed reconcile request          │  same validator, no write
         └─────────────────┬─────────────────┘
                           ▼
         ┌────────────────────────────────────────────────────┐
@@ -241,7 +239,7 @@ The dashboard and CLI produce the *same* typed reconcile request and pass the *s
 
 The trust model behind this is precise:
 
-> SSH is the highest tier. An operator who can edit the root-owned config *already* holds the master key, so `helmsman secret set` grants nothing new — which is exactly *why* the CLI may set secrets but **no web route ever reads the key, allowlist, or bind address.** Authority decides *who* may invoke; it never widens *what* `apply` may do. A hostile or typo'd definition is still run through the same fail-closed validation as anything else.
+> SSH is the highest tier. An operator who can edit the root-owned config *already* holds the master key, so `helmsman secret import` grants nothing new — which is exactly *why* the CLI may write secrets but **no web route ever reads the key, allowlist, or bind address.** Authority decides *who* may invoke; it never widens *what* a deploy may do. A hostile or typo'd definition is still run through the same fail-closed validation as anything else.
 
 A new authoring surface — the declarative `helmsman.yaml` definition file — is therefore a new front *door*, never a new trust *path*. It inherits every invariant (run_dir confinement, edge-port denial, secret-never-in-browser, marshalled-from-typed-structs, fail-closed) and adds **zero** new bytes reaching `docker compose`. Its `edge.routes` block is parsed into the typed edge model and re-marshalled — read-and-render, never run verbatim. See [the definition-file doc](./definition-file.md) for the split-plane ownership and field-level 3-way merge.
 
@@ -312,7 +310,7 @@ Core fans the same App Ops Interface out to agents. The v1 boundaries that make 
         key · allowlist · bind · edge.mode · acme_email · tuning
             ▲
             │ SSH (highest trust tier)
-        OPERATOR ── helmsman CLI (apply/deploy/secret set) ─► the ONE reconciler
+        OPERATOR ── helmsman CLI (keys · validate · secret import · restore) ─► root-of-trust + the ONE validator
                  ── edits config.yaml directly ────────────► SIGHUP hot-reload
 ```
 
@@ -324,7 +322,7 @@ Read this diagram as a set of trust boundaries: internet → edge → app; edge 
 
 - [README](../README.md) — what Helmsman is and how to install it.
 - [Security model](./security.md) — the middleware pipeline, the IP-allowlist/XFF invariant, secrets at rest.
-- [The managed edge](./edge-and-tls.md) — how Helmsman owns Caddy, the pinned dialer, the config editor, and the secure-by-default baseline.
-- [App provisioning](./gitops.md) — the four input modes and the §5.6 chokepoint in detail.
+- [The managed edge](./edge-and-tls.md) — how Helmsman owns Caddy, the pinned dialer, and the secure-by-default baseline.
+- [App provisioning](./gitops.md) — connecting a Git repo, the generated compose, and the §5.6 chokepoint in detail.
 - [The definition file](./definition-file.md) — `helmsman.yaml`, the shared reconciler, and the CLI.
-- [Operations](./architecture.md) — running on a small host, backups, and recovery.
+- [Operations](./backup-and-recovery.md) — running on a small host, backups, and recovery.

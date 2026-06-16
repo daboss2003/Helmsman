@@ -1,6 +1,6 @@
 # Scaling & self-healing
 
-Two optional automations keep your apps responsive and running. Both are **off until you turn them on**, and both are built to be cautious: if acting would risk your server, they hold back and alert you instead of pushing it over.
+Two optional automations keep your apps responsive and running. Both are **off until you turn them on**. If acting would risk your server, they hold back and alert you instead.
 
 See also: [Alerts](./alerting.md) · [Incidents](./first-steps.md)
 
@@ -14,7 +14,7 @@ Auto-scaling adjusts how many copies (**replicas**) of a service run, based on l
 
 **It only adds capacity when there's room.** Before starting another replica, Helmsman checks there's provably enough memory and CPU, keeping headroom for itself and the edge. On a server that's near its limit it **collapses to a single replica** and won't scale up. It moves **one step at a time** with separate scale-up and scale-down thresholds (and a hold window), so it doesn't flap up and down.
 
-**A refusal is a signal, not a silent no-op.** If it declines to scale because the server is constrained, it can alert you — that's your cue the box needs more resources.
+**You're alerted if it can't scale up.** If it declines to scale because the server is constrained, it can alert you — that's your cue the box needs more resources.
 
 You configure min/max replicas, per-replica memory and CPU, and the up/down thresholds on the app's **Auto-scaling** panel.
 
@@ -29,7 +29,3 @@ When it **can't** recover a service after trying, it stops retrying (to avoid a 
 **Planned downtime:** if you're taking a service down on purpose, mark it as expected-down for a window so the supervisor doesn't fight you trying to bring it back.
 
 Self-healing is conservative for the same reason auto-scaling is: a recovery action that needs to recreate a container runs only when there's room, so healing one app can't knock over the server.
-
-## Why both are safe on a small box
-
-Neither feature can run your server out of memory. Auto-scaling adds a replica **only** when there's headroom and otherwise refuses; self-healing reduces or holds, never piles on. When either is unsure, it **declines and tells you** — so the worst case is a page asking for your attention, not a crashed host.

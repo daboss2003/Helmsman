@@ -24,10 +24,7 @@ Both are thin front-ends onto the **one validator** that judges every generated 
   - [`cert_bindings`](#speccert_bindings)
   - [`edge.routes`](#specedgeroutes)
   - [`scaling`](#specscaling)
-  - [`self_healing`](#specself_healing)
-  - [`ops_interface`](#specops_interface)
   - [`git`](#specgit)
-  - [`resources`](#specresources)
 - [The `{{hm.KEY}}` binding delimiter](#the-hmkey-binding-delimiter)
 - [Secrets are by reference only](#secrets-are-by-reference-only)
 - [Write-back & sync (split-plane ownership)](#write-back--sync-split-plane-ownership)
@@ -44,7 +41,7 @@ Every definition file is a Kubernetes-style envelope:
 
 ```yaml
 apiVersion: helmsman/v1     # exact-match, fail-closed
-kind: App                   # the only kind in v1
+kind: App                   # an app definition (the host-level definition uses kind: Host)
 metadata:
   slug: my-app              # immutable after the first apply
 spec:
@@ -54,7 +51,7 @@ spec:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `apiVersion` | string | yes | **Must be exactly `helmsman/v1`.** See the version gate below. |
-| `kind` | string | yes | `App` (the only kind in v1). |
+| `kind` | string | yes | `App` for an app. The host-level definition (`host.yaml`) uses `kind: Host` — see [the host file](./host-file.md). |
 | `metadata.slug` | string | yes | The app identity. `^[a-z][a-z0-9-]{1,30}$`. **Immutable after the first apply** — it becomes the project/run-dir name and the secret namespace key. Changing it is rejected, not silently re-homed. |
 | `spec` | object | yes | The managed surface. Each section is a *projection* onto an existing Helmsman artifact (see [The `spec` sections](#the-spec-sections)). |
 
@@ -204,25 +201,39 @@ Declares secret **names** (and an optional generate hint). **It never contains v
 
 ```yaml
 secrets:
-  - name: DB_PASSWORD                    # provisioned out-of-band (helmsman secret set / dashboard / SSH)
-  - name: NODE_COOKIE
-    generate: { type: hex, bytes: 32 }   # mint on explicit operator action only; entropy-floor enforced
-  - name: SHARED_AUTH_TOKEN
-    generate: { type: base64, bytes: 32 }
+  - name: MONGODB_URI                # you provide the value out-of-band
+  - name: WEBHOOK_SECRET
+    generate: hex:32                 # Helmsman mints this once, on first deploy
+  - name: EMQX_DASHBOARD_PASSWORD
+    generate: base64:24
+  - name: JWT_KEY
+    generate: rsa:2048              # also mints JWT_KEY_PUB (the derived public key)
 ```
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `name` | string | required | The secret's name within **this app's** namespace. |
-| `generate` | object | — | An optional **hint**, not a value. |
-| `generate.type` | enum | — | `hex` \| `base64` \| `password` (and similar). Each type has a **hard entropy floor**. |
-| `generate.bytes` | int | — | Requested entropy; rejected below the per-type floor. |
+| `generate` | string | — | Auto-mint the value on first deploy (see below). Omit it and you provide the value yourself. |
 
-Generate semantics (all three are load-bearing):
+A secret you don't `generate` is set out-of-band — `helmsman secret import` (from a `.env`) or the dashboard. The file holds **names only**, never values, which is what keeps it safe to commit.
 
-1. **Hard per-type entropy floor** — a too-small request is rejected, not quietly satisfied.
-2. **Mints only on explicit operator action** — declaring a `generate` hint does not auto-create the secret on parse; you opt in to minting it.
-3. **Never overwrites an already-provisioned secret** — re-applying a file with a `generate` hint will not rotate a live secret out from under a running app.
+#### Auto-generating a secret
+
+Declaring `generate` is the declarative replacement for a bootstrap script's `openssl rand` / `openssl genrsa` lines: Helmsman mints the value **server-side on the first deploy where it's missing**, stores it encrypted, and never displays it.
+
+| `generate` | Produces |
+|---|---|
+| `hex:N` | N random bytes, hex-encoded (`N` 16–1024) |
+| `base64:N` | N random bytes, base64 (`N` 16–1024) |
+| `password:N` | an `N`-char password from an unambiguous alphabet (`N` 16–256) |
+| `rsa:2048` \| `rsa:3072` \| `rsa:4096` | an RSA private key (PEM) **plus** the derived public key |
+| `ed25519` | an Ed25519 private key (PEM) **plus** the derived public key |
+
+- **Idempotent.** Minted only when no value exists yet; a later deploy **never rotates a live secret**. (Set the value yourself before the first deploy and Helmsman won't generate one.)
+- **Keypairs** mint *two* secrets: the private key under `<name>` and the public key under `<name>_PUB`. They're PEM, so consume them as files via [`secret_files`](#config_files-per-service), not as `env` values.
+- **Never displayed** — like any secret, the value only ever leaves via the audited reveal endpoint.
+
+This replaces the whole `create_random_secret` / `create_jwt_keys` section of a hand-written setup script.
 
 ### `config_files` (per service)
 
@@ -294,20 +305,7 @@ services:
 | `hostname` | the FQDN Helmsman issues/renews the cert for. |
 | `mount` | absolute container path the cert directory is mounted at. |
 
-*(The edge-driven cert sync for `cert_bindings` is being wired up; the declaration is validated today.)*
-
-> The older standalone cert-binding (`sync_dir`/`required`) below is the dashboard-managed form.
-
-#### `spec.cert_bindings` (dashboard-managed)
-
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `name` | string | required | Binding name; referenced by `{{hm.cert.<name>.crt|key|ca}}` in a config file. |
-| `hostname` | string | required | Must be one of this app's `edge.routes` hostnames. |
-| `sync_dir` | string | required | Where the cert-sync helper drops the per-consumer copy, under run_dir. The proxy's own keys are **never** chmod-broadened and the proxy data dir is **never** mounted in. |
-| `required` | bool | `false` | When `true`, `docker compose up` of the consumer is **blocked by a hard ordering gate** until the synced files exist. If the cert can't issue, deploy **fails fast with a reason** — the container never polls or waits. |
-
-Renewal re-copies and signals the consumer via static argv. See [Cert bindings](./edge-and-tls.md).
+Helmsman's edge issues and renews the certificate for `hostname`, then syncs the files into `mount` as `tls.crt` (0644) and `tls.key` (0600). The deploy **waits automatically** until they exist (it fails fast with a reason if the cert can't issue), so the container never has to poll. Your app reads the files straight from `mount` — there are no cert template tokens. On renewal the files are re-synced in place. See [Cert bindings](./edge-and-tls.md).
 
 ### `spec.edge.routes`
 
@@ -317,26 +315,28 @@ Renewal re-copies and signals the consumer via static argv. See [Cert bindings](
 edge:
   routes:
     - hostname: api.example.com
-      upstream: api            # a SELECTOR against this app's discovered containers — NOT a literal dial target
-      upstream_scheme: http
+      service: api             # the service in THIS app's compose to route to — never a literal host:port
+      port: 3000               # its internal container port
       path_prefix: /
       redirect_http: true
       hsts: true
-    - hostname: broker.example.com
-      cert_only: true          # edge is ACME agent only; serves no traffic on this host
 ```
+
+> A cert-only hostname (the edge issues and renews the certificate but proxies no traffic) is **not** a route — declare it with [`cert_bindings`](#speccert_bindings) on the service that consumes the cert.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `hostname` | string | required | The public vhost. Subject to the §6.2 conflict gate: it may not shadow a managed hostname, the admin vhost, a cert-only hostname, or an auto-scaled pool. |
-| `upstream` | string (selector) | — | **A selector resolved against *this app's* discovered containers**, never a literal host:port. Cross-project names are rejected; the pinned-dialer + egress-firewall refuse any resolution to a control-plane port (`9000/2019/2375`), loopback, or metadata. |
-| `upstream_scheme` | enum | `http` | `http` \| `https`. |
+| `service` | string | required (proxy routes) | The service **in this app's compose** to route to — resolved against this app's discovered containers, never a literal host:port. Cross-project names are rejected; the pinned-dialer + egress-firewall refuse any resolution to a control-plane port (`9000/2019/2375`), loopback, or metadata. |
+| `port` | int | required (proxy routes) | The service's internal container port to forward to. |
 | `path_prefix` | string | `/` | Combined with hostname for `UNIQUE(hostname, path_prefix)`. |
 | `redirect_http` | bool | `true` | HTTP→HTTPS redirect. |
 | `hsts` | bool | per-edge | HSTS is only emitted **after** a cert exists. |
-| `cert_only` | bool | `false` | The edge is the **ACME agent only** for this hostname (serves no proxy traffic) — pair with a `cert_binding` for a raw-TCP / TLS-terminating-elsewhere service such as a broker. |
+| `security_headers` | bool | per-edge | Emit the baseline security-header set for this vhost. |
 
-The `edge.routes` block is **parsed into the typed edge model and re-marshalled** (read-and-render, never run verbatim). The save fails if it shadows a managed hostname, touches `admin`/`tls.automation`/`pki`, targets `9000/2019/2375`, grabs `:80/:443`, or weakens XFF. **The definition file edits only Layer-1 routes** — never the protected Layer-0 base or the operator's Layer-2 raw overlay. See [Managed edge & routes](./edge-and-tls.md).
+(Need the edge to issue a certificate for a hostname it shouldn't proxy — a broker that terminates its own TLS, say? That's a [`cert_binding`](#speccert_bindings), not a route.)
+
+The `edge.routes` block is **parsed into the typed edge model and re-marshalled** (read-and-render, never run verbatim). The save fails if it shadows a managed hostname, touches `admin`/`tls.automation`/`pki`, targets `9000/2019/2375`, grabs `:80/:443`, or weakens XFF. **The definition file contributes only Layer-1 routes** — never the protected Layer-0 base. See [Managed edge & routes](./edge-and-tls.md).
 
 ### `spec.scaling`
 
@@ -345,12 +345,12 @@ Process-level auto-scaling of **one stateless, edge-fronted HTTP service's repli
 ```yaml
 scaling:
   enabled: true
-  service: api                       # the one service to scale (must pass candidacy C1-C7)
+  service: api                  # the one service to scale (must pass candidacy C1–C7)
   min: 1
   max: 4
-  per_replica_reservation: 96MiB     # REQUIRED; floored — an implausibly small value is rejected
-  target_cpu_percent: 65
-  breach_for: 60s
+  up_cpu_pct: 65               # scale up above this sustained CPU %
+  down_cpu_pct: 25            # scale down below this
+  per_replica_mem_mib: 96    # per-replica memory reservation (MiB); feeds the host-capacity guard
 ```
 
 | Field | Type | Default | Notes |
@@ -358,48 +358,14 @@ scaling:
 | `enabled` | bool | `false` | Opt-in. |
 | `service` | string | — | The single service to scale. Must pass the **candidacy gate C1–C7** (edge HTTP upstream, no fixed host port, no exclusive RW volume, not stateful/clustered, no deploy-time identity placeholder, honors the stateless restart contract, explicit opt-in). **Stateful services — databases, brokers — are rejected with a clear reason.** |
 | `min` / `max` | int | `1`/`1` | Replica bounds. On a small box `effective_max` **collapses to 1** — scaling becomes a permanent safe no-op and a wanted scale-up fires `scale_refused_no_capacity` rather than queuing a docker child. |
-| `per_replica_reservation` | size | **required** | Feeds the host-capacity guard. Floored; if a replica's real RSS exceeds it, Helmsman clamps and alerts. |
-| `target_cpu_percent` / `breach_for` | int / dur | — | Signal + sustain window. Hysteresis is up-eager / down-lazy with a ≥ 20-pt dead band. |
+| `up_cpu_pct` / `down_cpu_pct` | float | — | Scale up above / down below this sustained CPU %. Hysteresis is up-eager / down-lazy with a dead band between them. |
+| `up_mem_pct` / `down_mem_pct` | float | — | Optional memory triggers, with the same hysteresis. |
+| `per_replica_mem_mib` | int | — | Per-replica memory reservation (MiB). Feeds the host-capacity guard; if a replica's real RSS exceeds it, Helmsman clamps and alerts. |
+| `per_replica_cpu_milli` | int | — | Optional per-replica CPU reservation (millicores). |
 
 > Authoring `scaling` for a stateful service is not a knob you can force — it is rejected at candidacy. Brokers/DBs are precisely the `config_files` / `cert_binding` apps of §7.4, not scaling candidates. See [Auto-scaling](./scaling-and-self-healing.md).
 
-### `spec.self_healing`
-
-The bounded supervisor policy (§8.5). **On by default.** Restarts crashed/stuck services and escalates to a never-deferred Helmsman-originated alert when it gives up.
-
-```yaml
-self_healing:
-  enabled: true
-  ladder_max: recreate     # restart -> recreate -> (redeploy, >=1 GB only)
-  max_attempts_per_window: 3
-```
-
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `enabled` | bool | `true` | Watcher runs on a small box; rung-2 `redeploy` stays ≥ 1 GB. |
-| `ladder_max` | enum | `recreate` | The top rung: `restart` \| `recreate` \| `redeploy`. On a small box the ladder structurally tops out at `recreate`, then circuit-opens. |
-| `max_attempts_per_window` | int | (tuned) | Anti-flap cap before `CIRCUIT_OPEN` + page. |
-
-The supervisor passes the **four ordered tiny-box gates** before every action and can only reduce pressure or page — never manufacture an OOM. `oom_killed_repeated` short-circuits the ladder. See [Self-healing](./scaling-and-self-healing.md).
-
-### `spec.ops_interface`
-
-The App Ops Interface coordinates (§4) — how Helmsman discovers the app's rich health panels.
-
-```yaml
-ops_interface:
-  enabled: true
-  base_path: /ops          # a RELATIVE path only (^/[A-Za-z0-9._/-]{0,128}$) — never a host/scheme/port
-  secret: { secret: OPS_SECRET }   # shared-secret header, by reference (>=16 chars, timing-safe)
-  mode: auto               # auto | rich | basic
-```
-
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `enabled` | bool | `true` | |
-| `base_path` | string | — | A **relative path only**. **It can never supply a host, scheme, or port** — every outbound ops call is pinned to the operator-configured container endpoint (`ops_base_url`); the relative path is joined onto that pinned base. This is the §4.1 SSRF invariant: the descriptor cannot move the outbound host. |
-| `secret` | ref | — | A `secret:` reference; the header value is resolved from this app's namespace, never sent to the browser. |
-| `mode` | enum | `auto` | `auto` (discover) \| `rich` (force the adapter) \| `basic`. |
+> **Self-healing and the App Ops Interface are configured in the dashboard, not in `helmsman.yaml`.** They are real features with their own per-app controls — see [Scaling & self-healing](./scaling-and-self-healing.md) — but `spec.self_healing` / `spec.ops_interface` are not keys this file accepts.
 
 ### `spec.git`
 
@@ -418,21 +384,6 @@ git:
 
 A push triggers a **fetch only** (`git fetch` → advance `staged_commit` → compute commits-behind + diff → set `update_available`). The live checkout advances only on an explicit, sha-pinned Deploy. See [GitOps](./gitops.md).
 
-### `spec.resources`
-
-§0 capacity hints — advisory inputs to the resource gate and host-capacity guard.
-
-```yaml
-resources:
-  reservation: 256MiB
-  build: false          # never enables a build by itself; a build is always the gated write-plane path
-```
-
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `reservation` | size | — | Feeds the host-capacity guard's reserve-against-desired math. |
-| `build` | bool | `false` | A hint; builds remain ≥ 1 GB write-plane, manually promoted. |
-
 ---
 
 ## The `{{hm.KEY}}` binding delimiter
@@ -441,22 +392,20 @@ Managed config files (`spec.config_files`) are rendered by a **single-pass byte 
 
 | Touched (resolved) | Left byte-identical (data) |
 |---|---|
-| `{{hm.KEY}}` | the app's `${username}`, `${clientid}`, `${topic}` |
-| `{{hm.cert.<binding>.crt}}` / `.key` / `.ca` | `$VAR`, `%(name)s`, Go `{{ .Field }}` |
-| `{{hm.file.<name>}}` | even `{{hmFoo}}` (no dot) — copied verbatim |
+| `{{hm.KEY}}` — `KEY` is `^[A-Za-z0-9_-]+$` (no colon, no dot) | the app's `${username}`, `$VAR`, `%(name)s`, Go `{{ .Field }}`, even `{{hmFoo}}` (no dot) |
 
-There are **no conditionals, loops, functions, shell, or exec**. A `{{hm.X}}` resolves **only** if `X` is listed in that file's `bindings[]` allowlist; unknown / duplicate / malformed → hard error at save **and** at render. The renderer is **fail-closed, never empty-string** — a missing binding fails the deploy, it does not blank out.
+There are **no conditionals, loops, functions, shell, or exec**. A `{{hm.KEY}}` resolves **only** if `KEY` is listed in that file's `bindings` allowlist; unknown / duplicate / malformed → hard error at save **and** at render. The renderer is **fail-closed, never empty-string** — a missing binding fails the deploy, it does not blank out.
 
-### Binding sources
+### Binding values
 
-A binding value names a typed resolver. There are exactly four source kinds:
+Each entry in a config file's `bindings` maps a `KEY` to its value, with the same grammar as `env`:
 
-| Source | Resolves to | Notes |
+| Binding value | Resolves to | Notes |
 |---|---|---|
-| `env:<KEY>` | a value from `spec.env` | |
-| `secret:<NAME>` | a value from the encrypted store | **Marks the whole file secret-bearing** → encrypted at rest, rendered `0600`. |
-| `cert:<binding>` | the cert-sync'd path (§7.5) | The synced per-consumer path, so config and files always agree. |
-| `app:<field>` | a fixed safe set | `public_hostname` (from the validated route row), the internal upstream URL, the app slug — **never free text**. |
+| a literal scalar | itself | a plain config value. |
+| `{ secret: NAME }` | the named secret from the encrypted store | **Marks the whole file secret-bearing** → encrypted at rest, rendered `0600`. |
+
+Edge-issued TLS certificates reach a container through [`cert_bindings`](#speccert_bindings) (mounted as `tls.crt`/`tls.key` at a path), **not** through a template token.
 
 ### Rendered-value hygiene
 
@@ -472,16 +421,15 @@ Every resolved value is scrubbed: **NUL is always rejected**, and **CR/LF is rej
 
 The rules, all enforced:
 
-1. **`spec.secrets` declares names** (and optional generate hints). **It never holds values.**
-2. **Every reference resolves within the referencing app's own `(slug, NAME)` namespace.** This applies to `secret:` env, `config_files.bindings[secret:]`, `cert:`, and `ops_interface.secret`.
+1. **`spec.secrets` declares names.** **It never holds values.**
+2. **Every reference resolves within the referencing app's own `(slug, NAME)` namespace.** This applies to a `{ secret: NAME }` env value and a `{ secret: NAME }` binding in a `config_files` entry.
 3. **No cross-app reads.** A name owned by another app resolves as **missing / fail-closed, with zero disclosure** — a committed file cannot exfiltrate another app's secret by guessing its name.
 4. **Values arrive only out-of-band:**
-   - `helmsman secret set` — reads from **stdin / `/dev/tty` / `--from-file`, never argv** (so a secret never lands in `ps`, shell history, or audit).
+   - `helmsman secret import` — reads the values from a `.env` file you pass with `--from`, **never from argv** (so a secret never lands in `ps`, shell history, or audit).
    - the dashboard secret panel.
    - the SSH-edited root-owned config.
    …into the AES-256-GCM store under the master key.
-5. **The literal-secret lint runs over every value.** A pasted secret — PEM/key material, a token shape, long base64 — in a non-secret-bearing position is **hard-rejected** with a pointer to use a `{{hm.secret:KEY}}` / `{ secret: NAME }` reference instead.
-6. **`generate` has a hard entropy floor**, mints **only on explicit operator action**, and **never overwrites an already-provisioned secret**.
+5. **The literal-secret lint runs over every value.** A pasted secret — PEM/key material, a token shape, long base64 — in a non-secret-bearing position is **hard-rejected** with a pointer to use a `{ secret: NAME }` reference (and `{{hm.KEY}}` in a template) instead.
 
 > **The honest trade-off:** by-reference-only means the file alone cannot bootstrap a brand-new app end-to-end — you must provision the secret values out-of-band before (or interleaved with) the first apply. That is the deliberate cost of a file you can commit publicly and that can never carry a credential, never leak across apps, and never put a plaintext secret in your git history.
 
@@ -522,18 +470,19 @@ up_to_date
   └─ update_blocked         (a validation/gate failure; stays on the prior def_version)
 ```
 
-`def_state` lives on the `apps` row; every applied version is recorded in the HMAC-protected `definition_versions` table (`def_sha256`, `resolved_sha256`, `source`, `parent_version_id`, `promoted_commit`). `resolved_sha256` catches a **reference target changing even when the def bytes didn't** — e.g. the repo template behind a `template_ref` was edited.
+`def_state` lives on the `apps` row; every applied version is recorded in the HMAC-protected `definition_versions` table (`def_sha256`, `resolved_sha256`, `source`, `parent_version_id`, `promoted_commit`). `resolved_sha256` catches a **reference target changing even when the def bytes didn't** — e.g. the repo file behind a `config_files` `repo:` reference was edited.
 
 ### Rollback & the iron escape hatch
 
-- **`helmsman apply --from <path>`** (over SSH) re-asserts a known-good definition **even if the DB is wedged** — the recovery floor for the def front-end.
-- **`helmsman def rollback`** **re-derives and re-validates** through the full pipeline (HMAC-checked, **never a verbatim replay** of a stored composite). It **requires a posture-widening acknowledgement** if it would *add routes, raise `scaling.max`, enable `auto_deploy`, or disable healing* — you cannot roll *back* into a *wider* posture without saying so explicitly.
+- A **failed deploy auto-rolls-back** the whole app to its prior definition — there is no half-applied state (see the lifecycle below).
+- You can **roll back to an earlier version from the dashboard**.
+- The bottom-of-everything recovery floor is **`helmsman restore --from <archive.hmbk> --force`** (run with the service stopped), which restores Helmsman's whole database from an encrypted backup. See [Backup & recovery](./backup-and-recovery.md).
 
 ---
 
 ## The apply lifecycle
 
-`apply` / `plan` / dashboard-save all run the **one reconciler** — one chokepoint, no second trust path:
+A **dashboard save or a Git deploy** runs the **one reconciler** — one chokepoint, no second trust path:
 
 ```
 parse → typed DefinitionV1
@@ -546,30 +495,29 @@ parse → typed DefinitionV1
   → §0 resource gate + host-capacity guard
   → diff vs SQLite
   → gated write-plane apply, in dependency order:
-        env  →  render config files  →  cert-sync (block on required)  →  compose up  →  edge route re-render LAST
+        env  →  render config files  →  cert-sync (deploy waits)  →  compose up  →  edge route re-render LAST
   → on ANY step failure: auto-rollback the WHOLE app to the prior def_version  (no partial apply)
 ```
 
 Properties to rely on:
 
-- **Idempotent.** An `apply` with no changes produces an **empty plan = no-op**. Run it as often as you like.
-- **Ordered.** Env first, edge route re-render last (behind the §6.2 atomic-apply + negative-from-internet probe). Cert-sync blocks the consumer's `up` when a binding is `required`.
+- **Idempotent.** A deploy with no changes produces an **empty plan = no-op**.
+- **Ordered.** Env first, edge route re-render last (behind the §6.2 atomic-apply + negative-from-internet probe). Cert-sync makes the deploy wait until the cert files exist.
 - **All-or-nothing.** Any step failing rolls the **entire app** back to the prior `def_version`. There is no half-applied state.
-- **Same gates, every front-end.** CLI and dashboard produce the *same* typed reconcile request. The **only** thing the CLI skips is the *web transport* gates (IP-allowlist / session / CSRF) — because it is not on the web. **Authority decides who may invoke; it never widens what `apply` may do.** A hostile or typo'd def is still run through the same fail-closed validation.
+- **Checkable ahead of time.** `helmsman validate` runs the **exact same §5.6 validator** read-only, so you can verify a `helmsman.yaml` in CI before it ever reaches the write plane. Whatever triggers a deploy, the typed reconcile request goes through the one chokepoint — **authority decides who may invoke; it never widens what a deploy may do.**
 
 ### The CLI surface
 
-| Read-plane (safe below the §0 1 GB floor) | Write-plane (all §0-gated + one-docker-child semaphore + mem-floor, one service at a time) |
-|---|---|
-| `validate` | `apply` |
-| `plan` / `diff` (masked, in-mem) | `deploy` / `promote --sha` |
-| `status` (live-vs-declared drift) | `restart` |
-| `fetch` | `def rollback` |
-| `secret list` | `secret set` / `secret rm` |
-| `logs` | |
-| `init --from-compose` (scaffolds a `helmsman.yaml`) | |
+The CLI is the **root of trust plus a read-plane checker** — the write plane (deploys) lives in the dashboard. Full reference: [CLI reference](./cli.md).
 
-> **Trust model:** SSH is the highest tier. An operator who can edit the root-owned config already holds the master key, so `helmsman secret set` grants nothing new — which is *why* the CLI may set secrets but **no web route ever reads the key, allowlist, or bind address.**
+| Read-plane (safe anywhere) | Root-of-trust & store (over SSH) |
+|---|---|
+| `validate` — parse + validate a `helmsman.yaml` | `gen-key` · `hash-password` · `gen-totp` · `verify-key` |
+| `init` — scaffold a starter `helmsman.yaml` | `secret import` — load a `.env` into the encrypted store |
+| | `token mint` / `list` / `revoke` |
+| | `restore` — restore the DB from a backup |
+
+> **Trust model:** SSH is the highest tier. An operator who can edit the root-owned config already holds the master key, so `helmsman secret import` grants nothing new — which is *why* the CLI may write secrets but **no web route ever reads the key, allowlist, or bind address.**
 
 ---
 
@@ -641,7 +589,7 @@ spec:
           - { name: emqx_data, target: /opt/emqx/data }
         restart: unless-stopped
 
-  secrets:                          # NAMES only — values set out-of-band (`helmsman secret set` / dashboard)
+  secrets:                          # NAMES only — values set out-of-band (`helmsman secret import` / dashboard)
     - name: MONGODB_URI
     - name: jwt_private_key
     - name: EMQX_DASHBOARD_PASSWORD
@@ -684,9 +632,8 @@ spec:
         restart: unless-stopped
 
   secrets:
-    - name: DATABASE_URL                     # `helmsman secret set DATABASE_URL --from-file ./db.url`
-    - name: SHARED_AUTH_TOKEN
-      generate: { type: base64, bytes: 32 }  # a SHARED auth secret is fine for a stateless service (not an identity)
+    - name: DATABASE_URL                     # imported via `helmsman secret import` or set in the dashboard
+    - name: SHARED_AUTH_TOKEN                # a SHARED auth secret is fine for a stateless service (not an identity)
 
   # ---- a public edge route; the upstream is a SELECTOR against this app's containers
   edge:
@@ -701,35 +648,21 @@ spec:
   # ---- opt-in auto-scaling of the one stateless, edge-fronted HTTP service ---
   scaling:
     enabled: true
-    service: api                             # must pass candidacy C1-C7; gains a host port/RW vol => scaled back to 1
+    service: api                  # must pass candidacy C1–C7; gaining a host port / RW volume scales it back to 1
     min: 1
-    max: 4                                    # effective_max collapses to 1 on a near-OOM box (safe no-op + alert)
-    per_replica_reservation: 96MiB           # REQUIRED + floored; feeds the host-capacity guard
-    target_cpu_percent: 65
-    breach_for: 60s
-
-  # ---- healthcheck-driven self-healing (the restart contract for a stateless svc)
-  self_healing:
-    enabled: true
-    ladder_max: recreate
-    max_attempts_per_window: 3               # then CIRCUIT_OPEN + a never-deferred Helmsman-originated page
-
-  # ---- rich ops panels via the App Ops Interface ----------------------------
-  ops_interface:
-    enabled: true
-    base_path: /ops                          # RELATIVE only; the descriptor can never move the outbound host
-    secret: { secret: OPS_SECRET }
-    mode: auto
+    max: 4                        # effective_max collapses to 1 on a near-OOM box (safe no-op + alert)
+    up_cpu_pct: 65                # scale up when sustained CPU is above this
+    down_cpu_pct: 25             # scale down when it falls below this
+    per_replica_mem_mib: 96      # per-replica memory reservation; feeds the host-capacity guard
 
   git:
     ref: refs/heads/main
-    auto_deploy: false                       # default; a push fetches only — deploy stays a manual, sha-pinned promote
-
-  resources:
-    reservation: 256MiB
+    auto_deploy: false            # default; a push fetches only — deploy stays a manual, sha-pinned promote
 ```
 
 This API is a legitimate scaling candidate because every C1–C7 condition holds: it is an edge HTTP upstream with a known internal port, publishes no fixed host port (replicas are internal-port-only), holds no exclusive RW volume, is not stateful, carries no deploy-time *identity* placeholder (a *shared* `SHARED_AUTH_TOKEN` is fine — a per-node cookie would not be), honors a stateless restart contract, and opted in. Compare with [example A](#worked-example-a--a-stateful-broker), where the broker is stateful and scaling is therefore not even authored.
+
+> **Self-healing and the App Ops Interface are real features, but they are not `helmsman.yaml` keys** — you configure them per app in the dashboard. See [Scaling & self-healing](./scaling-and-self-healing.md).
 
 ---
 
@@ -750,27 +683,23 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `…services.<name>.cert_bindings[]` | `{hostname, mount}` | no | — |
 | `…services.<name>.volumes[]` | `{name\|source, target, read_only}` | no | — |
 | `spec.secrets[].name` | string | yes (per entry) | — |
-| `spec.secrets[].generate` | `{type, bytes}` | no | — |
+| `spec.secrets[].generate` | string (`hex:N`\|`base64:N`\|`password:N`\|`rsa:BITS`\|`ed25519`) | no | — |
 | `spec.edge.routes[].hostname` | string | yes | — |
-| `spec.edge.routes[].upstream` | selector | for proxy routes | — |
-| `spec.edge.routes[].upstream_scheme` | enum | no | `http` |
+| `spec.edge.routes[].service` | string | for proxy routes | — |
+| `spec.edge.routes[].port` | int | for proxy routes | — |
 | `spec.edge.routes[].path_prefix` | string | no | `/` |
 | `spec.edge.routes[].redirect_http` | bool | no | `true` |
 | `spec.edge.routes[].hsts` | bool | no | per-edge |
-| `spec.edge.routes[].cert_only` | bool | no | `false` |
+| `spec.edge.routes[].security_headers` | bool | no | per-edge |
 | `spec.scaling.enabled` | bool | no | `false` |
 | `spec.scaling.service` | string | if enabled | — |
 | `spec.scaling.min` / `.max` | int | no | `1` / `1` |
-| `spec.scaling.per_replica_reservation` | size | **if enabled** | — |
-| `spec.self_healing.enabled` | bool | no | `true` |
-| `spec.self_healing.ladder_max` | enum | no | `recreate` |
-| `spec.ops_interface.enabled` | bool | no | `true` |
-| `spec.ops_interface.base_path` | string (relative) | no | — |
-| `spec.ops_interface.secret` | `{secret: NAME}` | no | — |
-| `spec.ops_interface.mode` | enum | no | `auto` |
+| `spec.scaling.up_cpu_pct` / `.down_cpu_pct` | float | no | — |
+| `spec.scaling.up_mem_pct` / `.down_mem_pct` | float | no | — |
+| `spec.scaling.per_replica_mem_mib` | int | no | — |
+| `spec.scaling.per_replica_cpu_milli` | int | no | — |
 | `spec.git.ref` | string (fully-qualified) | no | — |
 | `spec.git.auto_deploy` | bool | no | **`false`** |
-| `spec.resources.reservation` | size | no | — |
 
 > Unknown keys anywhere are a **hard reject** (`additionalProperties: false`). When in doubt, run `helmsman validate` — it is read-plane and safe on any host.
 

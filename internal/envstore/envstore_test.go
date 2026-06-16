@@ -2,6 +2,7 @@ package envstore
 
 import (
 	"context"
+	"encoding/base64"
 	"path/filepath"
 	"testing"
 
@@ -107,4 +108,37 @@ func contains(b []byte, sub string) bool {
 		}
 	}
 	return false
+}
+
+// A b64-encoded (Enc) entry — how a generated PEM keypair is stored — must
+// round-trip through save/Get and DecodedValue must return the original bytes.
+func TestEncRoundTripAndDecode(t *testing.T) {
+	st := newStore(t)
+	ctx := context.Background()
+	pem := "-----BEGIN PRIVATE KEY-----\nMIIB...multi\nline...==\n-----END PRIVATE KEY-----\n"
+	b64 := base64.StdEncoding.EncodeToString([]byte(pem))
+	// The raw stored value (b64) has no newlines, so Save accepts it even though
+	// the underlying PEM does not.
+	if _, err := st.Save(ctx, "app", []Entry{{Key: "JWT_KEY", Value: secret.New(b64), Secret: true, Enc: "b64"}}, "generate"); err != nil {
+		t.Fatalf("save b64 entry: %v", err)
+	}
+	ent, ok, err := st.Get("app", "JWT_KEY")
+	if err != nil || !ok {
+		t.Fatalf("get: ok=%v err=%v", ok, err)
+	}
+	if ent.Enc != "b64" {
+		t.Fatalf("Enc not round-tripped: %q", ent.Enc)
+	}
+	dec, err := ent.DecodedValue()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if string(dec) != pem {
+		t.Fatalf("decoded value != original PEM\n got: %q", string(dec))
+	}
+	// A plain entry decodes to itself.
+	plain := Entry{Value: secret.New("hello"), Enc: ""}
+	if b, _ := plain.DecodedValue(); string(b) != "hello" {
+		t.Fatalf("plain DecodedValue = %q", string(b))
+	}
 }
