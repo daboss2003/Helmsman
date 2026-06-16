@@ -165,10 +165,6 @@ func (s *Server) handleGitHubConnectRepo(w http.ResponseWriter, r *http.Request)
 	slug := strings.TrimSpace(r.PostFormValue("slug"))
 	fullName := strings.TrimSpace(r.PostFormValue("full_name"))
 	branch := strings.TrimSpace(r.PostFormValue("branch"))
-	composePath := strings.TrimSpace(r.PostFormValue("compose_path"))
-	if composePath == "" {
-		composePath = "docker-compose.yml"
-	}
 	if branch == "" {
 		branch = "main"
 	}
@@ -199,14 +195,12 @@ func (s *Server) handleGitHubConnectRepo(w http.ResponseWriter, r *http.Request)
 	}
 	kh := github.KnownHosts
 	in := gitstore.SaveInput{
-		Project:     slug,
-		RepoURL:     "git@github.com:" + owner + "/" + name + ".git",
-		Ref:         "refs/heads/" + branch,
-		ComposePath: composePath,
-		BuildPolicy: "never",
-		NewCred:     &key.PrivatePEM,
-		CredKind:    "ssh",
-		KnownHosts:  kh,
+		Project:    slug,
+		RepoURL:    "git@github.com:" + owner + "/" + name + ".git",
+		Ref:        "refs/heads/" + branch,
+		NewCred:    &key.PrivatePEM,
+		CredKind:   "ssh",
+		KnownHosts: kh,
 	}
 	if err := s.gitStore.Save(r.Context(), in); err != nil {
 		http.Error(w, "repository config rejected: "+err.Error(), http.StatusUnprocessableEntity)

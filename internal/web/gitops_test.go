@@ -18,10 +18,28 @@ import (
 	"github.com/daboss2003/Helmsman/internal/gitstore"
 )
 
-// gitObjStoreFixture builds a real git commit and clones it --bare into objDir,
-// then points refs/helmsman/staged at it — mimicking what a fetch would leave.
-// Uses the real git (the hardened Repo only READS this store).
-func gitObjStoreFixture(t *testing.T, objDir, composeContent string) string {
+// repoHelmsmanYAML is a clean generated-stack definition committed into test repos —
+// Helmsman generates the compose from this (the repo never supplies a compose).
+const repoHelmsmanYAML = `apiVersion: helmsman/v1
+kind: App
+metadata: {slug: app}
+spec:
+  compose:
+    source: generated
+    services:
+      - name: web
+        image: nginx:1.27
+`
+
+// gitObjStoreFixture builds a real git commit (with the given helmsman.yaml) and
+// clones it --bare into objDir, pointing refs/helmsman/staged at it.
+func gitObjStoreFixture(t *testing.T, objDir, helmsmanYAML string) string {
+	return gitObjStoreFixtureFiles(t, objDir, map[string]string{"helmsman.yaml": helmsmanYAML})
+}
+
+// gitObjStoreFixtureFiles commits an arbitrary file set, then clones it --bare into
+// objDir — mimicking what a fetch would leave. The hardened Repo only READS this store.
+func gitObjStoreFixtureFiles(t *testing.T, objDir string, files map[string]string) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -41,8 +59,14 @@ func gitObjStoreFixture(t *testing.T, objDir, composeContent string) string {
 	}
 	work := t.TempDir()
 	run(work, "init", "-q", "-b", "main")
-	if err := os.WriteFile(filepath.Join(work, "docker-compose.yml"), []byte(composeContent), 0o644); err != nil {
-		t.Fatal(err)
+	for name, content := range files {
+		p := filepath.Join(work, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	run(work, "add", "-A")
 	run(work, "commit", "-q", "-m", "init")
@@ -92,7 +116,7 @@ func TestGitRunDirOutsideDataDirObjectStoreInside(t *testing.T) {
 func TestDeployRejectsMovedStagedSha(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	slug := "shop"
-	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), "services:\n  web:\n    image: nginx\n")
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoHelmsmanYAML)
 	cfg := configureRepo(t, e, slug, sha)
 
 	// Ask to deploy a DIFFERENT (well-formed) sha than the one staged.
@@ -103,27 +127,33 @@ func TestDeployRejectsMovedStagedSha(t *testing.T) {
 	}
 }
 
-// §5.6 runs on the cat-file'd compose bytes from the pinned commit — a dangerous
-// key is rejected BEFORE any checkout or `docker compose`.
-func TestDeployRejectsDangerousComposeFromPinnedBytes(t *testing.T) {
+// Helmsman OWNS the compose: a repo's own docker-compose.yml is IGNORED — the deploy
+// GENERATES the compose from helmsman.yaml, so a dangerous repo compose never reaches
+// docker. (Write plane disabled so `up` fails fast AFTER generation.)
+func TestDeployIgnoresRepoComposeUsesHelmsmanYAML(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
 	dangerous := "services:\n  web:\n    image: nginx\n    privileged: true\n"
-	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), dangerous)
+	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
+		"helmsman.yaml":      repoHelmsmanYAML,
+		"docker-compose.yml": dangerous,
+	})
 	cfg := configureRepo(t, e, slug, sha)
 
 	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
-	if err == nil || !strings.Contains(err.Error(), "validation failed") {
-		t.Fatalf("expected §5.6 rejection, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "up failed") {
+		t.Fatalf("expected up to fail (write plane disabled) AFTER generation, got %v", err)
 	}
-	// FSM should record the block.
-	got, _, _ := e.srv.gitStore.Get(slug)
-	if got.UpdateState != "update_blocked" {
-		t.Errorf("state = %q, want update_blocked", got.UpdateState)
+	out, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml"))
+	if rerr != nil {
+		t.Fatalf("generated compose missing from run dir: %v", rerr)
 	}
-	// The run dir must NOT have been populated (rejected before checkout).
-	if _, err := os.Stat(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml")); err == nil {
-		t.Error("compose was checked out despite validation failure")
+	if strings.Contains(string(out), "privileged") {
+		t.Errorf("the repo's dangerous docker-compose.yml must be IGNORED (Helmsman generates from helmsman.yaml):\n%s", out)
+	}
+	if !strings.Contains(string(out), "nginx") {
+		t.Errorf("generated compose should carry the helmsman.yaml image:\n%s", out)
 	}
 }
 
@@ -135,17 +165,78 @@ func TestDeployArchivesBeforeUp(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), "services:\n  web:\n    image: nginx\n")
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoHelmsmanYAML)
 	cfg := configureRepo(t, e, slug, sha)
 
 	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "up failed") {
 		t.Fatalf("expected up to fail (write plane disabled), got %v", err)
 	}
-	// The pinned tree must have been checked out into the run dir, confined.
+	// The pinned tree must have been checked out AND the generated compose written
+	// into the run dir before `up`.
 	out, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml"))
 	if rerr != nil || !strings.Contains(string(out), "image: nginx") {
-		t.Errorf("compose not extracted into run dir: %v %q", rerr, out)
+		t.Errorf("generated compose not written into run dir: %v %q", rerr, out)
+	}
+}
+
+// A build service in the repo's helmsman.yaml: deploy GENERATES the Dockerfile into
+// the run dir and the compose references it (build: + .helmsman/Dockerfile.<svc>).
+func TestDeployBuildServiceGeneratesDockerfile(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      - name: api\n        build: {language: go}\n"
+	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
+		"helmsman.yaml": yaml,
+		"go.mod":        "module x\n\ngo 1.23\n",
+		"main.go":       "package main\nfunc main(){}\n",
+	})
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "up failed") {
+		t.Fatalf("expected up to fail (write disabled) after generation, got %v", err)
+	}
+	df, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".helmsman", "Dockerfile.api"))
+	if rerr != nil || !strings.Contains(string(df), "golang:") {
+		t.Errorf("generated Dockerfile missing/wrong: %v\n%s", rerr, df)
+	}
+	cmp, _ := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml"))
+	if !strings.Contains(string(cmp), "build:") || !strings.Contains(string(cmp), ".helmsman/Dockerfile.api") {
+		t.Errorf("compose must reference the generated Dockerfile:\n%s", cmp)
+	}
+}
+
+// No helmsman.yaml in the repo → Helmsman scaffolds a default from the detected stack
+// (go.mod → a go build service) and generates the Dockerfile.
+func TestDeployScaffoldsWhenNoHelmsmanYAML(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
+		"go.mod":  "module x\n\ngo 1.23\n",
+		"main.go": "package main\nfunc main(){}\n",
+	})
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "up failed") {
+		t.Fatalf("expected scaffold→generate→up-fail, got %v", err)
+	}
+	df, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".helmsman", "Dockerfile.app"))
+	if rerr != nil || !strings.Contains(string(df), "golang:") {
+		t.Errorf("scaffold should generate a go Dockerfile: %v\n%s", rerr, df)
+	}
+}
+
+// No helmsman.yaml AND an undetectable stack → rejected with guidance (no deploy).
+func TestDeployRejectsUndetectableRepoWithoutHelmsmanYAML(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	slug := "shop"
+	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{"README.md": "hi\n"})
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "helmsman.yaml") {
+		t.Fatalf("an undetectable repo without helmsman.yaml must be rejected with guidance, got %v", err)
 	}
 }
 
