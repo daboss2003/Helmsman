@@ -13,12 +13,25 @@ DIST="${DIST:-stable}"
 COMPONENT="${COMPONENT:-main}"
 GPG_KEY_ID="${GPG_KEY_ID:?set GPG_KEY_ID to the signing key fingerprint}"
 OUT="${OUT:-public}"
+ARCHES="${ARCHES:-amd64 arm64}"   # the linux arches goreleaser builds .debs for
 
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
+# Download the release's .deb assets with curl rather than `gh release download`:
+# gh can finish the transfer but fail to exit (hangs), and these assets are public.
+# For a private repo, export GH_AUTH=1 to send a token.
 echo ">> downloading ${VERSION} .deb assets from ${REPO}"
-gh release download "$VERSION" --repo "$REPO" --pattern '*.deb' --dir "$workdir"
+ver="${VERSION#v}"
+auth=()
+if [ "${GH_AUTH:-}" = "1" ]; then auth=(-H "Authorization: Bearer $(gh auth token)"); fi
+for arch in $ARCHES; do
+    f="helmsman_${ver}_linux_${arch}.deb"
+    echo "   $f"
+    curl -fSL --retry 3 --retry-delay 2 "${auth[@]}" \
+        -o "$workdir/$f" \
+        "https://github.com/${REPO}/releases/download/${VERSION}/${f}"
+done
 
 # Create the aptly repo on first run; ignore if it already exists.
 aptly repo create -distribution="$DIST" -component="$COMPONENT" helmsman 2>/dev/null || true
