@@ -30,6 +30,7 @@ var (
 	svcRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 	secretRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 	envKeyRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	tokenKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`) // {{hm.KEY}} binding key grammar
 	hostnameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62})(\.[a-z0-9]([a-z0-9-]{0,62}))+$`)
 )
 
@@ -162,10 +163,13 @@ type Volume struct {
 
 // ConfigFile is an app config file Helmsman renders + bind-mounts read-only into a
 // service. Content is a repo path (git cat-file @ pinned commit) XOR inline template.
+// Bindings is the explicit allowlist of {{hm.KEY}} tokens the file may resolve (a
+// literal or a {secret: NAME}); the app's own ${…} survive byte-identical.
 type ConfigFile struct {
-	Repo     string `yaml:"repo,omitempty"`
-	Template string `yaml:"template,omitempty"`
-	Mount    string `yaml:"mount"`
+	Repo     string              `yaml:"repo,omitempty"`
+	Template string              `yaml:"template,omitempty"`
+	Mount    string              `yaml:"mount"`
+	Bindings map[string]EnvValue `yaml:"bindings,omitempty"`
 }
 
 // CertBinding syncs a managed cert to a service (renew + reload handled by Helmsman).
@@ -337,7 +341,7 @@ func (s *Spec) validateServices() error {
 			}
 		}
 		for _, cf := range svc.ConfigFiles {
-			if err := validateConfigFile(name, cf); err != nil {
+			if err := validateConfigFile(name, cf, declaredSecrets); err != nil {
 				return err
 			}
 		}
@@ -440,7 +444,7 @@ func validateBuild(svc string, b *Build) error {
 	return nil
 }
 
-func validateConfigFile(svc string, cf ConfigFile) error {
+func validateConfigFile(svc string, cf ConfigFile, declaredSecrets map[string]bool) error {
 	if err := mountPath(cf.Mount); err != nil {
 		return fmt.Errorf("service %q config_files mount: %w", svc, err)
 	}
@@ -452,6 +456,19 @@ func validateConfigFile(svc string, cf ConfigFile) error {
 	if hasRepo {
 		if err := relConfined(cf.Repo); err != nil {
 			return fmt.Errorf("service %q config_files repo %q: %w", svc, cf.Repo, err)
+		}
+	}
+	for k, b := range cf.Bindings {
+		if !tokenKeyRe.MatchString(k) {
+			return fmt.Errorf("service %q config_files binding key %q is invalid", svc, k)
+		}
+		if b.Secret != "" {
+			if !secretRe.MatchString(b.Secret) {
+				return fmt.Errorf("service %q config_files binding %q references an invalid secret name %q", svc, k, b.Secret)
+			}
+			if !declaredSecrets[b.Secret] {
+				return fmt.Errorf("service %q config_files binding %q references undeclared secret %q", svc, k, b.Secret)
+			}
 		}
 	}
 	return nil

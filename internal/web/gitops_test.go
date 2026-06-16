@@ -324,6 +324,47 @@ func TestDeployMaterializesConfigAndSecretFiles(t *testing.T) {
 	}
 }
 
+// A config_file {{hm.KEY}} token resolves to a secret value at deploy; the rendered
+// file is secret-bearing → 0600, and the token is gone.
+func TestDeployRendersConfigFileTokens(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	if _, err := e.srv.envStore.Save(context.Background(), slug,
+		[]envstore.Entry{{Key: "api_pw", Value: secret.New("S3CRET"), Secret: true}}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `apiVersion: helmsman/v1
+kind: App
+metadata: {slug: app}
+spec:
+  compose:
+    source: generated
+    services:
+      emqx:
+        image: emqx/emqx:5.8.3
+        config_files:
+          - template: "key = {{hm.API_KEY}}\n"
+            mount: /etc/api.conf
+            bindings: {API_KEY: {secret: api_pw}}
+  secrets: [{name: api_pw}]
+`
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "up failed") {
+		t.Fatalf("expected up to fail (write disabled) after rendering, got %v", err)
+	}
+	p := filepath.Join(e.srv.appRunDir(slug), ".helmsman", "cfg", "emqx", "0")
+	b, rerr := os.ReadFile(p)
+	if rerr != nil || string(b) != "key = S3CRET\n" {
+		t.Errorf("config token not rendered: %v %q", rerr, b)
+	}
+	if fi, _ := os.Stat(p); fi != nil && fi.Mode().Perm() != 0o600 {
+		t.Errorf("secret-bearing config file mode = %v, want 0600", fi.Mode().Perm())
+	}
+}
+
 // A secret_files reference with no stored value blocks the deploy (fail-closed).
 func TestDeploySecretFileWithoutValueBlocks(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")

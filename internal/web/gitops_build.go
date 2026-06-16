@@ -10,9 +10,36 @@ import (
 	"strings"
 
 	"github.com/daboss2003/Helmsman/internal/builder"
+	"github.com/daboss2003/Helmsman/internal/cfgfile"
 	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/git"
 )
+
+// configBindingResolver resolves {{hm.KEY}} tokens in a config file against its
+// explicit bindings: a literal value, or a secret value from the encrypted store.
+// Unknown keys fail closed (cfgfile.ErrUnknownBinding).
+func (s *Server) configBindingResolver(project string, bindings map[string]definition.EnvValue) cfgfile.Resolver {
+	return func(key string) (string, bool, error) {
+		b, ok := bindings[key]
+		if !ok {
+			return "", false, cfgfile.ErrUnknownBinding
+		}
+		if b.Secret != "" {
+			if s.envStore == nil {
+				return "", false, fmt.Errorf("secret store unavailable")
+			}
+			v, ok, err := s.envStore.Reveal(project, b.Secret)
+			if err != nil {
+				return "", false, err
+			}
+			if !ok {
+				return "", false, fmt.Errorf("secret %q has no value — set it before deploying", b.Secret)
+			}
+			return v, true, nil
+		}
+		return b.Value, false, nil
+	}
+}
 
 // loadRepoDefinition reads the repo's helmsman.yaml at the pinned commit and parses it
 // (Helmsman generates the compose from it — the repo never supplies a compose). If the
@@ -146,11 +173,21 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 			} else {
 				content = []byte(cf.Template)
 			}
+			// Render {{hm.KEY}} tokens against the file's explicit bindings (a literal
+			// or a secret value from the store); the app's own ${…} survive untouched.
+			rendered, secretBearing, rerr := cfgfile.Render(content, s.configBindingResolver(project, cf.Bindings))
+			if rerr != nil {
+				return fmt.Errorf("service %q config file: %w", name, rerr)
+			}
 			dest := filepath.Join(rd, filepath.FromSlash(definition.ManagedConfigPath(name, i)))
 			if !confinedUnder(dest, rd) {
 				return fmt.Errorf("service %q config file path escapes the run dir", name)
 			}
-			if err := atomicWrite(dest, content, 0o640, rd); err != nil {
+			mode := os.FileMode(0o640)
+			if secretBearing {
+				mode = 0o600 // a rendered secret-bearing file is never group-readable
+			}
+			if err := atomicWrite(dest, rendered, mode, rd); err != nil {
 				return fmt.Errorf("service %q config file: %w", name, err)
 			}
 		}
