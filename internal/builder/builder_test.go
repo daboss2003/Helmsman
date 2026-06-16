@@ -50,7 +50,7 @@ func TestNodeDockerfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"FROM node:20-alpine AS build", "RUN npm ci", "RUN npm run build", "USER app", `CMD ["node", "dist/main"]`} {
+	for _, want := range []string{"FROM node:20-alpine AS build", "COPY package*.json ./", "RUN npm ci", "RUN npm run build", "USER app", `CMD ["node", "dist/main"]`} {
 		if !strings.Contains(df, want) {
 			t.Errorf("node Dockerfile missing %q:\n%s", want, df)
 		}

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -55,6 +56,14 @@ func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, sl
 // symlink-safe). Detection (language: auto) reads the repo's top-level file list at
 // the pinned commit.
 func (s *Server) writeGeneratedDockerfiles(ctx context.Context, repo *git.Repo, sha, rd string, def *definition.Definition, onLine func(string)) error {
+	if defHasBuild(def) {
+		// CRITICAL: the build context is the run dir, which also holds .helmsman/
+		// (rendered config + secret VALUES). Exclude it so `COPY . .` can never bake
+		// a secret into an image layer.
+		if err := ensureDockerignore(rd); err != nil {
+			return fmt.Errorf("write .dockerignore: %w", err)
+		}
+	}
 	var top map[string]bool
 	names := make([]string, 0, len(def.Spec.Compose.Services))
 	for n := range def.Spec.Compose.Services {
@@ -165,6 +174,30 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 		}
 	}
 	return nil
+}
+
+// ensureDockerignore guarantees the build context excludes Helmsman's managed dir
+// (.helmsman/ holds rendered config + secret VALUES + the generated Dockerfile), so a
+// `COPY . .` in a generated Dockerfile can never bake secrets into image layers. It
+// merges with the repo's own .dockerignore if present.
+func ensureDockerignore(rd string) error {
+	p := filepath.Join(rd, ".dockerignore")
+	var existing []byte
+	if b, err := os.ReadFile(p); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.TrimSuffix(strings.TrimSpace(line), "/") == ".helmsman" {
+				return nil // already excluded
+			}
+		}
+		existing = b
+	}
+	var buf bytes.Buffer
+	buf.Write(existing)
+	if len(existing) > 0 && !bytes.HasSuffix(existing, []byte("\n")) {
+		buf.WriteByte('\n')
+	}
+	buf.WriteString("# added by Helmsman — never send rendered config/secrets into the build context\n.helmsman/\n")
+	return atomicWrite(p, buf.Bytes(), 0o644, rd)
 }
 
 // defBindSources is every run_dir-relative bind source declared across the stack's

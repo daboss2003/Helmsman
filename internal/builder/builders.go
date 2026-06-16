@@ -47,8 +47,11 @@ func (nodeBuilder) Dockerfile(s Spec) (string, error) {
 	}
 	lines = append(lines, envs...)
 	lines = append(lines,
-		"COPY . .",
+		// Copy manifests + lockfiles first so the install layer caches until they
+		// change (a source-only edit won't re-run the install).
+		"COPY package*.json ./",
 		"RUN "+install,
+		"COPY . .",
 		runIf(build),
 		"FROM "+base+" AS run",
 		"WORKDIR /app",

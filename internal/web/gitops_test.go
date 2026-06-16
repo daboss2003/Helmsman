@@ -207,6 +207,11 @@ func TestDeployBuildServiceGeneratesDockerfile(t *testing.T) {
 	if !strings.Contains(string(cmp), "build:") || !strings.Contains(string(cmp), ".helmsman/Dockerfile.api") {
 		t.Errorf("compose must reference the generated Dockerfile:\n%s", cmp)
 	}
+	// The build context must exclude .helmsman/ so `COPY . .` can't bake secrets in.
+	di, derr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".dockerignore"))
+	if derr != nil || !strings.Contains(string(di), ".helmsman/") {
+		t.Errorf("generated .dockerignore must exclude .helmsman/: %v\n%s", derr, di)
+	}
 }
 
 // No helmsman.yaml in the repo → Helmsman scaffolds a default from the detected stack
