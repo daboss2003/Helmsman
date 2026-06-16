@@ -657,6 +657,14 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 		s.gitStore.SetState(bg, slug, "update_blocked")
 		return err
 	}
+	// Register cert_bindings so the managed edge issues each hostname's cert, then
+	// sync the issued leaf into the run dir (blocks until issued). Replaces the
+	// docker.sock cert-reloader: no container holds the socket.
+	s.registerCertBindings(ctx, slug, def, onLine)
+	if err := s.syncCertBindings(rd, def); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return err
+	}
 	app := &monitor.App{Project: slug, WorkingDir: rd, ConfigFiles: []string{composeAbs}}
 	if err := s.materializeConfigFiles(app, env); err != nil {
 		s.gitStore.SetState(bg, slug, "update_blocked")

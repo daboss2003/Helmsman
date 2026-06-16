@@ -11,6 +11,7 @@ import (
 
 	"github.com/daboss2003/Helmsman/internal/builder"
 	"github.com/daboss2003/Helmsman/internal/cfgfile"
+	"github.com/daboss2003/Helmsman/internal/cfgstore"
 	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/git"
 )
@@ -236,6 +237,120 @@ func ensureDockerignore(rd string) error {
 	}
 	buf.WriteString("# added by Helmsman — never send rendered config/secrets into the build context\n.helmsman/\n")
 	return atomicWrite(p, buf.Bytes(), 0o644, rd)
+}
+
+// defaultCaddyCertRoot is where the managed edge (Caddy, XDG_DATA_HOME=/var/lib/caddy)
+// stores its issued certs: <root>/<issuer-dir>/<hostname>/<hostname>.{crt,key}.
+const defaultCaddyCertRoot = "/var/lib/caddy/caddy/certificates"
+
+// registerCertBindings persists this app's cert_bindings into the cert store so the
+// managed edge issues a cert for each hostname (a cert-only ACME subject), then
+// reconciles the edge. Best-effort: a reconcile failure (edge not owned / Caddy down)
+// is logged, not fatal — issuance applies when the edge is up.
+func (s *Server) registerCertBindings(ctx context.Context, project string, def *definition.Definition, onLine func(string)) {
+	if s.cfgStore == nil {
+		return
+	}
+	any := false
+	for _, name := range sortedServiceNames(def) {
+		for _, cb := range def.Spec.Compose.Services[name].CertBindings {
+			err := s.cfgStore.SaveCertBinding(ctx, project, cfgstore.CertBinding{
+				BindingName: certBindingKey(name, cb.Hostname),
+				Hostname:    cb.Hostname,
+				SyncDirRel:  definition.ManagedCertDir(name, cb.Hostname),
+				Required:    true,
+			})
+			if err != nil {
+				onLine("warning: could not register cert binding for " + cb.Hostname + ": " + err.Error())
+				continue
+			}
+			any = true
+		}
+	}
+	if any && s.edgeRecon != nil {
+		if err := s.edgeRecon.Reconcile(ctx); err != nil {
+			onLine("note: edge not reconciled yet (it issues the cert when up): " + err.Error())
+		}
+	}
+}
+
+// syncCertBindings copies each cert_binding's issued leaf cert+key from the edge's
+// store into the app's managed cert dir (tls.crt 0644, tls.key 0600), confined +
+// symlink-safe. If the edge hasn't issued the cert yet, the deploy blocks with a
+// clear message (re-deploy once ACME completes) — fail-closed, no spin-loop.
+func (s *Server) syncCertBindings(rd string, def *definition.Definition) error {
+	root := s.caddyCertRoot
+	if root == "" {
+		root = defaultCaddyCertRoot
+	}
+	for _, name := range sortedServiceNames(def) {
+		for _, cb := range def.Spec.Compose.Services[name].CertBindings {
+			crt, key, ok := findCaddyLeaf(root, cb.Hostname)
+			if !ok {
+				return fmt.Errorf("service %q: the edge has not issued the TLS cert for %s yet — re-deploy once it is issued", name, cb.Hostname)
+			}
+			cdata, err := os.ReadFile(crt)
+			if err != nil {
+				return fmt.Errorf("service %q cert %s: %w", name, cb.Hostname, err)
+			}
+			kdata, err := os.ReadFile(key)
+			if err != nil {
+				return fmt.Errorf("service %q cert %s: %w", name, cb.Hostname, err)
+			}
+			dir := filepath.Join(rd, filepath.FromSlash(definition.ManagedCertDir(name, cb.Hostname)))
+			if !confinedUnder(dir, rd) {
+				return fmt.Errorf("service %q cert dir escapes the run dir", name)
+			}
+			if err := atomicWrite(filepath.Join(dir, "tls.crt"), cdata, 0o644, rd); err != nil {
+				return fmt.Errorf("service %q cert: %w", name, err)
+			}
+			if err := atomicWrite(filepath.Join(dir, "tls.key"), kdata, 0o600, rd); err != nil {
+				return fmt.Errorf("service %q cert key: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// findCaddyLeaf locates <root>/<issuer>/<host>/<host>.{crt,key} across issuer dirs
+// (the issuer subdir name depends on the ACME CA, so we scan rather than hardcode it).
+func findCaddyLeaf(root, host string) (crt, key string, ok bool) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", "", false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		c := filepath.Join(root, e.Name(), host, host+".crt")
+		k := filepath.Join(root, e.Name(), host, host+".key")
+		if isRegularFile(c) && isRegularFile(k) {
+			return c, k, true
+		}
+	}
+	return "", "", false
+}
+
+func isRegularFile(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// certBindingKey is a cert-store binding name derived from the service + hostname
+// (the store's key grammar excludes dots).
+func certBindingKey(service, hostname string) string {
+	return service + "-" + strings.ReplaceAll(hostname, ".", "-")
+}
+
+// sortedServiceNames returns the stack's service names in deterministic order.
+func sortedServiceNames(def *definition.Definition) []string {
+	names := make([]string, 0, len(def.Spec.Compose.Services))
+	for n := range def.Spec.Compose.Services {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // defBindSources is every run_dir-relative bind source declared across the stack's

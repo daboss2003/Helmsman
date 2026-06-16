@@ -365,6 +365,62 @@ spec:
 	}
 }
 
+// cert_bindings: an issued edge cert is synced into the run dir (tls.crt 0644 /
+// tls.key 0600) and the generated compose mounts it RO; a not-yet-issued cert blocks.
+func TestDeploySyncsCertBinding(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	// a fake edge cert store with an issued leaf for mqtt.example.com
+	caddyRoot := t.TempDir()
+	leaf := filepath.Join(caddyRoot, "acme-v02.api.letsencrypt.org-directory", "mqtt.example.com")
+	if err := os.MkdirAll(leaf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(leaf, "mqtt.example.com.crt"), []byte("CERTPEM"), 0o600)
+	_ = os.WriteFile(filepath.Join(leaf, "mqtt.example.com.key"), []byte("KEYPEM"), 0o600)
+	e.srv.caddyCertRoot = caddyRoot
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+		"  compose:\n    source: generated\n    services:\n      emqx:\n        image: emqx/emqx:5.8.3\n" +
+		"        cert_bindings:\n          - {hostname: mqtt.example.com, mount: /etc/certs}\n"
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "up failed") {
+		t.Fatalf("expected up to fail (write disabled) AFTER cert sync, got %v", err)
+	}
+	rd := e.srv.appRunDir(slug)
+	crt := filepath.Join(rd, ".helmsman", "certs", "emqx", "mqtt.example.com", "tls.crt")
+	if b, rerr := os.ReadFile(crt); rerr != nil || string(b) != "CERTPEM" {
+		t.Errorf("cert not synced: %v %q", rerr, b)
+	}
+	keyP := filepath.Join(rd, ".helmsman", "certs", "emqx", "mqtt.example.com", "tls.key")
+	if fi, _ := os.Stat(keyP); fi == nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("cert key must be 0600, got %v", fi)
+	}
+	cmp, _ := os.ReadFile(filepath.Join(rd, "docker-compose.yml"))
+	if !strings.Contains(string(cmp), "/etc/certs:ro") {
+		t.Errorf("compose must mount the cert dir:\n%s", cmp)
+	}
+}
+
+// A cert_binding whose cert the edge hasn't issued yet blocks the deploy (fail-closed).
+func TestDeployCertBindingBlocksUntilIssued(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	e.srv.caddyCertRoot = t.TempDir() // empty — nothing issued
+	slug := "shop"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+		"  compose:\n    source: generated\n    services:\n      emqx:\n        image: emqx/emqx:5.8.3\n" +
+		"        cert_bindings:\n          - {hostname: mqtt.example.com, mount: /etc/certs}\n"
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
+	cfg := configureRepo(t, e, slug, sha)
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "not issued") {
+		t.Fatalf("a not-yet-issued cert_binding must block the deploy, got %v", err)
+	}
+}
+
 // A secret_files reference with no stored value blocks the deploy (fail-closed).
 func TestDeploySecretFileWithoutValueBlocks(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")

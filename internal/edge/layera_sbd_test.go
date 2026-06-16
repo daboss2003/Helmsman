@@ -17,7 +17,7 @@ import (
 
 func freshInstall(t *testing.T) (string, map[string]any) {
 	t.Helper()
-	out, err := Render(baseCfg(), nil)
+	out, err := Render(baseCfg(), nil, nil)
 	if err != nil {
 		t.Fatalf("fresh-install render failed: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestLayerA_SBD1_NoAdminVhostByDefault(t *testing.T) {
 	b := baseCfg()
 	b.AdminHostname = "admin.example.com"
 	b.AdminUpstream = "127.0.0.1:9000"
-	if _, err := Render(b, nil); err == nil {
+	if _, err := Render(b, nil, nil); err == nil {
 		t.Error("SBD-1: an admin vhost without an IP allowlist must be refused")
 	}
 }
@@ -83,7 +83,7 @@ func TestLayerA_SBD4_NoCatchAllNoControlPlaneUpstream(t *testing.T) {
 		t.Error("SBD-4: the unmatched-Host 404 floor must be present")
 	}
 	for _, up := range []string{"127.0.0.1:9000", "10.0.0.5:2019", "host:2375", "169.254.169.254:80", "localhost:8080"} {
-		if _, err := Render(baseCfg(), []Route{{Hostname: "x.example.com", Upstream: up, UpstreamScheme: "http", Enabled: true}}); err == nil {
+		if _, err := Render(baseCfg(), []Route{{Hostname: "x.example.com", Upstream: up, UpstreamScheme: "http", Enabled: true}}, nil); err == nil {
 			t.Errorf("SBD-4: upstream %q must be refused", up)
 		}
 	}
@@ -97,7 +97,7 @@ func TestLayerA_SBD6_ACMEBoundedAndPinned(t *testing.T) {
 		t.Error("SBD-6: no ACME automation without a configured hostname")
 	}
 	// With a route, ACME is pinned to exactly the configured CA + email.
-	out, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true}})
+	out, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +112,11 @@ func TestLayerA_SBD6_ACMEBoundedAndPinned(t *testing.T) {
 // authors helmsman.yaml / the typed route model). The renderer is total and
 // deterministic: the same inputs render byte-identically.
 func TestLayerA_SBD7_TypedRenderDeterministic(t *testing.T) {
-	a, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", HSTS: true, SecurityHeaders: true, Enabled: true}})
+	a, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", HSTS: true, SecurityHeaders: true, Enabled: true}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", HSTS: true, SecurityHeaders: true, Enabled: true}})
+	b, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", HSTS: true, SecurityHeaders: true, Enabled: true}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestLayerA_SBD7_TypedRenderDeterministic(t *testing.T) {
 // SBD-8: the empty/base config is always a loadable recovery floor (it renders
 // without error and is valid JSON) — the edge can always fall back to it.
 func TestLayerA_SBD8_BaseIsRecoveryFloor(t *testing.T) {
-	out, err := Render(baseCfg(), nil)
+	out, err := Render(baseCfg(), nil, nil)
 	if err != nil {
 		t.Fatalf("SBD-8: the base config must always render: %v", err)
 	}

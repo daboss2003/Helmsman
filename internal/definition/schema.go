@@ -245,6 +245,12 @@ func ManagedSecretPath(service, name string) string {
 	return fmt.Sprintf(".helmsman/secrets/%s/%s", service, name)
 }
 
+// ManagedCertDir is the run-dir-relative directory a cert binding is synced into
+// (tls.crt + tls.key) and bind-mounted from. service + hostname are schema-validated.
+func ManagedCertDir(service, hostname string) string {
+	return fmt.Sprintf(".helmsman/certs/%s/%s", service, hostname)
+}
+
 func (d *Definition) validateEnvelope() error {
 	if d.APIVersion != APIVersion {
 		return fmt.Errorf("apiVersion must be exactly %q (got %q) — unknown versions are rejected", APIVersion, d.APIVersion)

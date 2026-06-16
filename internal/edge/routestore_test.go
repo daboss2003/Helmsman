@@ -32,7 +32,7 @@ func TestRouteStoreRoundTripAndRender(t *testing.T) {
 		t.Errorf("hostname not normalized: %q", routes[0].Hostname)
 	}
 	// The stored set renders to a valid config.
-	if _, err := Render(baseCfg(), routes); err != nil {
+	if _, err := Render(baseCfg(), routes, nil); err != nil {
 		t.Fatalf("render stored routes: %v", err)
 	}
 	_ = s.Delete(ctx, routes[0].ID())

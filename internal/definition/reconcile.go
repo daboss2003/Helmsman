@@ -49,6 +49,9 @@ func toProvisionSpec(d *Definition) provision.Spec {
 		for _, sec := range svc.SecretFiles {
 			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedSecretPath(name, sec), Target: "/run/secrets/" + sec, ReadOnly: true})
 		}
+		for _, cb := range svc.CertBindings {
+			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedCertDir(name, cb.Hostname), Target: cb.Mount, ReadOnly: true})
+		}
 		ekeys := make([]string, 0, len(svc.Env))
 		for k := range svc.Env {
 			ekeys = append(ekeys, k)
