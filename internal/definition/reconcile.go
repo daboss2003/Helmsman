@@ -26,8 +26,8 @@ func toProvisionSpec(d *Definition) provision.Spec {
 			Name: svc.Name, Image: svc.Image, EnvKeys: svc.Env,
 			Command: svc.Command, Healthcheck: svc.Healthcheck, Restart: svc.Restart, DependsOn: svc.DependsOn,
 		}
-		if svc.Port > 0 {
-			s.Ports = []provision.Port{{Internal: svc.Port}} // internal only, never published
+		for _, p := range svc.Ports {
+			s.Ports = append(s.Ports, provision.Port{Internal: p.Internal, Publish: p.Publish, Public: p.Public})
 		}
 		for _, v := range svc.Volumes {
 			s.Volumes = append(s.Volumes, provision.Volume{Name: v.Name, Source: v.Source, Target: v.Target, ReadOnly: v.ReadOnly})
@@ -37,22 +37,26 @@ func toProvisionSpec(d *Definition) provision.Spec {
 	return ps
 }
 
-// ComposeBytes returns the compose document this definition would deploy: generated
-// from the typed services, or the inline literal. repo_path is resolved from the
-// pinned commit at apply time (it needs the checkout), so it is not produced here.
+// ComposeBytes returns the compose document this definition would deploy: ALWAYS
+// generated from the typed services — Helmsman owns the compose. There is no raw
+// (repo_path/inline) source.
 func ComposeBytes(d *Definition) ([]byte, error) {
-	switch d.Spec.Compose.Source {
-	case SourceGenerated:
-		ps := toProvisionSpec(d)
-		if err := ps.Validate(); err != nil { // M8 field-level gate before generation
-			return nil, err
-		}
-		return provision.Generate(ps)
-	case SourceInline:
-		return []byte(d.Spec.Compose.Inline), nil
-	default:
-		return nil, fmt.Errorf("compose source %q is resolved from the repo at apply time", d.Spec.Compose.Source)
+	if src := d.Spec.Compose.Source; src != "" && src != SourceGenerated {
+		return nil, fmt.Errorf("compose.source %q is not supported — Helmsman generates the compose", src)
 	}
+	// Build services need the Helmsman-generated Dockerfile (M20 Phase 2); refuse
+	// clearly until then rather than emit a compose pointing at a Dockerfile we don't
+	// yet produce.
+	for _, svc := range d.Spec.Compose.Services {
+		if svc.Build != nil {
+			return nil, fmt.Errorf("service %q: generated builds (compose.services[].build) are not generated yet (M20 Phase 2); use image: for now", svc.Name)
+		}
+	}
+	ps := toProvisionSpec(d)
+	if err := ps.Validate(); err != nil { // field-level gate before generation
+		return nil, err
+	}
+	return provision.Generate(ps)
 }
 
 // Validate runs the full reconcile validation: §5.6 over the (generated or inline)
@@ -60,14 +64,12 @@ func ComposeBytes(d *Definition) ([]byte, error) {
 // literal dial targets). Returns the first violation. env is for inline ${VAR}
 // resolution; runDir is the app run dir bind mounts must stay under.
 func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []string) error {
-	if d.Spec.Compose.Source != SourceRepoPath {
-		raw, err := ComposeBytes(d)
-		if err != nil {
-			return fmt.Errorf("compose: %w", err)
-		}
-		if res := compose.ValidateBytes(raw, env, runDir, compose.Options{ProtectedPaths: protectedPaths}); !res.OK() {
-			return fmt.Errorf("§5.6 compose validation failed: %s", res.Violations[0].String())
-		}
+	raw, err := ComposeBytes(d)
+	if err != nil {
+		return fmt.Errorf("compose: %w", err)
+	}
+	if res := compose.ValidateBytes(raw, env, runDir, compose.Options{ProtectedPaths: protectedPaths}); !res.OK() {
+		return fmt.Errorf("§5.6 compose validation failed: %s", res.Violations[0].String())
 	}
 	// §6.2 edge gate: each route's upstream is a selector (service:port) resolved
 	// against THIS app's containers — validated like any Layer-1 route (no
@@ -77,7 +79,7 @@ func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []st
 		declared[svc.Name] = true
 	}
 	for _, r := range d.Spec.Edge.Routes {
-		if d.Spec.Compose.Source == SourceGenerated && !declared[r.Service] {
+		if !declared[r.Service] {
 			return fmt.Errorf("edge route %q targets unknown service %q", r.Hostname, r.Service)
 		}
 		port := r.Port

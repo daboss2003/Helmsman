@@ -4,17 +4,24 @@
 // front door, never a new trust path. Nothing in it reaches `docker compose`
 // unvalidated.
 //
-// This file is the typed schema (DefinitionV1). normalize.go is the parser-
-// differential-resistant parse (exact apiVersion, unknown-key reject, YAML
-// anchor/alias/merge-key/duplicate-key reject, single-document, canonical
-// re-marshal). Each spec section is a PROJECTION onto an existing artifact — no new
-// artifact types — so the deep validation reuses the existing chokepoints (§5.6
-// compose validator, §6.2 edge gate, the secret store).
+// Helmsman OWNS the runtime: the operator declares a multi-service STACK here and
+// Helmsman GENERATES the compose (and, for build services, the Dockerfile). There is
+// no way to supply a raw compose/Dockerfile — `compose.source` is generated-only.
+//
+// This file is the typed schema. normalize.go is the parser-differential-resistant
+// parse (exact apiVersion, unknown-key reject, YAML anchor/alias/merge-key/
+// duplicate-key reject, single-document, canonical re-marshal). Each spec section is
+// a PROJECTION onto an existing artifact, so the deep validation reuses the existing
+// chokepoints (§5.6 compose validator, §6.2 edge gate, the secret store).
 package definition
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"strings"
+
+	"github.com/daboss2003/Helmsman/internal/sandbox"
 )
 
 // APIVersion is the ONLY accepted envelope version — exact-match, fail-closed. An
@@ -28,6 +35,17 @@ var (
 	envKeyRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	hostnameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62})(\.[a-z0-9]([a-z0-9-]{0,62}))+$`)
 )
+
+// buildLanguages are the recognized build languages. "auto" (the default) detects
+// the stack from the repo; "generic" wraps the operator's own base + commands.
+var buildLanguages = map[string]bool{
+	"auto": true, "node": true, "python": true, "go": true,
+	"ruby": true, "php": true, "static": true, "generic": true,
+}
+
+var validRestart = map[string]bool{
+	"": true, "no": true, "always": true, "on-failure": true, "unless-stopped": true,
+}
 
 // Definition is the whole helmsman.yaml document (kind: App).
 type Definition struct {
@@ -50,28 +68,60 @@ type Spec struct {
 	Edge    Edge     `yaml:"edge"`
 	Scaling *Scaling `yaml:"scaling,omitempty"`
 	Git     *Git     `yaml:"git,omitempty"`
+	Setup   *Setup   `yaml:"setup,omitempty"`
 }
 
-// Compose is a strict oneOf over the three sources (no inference).
+// Compose is GENERATED-ONLY: Helmsman owns the compose. `source` defaults to and may
+// only be "generated". The legacy `repo_path`/`inline` sources are rejected; Path and
+// Inline are retained ONLY so a stale definition gets a clear, guiding rejection
+// instead of a cryptic unknown-field decode error.
 type Compose struct {
-	Source   string    `yaml:"source"` // generated | repo_path | inline
+	Source   string    `yaml:"source,omitempty"`
 	Services []Service `yaml:"services,omitempty"`
-	Path     string    `yaml:"path,omitempty"`   // repo_path: a repo-relative compose path
-	Inline   string    `yaml:"inline,omitempty"` // inline: literal compose YAML
+	Path     string    `yaml:"path,omitempty"`
+	Inline   string    `yaml:"inline,omitempty"`
 }
 
-// Service is one generated service. There is NO host-publish field — ingress is only
-// an edge.route — and no dangerous keys exist in the schema by construction.
+// Service is one service in the generated stack. A service is `image` (pull) XOR
+// `build` (Helmsman generates the Dockerfile). No host-publish-by-default, no
+// dangerous keys — they cannot be expressed, so no input can produce them.
 type Service struct {
-	Name        string   `yaml:"name"`
-	Image       string   `yaml:"image"`
-	Port        int      `yaml:"port"` // internal container port (no host publish)
-	Volumes     []Volume `yaml:"volumes,omitempty"`
-	Env         []string `yaml:"env,omitempty"` // env-var names (values live in env/secrets)
-	Command     []string `yaml:"command,omitempty"`
-	Healthcheck []string `yaml:"healthcheck,omitempty"`
-	Restart     string   `yaml:"restart"`
-	DependsOn   []string `yaml:"depends_on,omitempty"`
+	Name         string        `yaml:"name"`
+	Image        string        `yaml:"image,omitempty"` // image XOR build
+	Build        *Build        `yaml:"build,omitempty"`
+	Ports        []Port        `yaml:"ports,omitempty"`
+	Volumes      []Volume      `yaml:"volumes,omitempty"`
+	Env          []string      `yaml:"env,omitempty"`          // env-var names (values live in env/secrets)
+	SecretFiles  []string      `yaml:"secret_files,omitempty"` // secret names mounted at /run/secrets/<name>
+	ConfigFiles  []ConfigFile  `yaml:"config_files,omitempty"`
+	CertBindings []CertBinding `yaml:"cert_bindings,omitempty"`
+	Command      []string      `yaml:"command,omitempty"`
+	Healthcheck  []string      `yaml:"healthcheck,omitempty"`
+	Restart      string        `yaml:"restart,omitempty"`
+	DependsOn    []string      `yaml:"depends_on,omitempty"`
+}
+
+// Port is one container port. Internal is the in-container port; Publish maps it to
+// the host (loopback by default, all interfaces only when Public).
+type Port struct {
+	Internal int  `yaml:"internal"`
+	Publish  bool `yaml:"publish"`
+	Public   bool `yaml:"public"`
+}
+
+// Build is the declarative build spec — Helmsman GENERATES the Dockerfile from it
+// (there is no raw Dockerfile). language "auto" (default) detects the stack from the
+// repo; "generic" uses `base` + the operator's own commands (best effort).
+type Build struct {
+	Language string            `yaml:"language,omitempty"`
+	Version  string            `yaml:"version,omitempty"`
+	Base     string            `yaml:"base,omitempty"` // generic only
+	Install  string            `yaml:"install,omitempty"`
+	BuildCmd string            `yaml:"build,omitempty"`
+	Start    []string          `yaml:"start,omitempty"`
+	Env      map[string]string `yaml:"env,omitempty"`
+	Packages []string          `yaml:"packages,omitempty"`
+	Nonroot  *bool             `yaml:"run_as_nonroot,omitempty"`
 }
 
 // Volume is a named volume XOR a run_dir-confined bind.
@@ -80,6 +130,21 @@ type Volume struct {
 	Source   string `yaml:"source"`
 	Target   string `yaml:"target"`
 	ReadOnly bool   `yaml:"read_only"`
+}
+
+// ConfigFile is an app config file Helmsman renders + bind-mounts read-only into a
+// service. Content is a repo path (read via git cat-file @ pinned commit) XOR inline.
+type ConfigFile struct {
+	Repo     string `yaml:"repo,omitempty"`
+	Template string `yaml:"template,omitempty"`
+	Mount    string `yaml:"mount"`
+}
+
+// CertBinding syncs a managed cert to a service (renew + reload handled by Helmsman,
+// so the app never runs a docker.sock cert-reloader).
+type CertBinding struct {
+	Hostname string `yaml:"hostname"`
+	Mount    string `yaml:"mount"`
 }
 
 // EnvVar is a non-secret literal (Value) XOR a secret reference (Secret = name).
@@ -134,15 +199,21 @@ type Git struct {
 	AutoDeploy bool   `yaml:"auto_deploy"`
 }
 
-const (
-	SourceGenerated = "generated"
-	SourceRepoPath  = "repo_path"
-	SourceInline    = "inline"
-)
+// Setup is the per-app setup script (Mode 3). It is declared HERE and synced into the
+// setup store; the portal is a read-only view + the gated Run (no literal paste).
+type Setup struct {
+	Script   string   `yaml:"script"`
+	Trigger  string   `yaml:"trigger"`
+	Produces []string `yaml:"produces,omitempty"`
+}
+
+// SourceGenerated is the only accepted compose source — Helmsman generates the
+// compose. (The legacy repo_path/inline sources were removed; Helmsman owns it.)
+const SourceGenerated = "generated"
 
 // validateEnvelope enforces the fail-closed envelope rules (exact apiVersion, kind,
-// immutable-slug shape, the compose oneOf). Deep per-projection validation is done
-// by the reconciler through the existing chokepoints.
+// immutable-slug shape). Deep per-projection validation is done by the reconciler
+// through the existing chokepoints.
 func (d *Definition) validateEnvelope() error {
 	if d.APIVersion != APIVersion {
 		return fmt.Errorf("apiVersion must be exactly %q (got %q) — unknown versions are rejected", APIVersion, d.APIVersion)
@@ -156,44 +227,42 @@ func (d *Definition) validateEnvelope() error {
 	return d.Spec.validate()
 }
 
-// validate enforces the structural spec rules (the oneOf, names, references). It is
-// the cheap field-level pass; the §5.6/§6.2 chokepoints do the deep validation.
+// validate enforces the structural spec rules. Helmsman owns the compose, so the only
+// accepted source is "generated" (default); the deep §5.6/§6.2 chokepoints do the
+// rest.
 func (s *Spec) validate() error {
 	switch s.Compose.Source {
-	case SourceGenerated:
-		if len(s.Compose.Services) == 0 {
-			return fmt.Errorf("compose.source=generated requires spec.compose.services")
-		}
-		if s.Compose.Path != "" || s.Compose.Inline != "" {
-			return fmt.Errorf("compose.source=generated must not set path/inline")
-		}
-		if err := s.validateServices(); err != nil {
-			return err
-		}
-	case SourceRepoPath:
-		if s.Compose.Path == "" {
-			return fmt.Errorf("compose.source=repo_path requires compose.path")
-		}
-		if len(s.Compose.Services) > 0 || s.Compose.Inline != "" {
-			return fmt.Errorf("compose.source=repo_path must not set services/inline")
-		}
-	case SourceInline:
-		if s.Compose.Inline == "" {
-			return fmt.Errorf("compose.source=inline requires compose.inline")
-		}
-		if len(s.Compose.Services) > 0 || s.Compose.Path != "" {
-			return fmt.Errorf("compose.source=inline must not set services/path")
-		}
+	case "", SourceGenerated:
+		// ok — Helmsman generates the compose.
+	case "repo_path", "inline":
+		return fmt.Errorf("compose.source %q is no longer supported — Helmsman generates the compose; "+
+			"declare your services (with image: or build:) under compose.services (source: generated)", s.Compose.Source)
 	default:
-		return fmt.Errorf("compose.source must be one of generated|repo_path|inline (got %q)", s.Compose.Source)
+		return fmt.Errorf("compose.source must be \"generated\" (got %q) — Helmsman generates the compose", s.Compose.Source)
+	}
+	if s.Compose.Path != "" || s.Compose.Inline != "" {
+		return fmt.Errorf("compose.path/compose.inline are no longer supported — Helmsman generates the compose from compose.services")
+	}
+	if len(s.Compose.Services) == 0 {
+		return fmt.Errorf("compose.services is required (Helmsman generates the compose from your services)")
+	}
+	if err := s.validateServices(); err != nil {
+		return err
 	}
 	if err := s.validateSecretsAndEnv(); err != nil {
 		return err
 	}
-	return s.validateEdge()
+	if err := s.validateEdge(); err != nil {
+		return err
+	}
+	return s.validateSetup()
 }
 
 func (s *Spec) validateServices() error {
+	declaredSecrets := map[string]bool{}
+	for _, sec := range s.Secrets {
+		declaredSecrets[sec.Name] = true
+	}
 	names := map[string]bool{}
 	for _, svc := range s.Compose.Services {
 		if !svcRe.MatchString(svc.Name) {
@@ -203,17 +272,157 @@ func (s *Spec) validateServices() error {
 			return fmt.Errorf("duplicate service %q", svc.Name)
 		}
 		names[svc.Name] = true
-		if svc.Image == "" {
-			return fmt.Errorf("service %q must set image", svc.Name)
+
+		// image XOR build — exactly one source of the container image.
+		hasImage := svc.Image != ""
+		hasBuild := svc.Build != nil
+		if hasImage == hasBuild {
+			return fmt.Errorf("service %q must set exactly one of image or build", svc.Name)
 		}
-		if svc.Port != 0 && controlPort(svc.Port) {
-			return fmt.Errorf("service %q port %d is a reserved control-plane port", svc.Name, svc.Port)
+		if hasBuild {
+			if err := validateBuild(svc.Name, svc.Build); err != nil {
+				return err
+			}
+		}
+		for _, p := range svc.Ports {
+			if p.Internal < 1 || p.Internal > 65535 {
+				return fmt.Errorf("service %q port %d is out of range", svc.Name, p.Internal)
+			}
+			if controlPort(p.Internal) {
+				return fmt.Errorf("service %q port %d is a reserved control-plane port", svc.Name, p.Internal)
+			}
+			if p.Public && !p.Publish {
+				return fmt.Errorf("service %q port %d sets public without publish", svc.Name, p.Internal)
+			}
 		}
 		for _, k := range svc.Env {
 			if !envKeyRe.MatchString(k) {
 				return fmt.Errorf("service %q env key %q is invalid", svc.Name, k)
 			}
 		}
+		for _, sf := range svc.SecretFiles {
+			if !declaredSecrets[sf] {
+				return fmt.Errorf("service %q secret_files references undeclared secret %q", svc.Name, sf)
+			}
+		}
+		for _, cf := range svc.ConfigFiles {
+			if err := validateConfigFile(svc.Name, cf); err != nil {
+				return err
+			}
+		}
+		for _, cb := range svc.CertBindings {
+			if err := validateCertBinding(svc.Name, cb); err != nil {
+				return err
+			}
+		}
+		for _, v := range svc.Volumes {
+			if err := validateVolume(svc.Name, v); err != nil {
+				return err
+			}
+		}
+		if !validRestart[svc.Restart] {
+			return fmt.Errorf("service %q restart %q is not allowed", svc.Name, svc.Restart)
+		}
+		if err := validateExec("command", svc.Name, svc.Command); err != nil {
+			return err
+		}
+		if err := validateExec("healthcheck", svc.Name, svc.Healthcheck); err != nil {
+			return err
+		}
+		for _, d := range svc.DependsOn {
+			if d == svc.Name {
+				return fmt.Errorf("service %q cannot depend on itself", svc.Name)
+			}
+		}
+	}
+	// depends_on references must name a real sibling.
+	for _, svc := range s.Compose.Services {
+		for _, d := range svc.DependsOn {
+			if !names[d] {
+				return fmt.Errorf("service %q depends_on unknown service %q", svc.Name, d)
+			}
+		}
+	}
+	return nil
+}
+
+func validateBuild(svc string, b *Build) error {
+	lang := b.Language
+	if lang == "" {
+		lang = "auto"
+	}
+	if !buildLanguages[lang] {
+		return fmt.Errorf("service %q build.language %q is not supported (auto|node|python|go|ruby|php|static|generic)", svc, b.Language)
+	}
+	if lang == "generic" && b.Base == "" {
+		return fmt.Errorf("service %q build.language generic requires build.base (the base image)", svc)
+	}
+	if lang != "generic" && b.Base != "" {
+		return fmt.Errorf("service %q build.base is only valid with language generic", svc)
+	}
+	if err := validateExec("build.start", svc, b.Start); err != nil {
+		return err
+	}
+	for k := range b.Env {
+		if !envKeyRe.MatchString(k) {
+			return fmt.Errorf("service %q build.env key %q is invalid", svc, k)
+		}
+	}
+	for _, p := range b.Packages {
+		if p == "" || strings.ContainsAny(p, "\x00\n ") {
+			return fmt.Errorf("service %q build.packages entry %q is invalid", svc, p)
+		}
+	}
+	return nil
+}
+
+func validateConfigFile(svc string, cf ConfigFile) error {
+	if err := mountPath(cf.Mount); err != nil {
+		return fmt.Errorf("service %q config_files mount: %w", svc, err)
+	}
+	hasRepo := cf.Repo != ""
+	hasTmpl := cf.Template != ""
+	if hasRepo == hasTmpl {
+		return fmt.Errorf("service %q config_files entry must set exactly one of repo or template", svc)
+	}
+	if hasRepo {
+		if err := relConfined(cf.Repo); err != nil {
+			return fmt.Errorf("service %q config_files repo %q: %w", svc, cf.Repo, err)
+		}
+	}
+	return nil
+}
+
+func validateCertBinding(svc string, cb CertBinding) error {
+	if len(cb.Hostname) > 253 || !hostnameRe.MatchString(cb.Hostname) {
+		return fmt.Errorf("service %q cert_bindings hostname %q is invalid (FQDN, no wildcards)", svc, cb.Hostname)
+	}
+	if err := mountPath(cb.Mount); err != nil {
+		return fmt.Errorf("service %q cert_bindings mount: %w", svc, err)
+	}
+	return nil
+}
+
+func validateVolume(svc string, v Volume) error {
+	hasName := v.Name != ""
+	hasBind := v.Source != ""
+	if hasName == hasBind {
+		return fmt.Errorf("service %q volume must set exactly one of name or source", svc)
+	}
+	if v.Target == "" || !strings.HasPrefix(v.Target, "/") || strings.ContainsAny(v.Target, "\x00\n:") {
+		return fmt.Errorf("service %q volume target must be an absolute container path (no ':')", svc)
+	}
+	if hasName {
+		if !svcRe.MatchString(v.Name) {
+			return fmt.Errorf("service %q volume name %q is invalid", svc, v.Name)
+		}
+		return nil
+	}
+	if strings.Contains(v.Source, ":") {
+		return fmt.Errorf("service %q bind source %q must not contain ':'", svc, v.Source)
+	}
+	if err := relConfined(v.Source); err != nil {
+		return fmt.Errorf("service %q bind source %q: %w", svc, v.Source, err)
 	}
 	return nil
 }
@@ -241,6 +450,10 @@ func (s *Spec) validateSecretsAndEnv() error {
 }
 
 func (s *Spec) validateEdge() error {
+	declared := map[string]bool{}
+	for _, svc := range s.Compose.Services {
+		declared[svc.Name] = true
+	}
 	for _, r := range s.Edge.Routes {
 		h := r.Hostname
 		if len(h) > 253 || !hostnameRe.MatchString(h) {
@@ -249,8 +462,55 @@ func (s *Spec) validateEdge() error {
 		if !svcRe.MatchString(r.Service) {
 			return fmt.Errorf("edge route %q must name a valid service (upstream is a selector, never a literal dial target)", h)
 		}
+		if !declared[r.Service] {
+			return fmt.Errorf("edge route %q targets unknown service %q", h, r.Service)
+		}
 		if r.Port != 0 && controlPort(r.Port) {
 			return fmt.Errorf("edge route %q port %d is a reserved control-plane port", h, r.Port)
+		}
+	}
+	return nil
+}
+
+func (s *Spec) validateSetup() error {
+	if s.Setup == nil {
+		return nil
+	}
+	autoDeploy := s.Git != nil && s.Git.AutoDeploy
+	ss := sandbox.ScriptSet{Script: s.Setup.Script, Trigger: s.Setup.Trigger, Produces: s.Setup.Produces}
+	if err := ss.Validate(autoDeploy); err != nil {
+		return fmt.Errorf("spec.setup: %w", err)
+	}
+	return nil
+}
+
+// mountPath requires an absolute, clean container path (no NUL/newline).
+func mountPath(p string) error {
+	if p == "" || !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\x00\n") {
+		return fmt.Errorf("must be an absolute container path")
+	}
+	return nil
+}
+
+// relConfined requires a repo-relative, traversal-free path (the deep symlink-aware
+// confinement is re-asserted under the checkout/run_dir at §5.6/materialize time).
+func relConfined(p string) error {
+	if p == "" || filepath.IsAbs(p) || p == ".." ||
+		strings.HasPrefix(p, "../") || strings.Contains(p, "/../") || strings.HasSuffix(p, "/..") ||
+		strings.ContainsAny(p, "\x00\n") {
+		return fmt.Errorf("must be a repo-relative, traversal-free path")
+	}
+	return nil
+}
+
+// validateExec checks an exec-form argv: each element non-empty, no NUL/newline.
+func validateExec(field, svc string, argv []string) error {
+	for _, a := range argv {
+		if a == "" {
+			return fmt.Errorf("service %q %s has an empty argument", svc, field)
+		}
+		if strings.ContainsAny(a, "\x00\n") {
+			return fmt.Errorf("service %q %s argument contains a control character", svc, field)
 		}
 	}
 	return nil

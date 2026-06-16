@@ -95,7 +95,7 @@ func TestTier1FieldsRejected(t *testing.T) {
 		if _, err := ParseHost([]byte(hostSrc)); err == nil || !strings.Contains(err.Error(), "Tier-1") {
 			t.Errorf("host with %q must be a Tier-1 reject, got %v", field, err)
 		}
-		appSrc := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: shop}\nspec:\n  " + field + ": x\n  compose: {source: inline, inline: x}\n"
+		appSrc := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: shop}\nspec:\n  " + field + ": x\n  compose: {source: generated, services: [{name: web, image: nginx:1}]}\n"
 		if _, err := Parse([]byte(appSrc)); err == nil || !strings.Contains(err.Error(), "Tier-1") {
 			t.Errorf("app with %q must be a Tier-1 reject, got %v", field, err)
 		}
