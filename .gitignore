@@ -12,6 +12,9 @@
 .DS_Store
 *.swp
 
+# Local agent/tooling config (not shared)
+/.claude/
+
 # Local dev config (the real one lives at /etc/helmsman/config.yaml, never in-repo)
 /config.local.yaml
 

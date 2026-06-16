@@ -142,6 +142,7 @@ type Server struct {
 	dockerSem      *dockerexec.Semaphore         // global one-docker-child semaphore (may be nil)
 	setupConfirm   *confirmStore                 // single-use setup confirm tokens
 	caddyCertRoot  string                        // edge cert store root (cert_bindings sync); default below
+	lastActive     atomic.Int64                  // unix-nano of the last focused-dashboard heartbeat (git-poll gate)
 	webhookRL      *rateLimiter                  // per-token webhook rate limit
 	webhookSeen    *nonceCache                   // webhook replay (timestamp+nonce) defense
 	webhookFlash   *tokenFlash                   // one-time rotated-token hand-off (never in URL)
@@ -313,6 +314,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /apps", s.requireAuth(s.withCSRFToken(s.handleAppsList)))
 	// Host metric series for the live dashboard charts (read plane; cookie-authed).
 	mux.HandleFunc("GET /partials/metrics.json", s.requireAuth(s.handleMetricsHistory))
+	// Focused-dashboard heartbeat — gates the git poller (only fetch while someone's looking).
+	mux.HandleFunc("GET /dash/ping", s.requireAuth(s.handleDashPing))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))
 	mux.HandleFunc("GET /partials/app/{project}", s.requireAuth(s.withCSRFToken(s.handleAppPartial)))
 	// App Ops Interface (M3): config form + server-side-proxied queue actions.

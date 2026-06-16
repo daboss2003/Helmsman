@@ -174,19 +174,51 @@
     }
   });
 
+  // pageVisible reports whether the tab is currently being looked at. All the live
+  // refreshers below skip work while hidden — there is no reason to fetch (or to
+  // wake the server's git poller) for a dashboard nobody is watching.
+  function pageVisible() { return document.visibilityState === "visible"; }
+
+  // onVisibleNow runs fn each time the tab becomes visible (and once now if it
+  // already is) — so returning to a backgrounded tab refreshes immediately rather
+  // than waiting out the interval with stale data on screen.
+  function onVisibleNow(fn) {
+    if (pageVisible()) fn();
+    document.addEventListener("visibilitychange", function () { if (pageVisible()) fn(); });
+  }
+
+  // ---- focused-dashboard heartbeat ----
+  // Helmsman never auto-deploys, so polling git when nobody is looking is wasted
+  // server work. The page pings /dash/ping on load and every ~40s WHILE visible
+  // (and immediately on regaining focus); the server's git poller only fetches
+  // within a short window after a ping. Hidden tab -> no pings -> no polling.
+  (function heartbeat() {
+    var ping = function () {
+      if (!pageVisible()) return;
+      fetch("/dash/ping", { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
+        .catch(function () { /* transient; next tick */ });
+    };
+    onVisibleNow(ping);
+    setInterval(ping, 40000);
+  })();
+
   // Lightweight live refresh: any element with data-poll-url is periodically
   // refreshed by fetching that fragment and swapping its innerHTML. Same-origin,
   // GET-only, cookie-authenticated; CSP-safe (this file is script-src 'self').
+  // Skipped while hidden; refreshes immediately on regaining focus.
   document.querySelectorAll("[data-poll-url]").forEach(function (el) {
     var url = el.getAttribute("data-poll-url");
     var ms = parseInt(el.getAttribute("data-poll-interval") || "5000", 10);
     if (!url || ms < 1000) return;
-    setInterval(function () {
+    var pull = function () {
+      if (!pageVisible()) return;
       fetch(url, { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
         .then(function (r) { return r.ok ? r.text() : null; })
         .then(function (html) { if (html !== null) el.innerHTML = html; })
         .catch(function () { /* transient; try again next tick */ });
-    }, ms);
+    };
+    setInterval(pull, ms);
+    document.addEventListener("visibilitychange", function () { if (pageVisible()) pull(); });
   });
 
   // ---- shell: sidebar active link + mobile toggle + topbar title ----
@@ -255,6 +287,7 @@
   var charts = document.querySelectorAll("[data-chart]");
   if (charts.length) {
     var refreshCharts = function () {
+      if (!pageVisible()) return;
       fetch("/partials/metrics.json", { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
@@ -276,7 +309,7 @@
         })
         .catch(function () { /* transient */ });
     };
-    refreshCharts();
+    onVisibleNow(refreshCharts);
     setInterval(refreshCharts, 5000);
   }
 })();
