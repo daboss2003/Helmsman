@@ -635,7 +635,9 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 	// (overwriting whatever the repo shipped), then render the Dockerfile(s) for build
 	// services. Then materialize config files + the 0600 env-file.
 	composeAbs := filepath.Join(rd, "docker-compose.yml")
-	if err := os.WriteFile(composeAbs, composeBytes, 0o644); err != nil {
+	// Symlink-safe write (temp + rename replaces a symlinked dest rather than
+	// following it; ancestors checked) — never follow a planted symlink out of rd.
+	if err := atomicWrite(composeAbs, composeBytes, 0o644, rd); err != nil {
 		s.gitStore.SetState(bg, slug, "update_blocked")
 		return fmt.Errorf("write generated compose: %w", err)
 	}

@@ -74,13 +74,8 @@ func (s *Server) writeGeneratedDockerfiles(ctx context.Context, repo *git.Repo, 
 		if !confinedUnder(dest, rd) {
 			return fmt.Errorf("service %q: generated Dockerfile path escapes the run dir", svc.Name)
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
-			return err
-		}
-		if noSymlinkComponents(dest, rd) != nil {
-			return fmt.Errorf("service %q: generated Dockerfile path crosses a symlink", svc.Name)
-		}
-		if err := os.WriteFile(dest, []byte(dockerfile), 0o644); err != nil {
+		// Symlink-safe write (temp + rename; ancestors checked) — see atomicWrite.
+		if err := atomicWrite(dest, []byte(dockerfile), 0o644, rd); err != nil {
 			return fmt.Errorf("service %q: write Dockerfile: %w", svc.Name, err)
 		}
 		onLine("generated Dockerfile for " + svc.Name)
@@ -133,17 +128,29 @@ func materializeBindDirs(rd string, binds []string) error {
 			continue
 		}
 		dest := filepath.Join(rd, filepath.FromSlash(src))
+		// confinedUnder resolves symlinks, so a dest (or ancestor) pointing outside rd
+		// is rejected here.
 		if !confinedUnder(dest, rd) {
 			return fmt.Errorf("bind source %q escapes the app directory", src)
 		}
-		if _, err := os.Lstat(dest); err == nil {
-			continue // already present (file or dir) — don't touch it
+		if fi, err := os.Lstat(dest); err == nil {
+			// A symlinked bind source could be swapped to escape rd — refuse it; a
+			// regular file/dir is left untouched.
+			if fi.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("bind source %q is a symlink", src)
+			}
+			continue
+		}
+		// No ancestor may be a symlink BEFORE we create through it (no-follow), and we
+		// re-check AFTER MkdirAll to fail closed on a symlink planted during the race.
+		if err := noSymlinkComponents(dest, rd); err != nil {
+			return fmt.Errorf("bind source %q: %w", src, err)
 		}
 		if err := os.MkdirAll(dest, 0o750); err != nil {
 			return fmt.Errorf("create bind dir %q: %w", src, err)
 		}
-		if noSymlinkComponents(dest, rd) != nil {
-			return fmt.Errorf("bind dir %q crosses a symlink", src)
+		if err := noSymlinkComponents(dest, rd); err != nil {
+			return fmt.Errorf("bind source %q: %w", src, err)
 		}
 	}
 	return nil

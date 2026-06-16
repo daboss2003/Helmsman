@@ -244,6 +244,35 @@ func TestDeployCreatesBindDirs(t *testing.T) {
 	}
 }
 
+// materializeBindDirs must refuse a symlinked bind source (it could be swapped to
+// escape the run dir) and create a normal source as a real directory.
+func TestMaterializeBindDirsSymlinkSafe(t *testing.T) {
+	rd := t.TempDir()
+	outside := t.TempDir()
+	// symlink pointing OUTSIDE rd → rejected (confinedUnder resolves it).
+	if err := os.Symlink(outside, filepath.Join(rd, "evil")); err != nil {
+		t.Fatal(err)
+	}
+	if err := materializeBindDirs(rd, []string{"evil"}); err == nil {
+		t.Error("a bind source symlinked outside the run dir must be rejected")
+	}
+	// symlink pointing INSIDE rd → still rejected (a symlink bind source is refused).
+	_ = os.MkdirAll(filepath.Join(rd, "real"), 0o750)
+	if err := os.Symlink(filepath.Join(rd, "real"), filepath.Join(rd, "inlink")); err != nil {
+		t.Fatal(err)
+	}
+	if err := materializeBindDirs(rd, []string{"inlink"}); err == nil {
+		t.Error("a symlinked bind source must be rejected even when it points inside the run dir")
+	}
+	// a normal source is created as a real directory.
+	if err := materializeBindDirs(rd, []string{"data"}); err != nil {
+		t.Fatalf("a normal bind dir should be created: %v", err)
+	}
+	if fi, err := os.Lstat(filepath.Join(rd, "data")); err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("data must be created as a real directory: %v", err)
+	}
+}
+
 // No helmsman.yaml AND an undetectable stack → rejected with guidance (no deploy).
 func TestDeployRejectsUndetectableRepoWithoutHelmsmanYAML(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")

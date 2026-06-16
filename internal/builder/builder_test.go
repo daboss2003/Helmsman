@@ -117,3 +117,10 @@ func TestNonrootOff(t *testing.T) {
 		t.Errorf("nonroot=false must not add USER app:\n%s", df)
 	}
 }
+
+func TestEnvValueNewlineFromDefinition(t *testing.T) {
+	// Simulates a definition that passes schema.validateBuild but should fail at Generate
+	if _, err := Generate(Spec{Language: "node", Env: map[string]string{"MYVAR": "value\nUSER root"}, Start: []string{"node", "x"}}, nil); err == nil {
+		t.Error("a newline in build.env value must be rejected (not validated at definition parse time)")
+	}
+}
