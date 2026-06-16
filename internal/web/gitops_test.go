@@ -209,8 +209,8 @@ func TestDeployBuildServiceGeneratesDockerfile(t *testing.T) {
 	}
 	// The build context must exclude .helmsman/ so `COPY . .` can't bake secrets in.
 	di, derr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".dockerignore"))
-	if derr != nil || !strings.Contains(string(di), ".helmsman/") {
-		t.Errorf("generated .dockerignore must exclude .helmsman/: %v\n%s", derr, di)
+	if derr != nil || !strings.Contains(string(di), "\n.helmsman\n") {
+		t.Errorf("generated .dockerignore must exclude .helmsman: %v\n%s", derr, di)
 	}
 }
 

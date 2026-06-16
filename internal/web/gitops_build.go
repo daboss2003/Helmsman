@@ -235,7 +235,7 @@ func ensureDockerignore(rd string) error {
 	if len(existing) > 0 && !bytes.HasSuffix(existing, []byte("\n")) {
 		buf.WriteByte('\n')
 	}
-	buf.WriteString("# added by Helmsman — never send rendered config/secrets into the build context\n.helmsman/\n")
+	buf.WriteString("# added by Helmsman — never send rendered config/secrets into the build context\n.helmsman\n")
 	return atomicWrite(p, buf.Bytes(), 0o644, rd)
 }
 
