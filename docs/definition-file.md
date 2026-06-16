@@ -243,14 +243,24 @@ services:
         mount: /etc/app/app.conf
 ```
 
+The file is re-rendered on every deploy (written `0600` if it used a secret, else `0640`). To inject a
+Helmsman secret, add a `bindings` allowlist and reference it with `{{hm.KEY}}`; your app's own `${…}`
+survive byte-identical:
+
+```yaml
+config_files:
+  - template: |
+      api_key = {{hm.API_KEY}}
+    mount: /opt/emqx/etc/api_keys.bootstrap
+    bindings:
+      API_KEY: { secret: emqx_api_password }   # a declared secret, or a literal
+```
+
 | Field | Notes |
 |---|---|
-| `repo` **XOR** `template` | content from a repo path (read at the pinned commit; traversal-free) or an inline body. |
-| `mount` | absolute container path; the file is bind-mounted **read-only** there. |
-
-The file is written `0640` under the app's directory and re-rendered on every deploy. *(Injecting
-Helmsman-managed secrets / cert paths into a config file via `{{hm.*}}` tokens is a forthcoming
-addition.)*
+| `repo` **XOR** `template` | content from a repo path (read at the pinned commit) or an inline body |
+| `mount` | absolute container path; bind-mounted **read-only** |
+| `bindings` | allowlist of `{{hm.KEY}}` tokens → a literal or `{secret: NAME}` (a declared secret). Unknown tokens fail closed. |
 
 ### `secret_files` (per service)
 
