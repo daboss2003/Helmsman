@@ -677,6 +677,14 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 		return errors.New("could not render env file")
 	}
 
+	// Compose only diffs a service's CONFIG, not its bind-mounted file CONTENT — so a
+	// changed config_file / secret / cert (same mount path) wouldn't recreate the
+	// consumer. Digest each service's managed files now and compare to last deploy;
+	// the changed ones get force-recreated after the up (a cert renewal lands the same
+	// way). New services need no force — the up creates them.
+	newDigests := s.managedDigests(rd, def)
+	changed := changedServices(readDigestState(rd), newDigests)
+
 	// (5) docker compose up under the gate + one-docker-child semaphore.
 	action := []string{"up", "-d", "--remove-orphans"}
 	if defHasBuild(def) {
@@ -698,6 +706,21 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 	if runErr != nil {
 		s.gitStore.SetState(bg, slug, "update_blocked")
 		return fmt.Errorf("docker compose up failed: %w", runErr)
+	}
+
+	// Force-recreate ONLY the services whose managed file content changed, so the new
+	// config/secret/cert takes effect (compose wouldn't otherwise restart them).
+	if len(changed) > 0 {
+		onLine("$ docker compose up -d --force-recreate " + strings.Join(changed, " ") + "  (changed config/secret/cert)")
+		recreate := append([]string{"up", "-d", "--no-build", "--force-recreate", "--"}, changed...)
+		rjob := dockerexec.Job{Project: slug, Dir: rd, ConfigFiles: app.ConfigFiles, EnvFile: envFile, Action: recreate}
+		if rerr := s.runner.Run(ctx, rjob, onLine); rerr != nil {
+			s.gitStore.SetState(bg, slug, "update_blocked")
+			return fmt.Errorf("recreate of changed services failed: %w", rerr)
+		}
+	}
+	if err := s.writeDigestState(rd, newDigests); err != nil {
+		onLine("warning: could not record managed-file digests: " + err.Error())
 	}
 
 	// (6) pin the deployed commit (ref keeps gc from pruning it; DB drives the FSM).

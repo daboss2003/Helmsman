@@ -3,6 +3,8 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -237,6 +239,85 @@ func ensureDockerignore(rd string) error {
 	}
 	buf.WriteString("# added by Helmsman — never send rendered config/secrets into the build context\n.helmsman\n")
 	return atomicWrite(p, buf.Bytes(), 0o644, rd)
+}
+
+// managedDigests hashes each service's materialized managed files (config_files,
+// secret_files, cert tls.crt/key) so a content change can be detected across deploys
+// (compose only diffs a service's config, not its bind-mounted file CONTENT). A
+// service with no managed files has no entry.
+func (s *Server) managedDigests(rd string, def *definition.Definition) map[string]string {
+	out := map[string]string{}
+	for _, name := range sortedServiceNames(def) {
+		svc := def.Spec.Compose.Services[name]
+		h := sha256.New()
+		any := false
+		add := func(rel string) {
+			b, err := os.ReadFile(filepath.Join(rd, filepath.FromSlash(rel)))
+			if err != nil {
+				return
+			}
+			fmt.Fprintf(h, "%s\x00%d\x00", rel, len(b))
+			h.Write(b)
+			any = true
+		}
+		for i := range svc.ConfigFiles {
+			add(definition.ManagedConfigPath(name, i))
+		}
+		for _, sec := range svc.SecretFiles {
+			add(definition.ManagedSecretPath(name, sec))
+		}
+		for _, cb := range svc.CertBindings {
+			add(definition.ManagedCertDir(name, cb.Hostname) + "/tls.crt")
+			add(definition.ManagedCertDir(name, cb.Hostname) + "/tls.key")
+		}
+		if any {
+			out[name] = hex.EncodeToString(h.Sum(nil))
+		}
+	}
+	return out
+}
+
+// readDigestState reads the last deploy's per-service managed-file digests.
+func readDigestState(rd string) map[string]string {
+	out := map[string]string{}
+	b, err := os.ReadFile(filepath.Join(rd, ".helmsman", "state", "digests"))
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(line, " "); ok && k != "" {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// writeDigestState records the current per-service managed-file digests (0600, under
+// the gitignored .helmsman tree so it never enters the build context).
+func (s *Server) writeDigestState(rd string, m map[string]string) error {
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var buf bytes.Buffer
+	for _, k := range names {
+		fmt.Fprintf(&buf, "%s %s\n", k, m[k])
+	}
+	return atomicWrite(filepath.Join(rd, ".helmsman", "state", "digests"), buf.Bytes(), 0o600, rd)
+}
+
+// changedServices are the services whose managed-file digest changed since last
+// deploy. New services (no prior digest) are excluded — the `up` creates them.
+func changedServices(old, current map[string]string) []string {
+	var out []string
+	for svc, h := range current {
+		if prev, ok := old[svc]; ok && prev != h {
+			out = append(out, svc)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // defaultCaddyCertRoot is where the managed edge (Caddy, XDG_DATA_HOME=/var/lib/caddy)

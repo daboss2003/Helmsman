@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/dockerexec"
 	"github.com/daboss2003/Helmsman/internal/envstore"
 	"github.com/daboss2003/Helmsman/internal/gitstore"
@@ -238,6 +239,37 @@ func TestDeployMergesRepoDockerignore(t *testing.T) {
 		if !strings.Contains(string(di), want) {
 			t.Errorf("merged .dockerignore must keep the operator's entries AND add .helmsman; missing %q:\n%s", want, di)
 		}
+	}
+}
+
+// The managed-file digest detects a config/secret/cert CONTENT change so the deploy
+// can force-recreate only the affected service (compose alone wouldn't).
+func TestManagedDigestChangeDetection(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	rd := t.TempDir()
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+		"  compose: {source: generated, services: {api: {image: nginx:1, config_files: [{template: \"x\", mount: /etc/c}]}}}\n"
+	def, err := definition.Parse([]byte(yaml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgP := filepath.Join(rd, ".helmsman", "cfg", "api", "0")
+	_ = os.MkdirAll(filepath.Dir(cfgP), 0o750)
+	_ = os.WriteFile(cfgP, []byte("v1"), 0o640)
+
+	d1 := e.srv.managedDigests(rd, def)
+	if err := e.srv.writeDigestState(rd, d1); err != nil {
+		t.Fatal(err)
+	}
+	// No change → nothing to recreate.
+	if c := changedServices(readDigestState(rd), e.srv.managedDigests(rd, def)); len(c) != 0 {
+		t.Errorf("no content change must yield no recreate, got %v", c)
+	}
+	// Content change → exactly the affected service.
+	_ = os.WriteFile(cfgP, []byte("v2"), 0o640)
+	c := changedServices(readDigestState(rd), e.srv.managedDigests(rd, def))
+	if len(c) != 1 || c[0] != "api" {
+		t.Errorf("a config content change must flag its service, got %v", c)
 	}
 }
 
