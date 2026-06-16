@@ -603,6 +603,13 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 		s.gitStore.SetState(bg, slug, "update_blocked")
 		return fmt.Errorf("generate compose: %w", gerr)
 	}
+	// Mint any `generate:` secrets that don't exist yet (idempotent — never
+	// overwrites a live value), BEFORE the env is read so freshly-minted values
+	// flow into validation and the deploy --env-file.
+	if err := s.ensureGeneratedSecrets(ctx, slug, def, onLine); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return fmt.Errorf("generate secrets: %w", err)
+	}
 	env := s.repoComposeEnv(ctx, repo, sha, cfg)
 	res := compose.ValidateBytes(composeBytes, env, rd, compose.Options{ProtectedPaths: s.protectedHostPaths()})
 	if !res.OK() {

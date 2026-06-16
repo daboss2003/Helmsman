@@ -201,16 +201,39 @@ Declares secret **names** (and an optional generate hint). **It never contains v
 
 ```yaml
 secrets:
-  - name: DB_PASSWORD       # provisioned out-of-band (helmsman secret import / dashboard / SSH)
-  - name: NODE_COOKIE
-  - name: SHARED_AUTH_TOKEN
+  - name: MONGODB_URI                # you provide the value out-of-band
+  - name: WEBHOOK_SECRET
+    generate: hex:32                 # Helmsman mints this once, on first deploy
+  - name: EMQX_DASHBOARD_PASSWORD
+    generate: base64:24
+  - name: JWT_KEY
+    generate: rsa:2048              # also mints JWT_KEY_PUB (the derived public key)
 ```
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `name` | string | required | The secret's name within **this app's** namespace. |
+| `generate` | string | — | Auto-mint the value on first deploy (see below). Omit it and you provide the value yourself. |
 
-The values are set out-of-band — `helmsman secret import` (from a `.env`), or the dashboard. The file holds **names only**, never values, which is what keeps it safe to commit.
+A secret you don't `generate` is set out-of-band — `helmsman secret import` (from a `.env`) or the dashboard. The file holds **names only**, never values, which is what keeps it safe to commit.
+
+#### Auto-generating a secret
+
+Declaring `generate` is the declarative replacement for a bootstrap script's `openssl rand` / `openssl genrsa` lines: Helmsman mints the value **server-side on the first deploy where it's missing**, stores it encrypted, and never displays it.
+
+| `generate` | Produces |
+|---|---|
+| `hex:N` | N random bytes, hex-encoded (`N` 16–1024) |
+| `base64:N` | N random bytes, base64 (`N` 16–1024) |
+| `password:N` | an `N`-char password from an unambiguous alphabet (`N` 16–256) |
+| `rsa:2048` \| `rsa:3072` \| `rsa:4096` | an RSA private key (PEM) **plus** the derived public key |
+| `ed25519` | an Ed25519 private key (PEM) **plus** the derived public key |
+
+- **Idempotent.** Minted only when no value exists yet; a later deploy **never rotates a live secret**. (Set the value yourself before the first deploy and Helmsman won't generate one.)
+- **Keypairs** mint *two* secrets: the private key under `<name>` and the public key under `<name>_PUB`. They're PEM, so consume them as files via [`secret_files`](#config_files-per-service), not as `env` values.
+- **Never displayed** — like any secret, the value only ever leaves via the audited reveal endpoint.
+
+This replaces the whole `create_random_secret` / `create_jwt_keys` section of a hand-written setup script.
 
 ### `config_files` (per service)
 
@@ -660,6 +683,7 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `…services.<name>.cert_bindings[]` | `{hostname, mount}` | no | — |
 | `…services.<name>.volumes[]` | `{name\|source, target, read_only}` | no | — |
 | `spec.secrets[].name` | string | yes (per entry) | — |
+| `spec.secrets[].generate` | string (`hex:N`\|`base64:N`\|`password:N`\|`rsa:BITS`\|`ed25519`) | no | — |
 | `spec.edge.routes[].hostname` | string | yes | — |
 | `spec.edge.routes[].service` | string | for proxy routes | — |
 | `spec.edge.routes[].port` | int | for proxy routes | — |

@@ -173,7 +173,7 @@ Declare the names once, at the top of the spec:
 spec:
   secrets:
     - name: NODE_COOKIE
-      generate: hex            # minted on explicit action, never overwrites an existing value
+      generate: hex:32         # minted on first deploy, never overwrites an existing value
     - name: DASH_PASSWORD      # provisioned out-of-band (see below)
 ```
 
@@ -277,7 +277,7 @@ spec:
             mount: /etc/broker/tls
   secrets:
     - name: NODE_COOKIE
-      generate: hex                              # minted on explicit action
+      generate: hex:32                           # minted on first deploy
     - name: DASH_PASSWORD                        # provisioned via `helmsman secret import`
   edge:
     routes:

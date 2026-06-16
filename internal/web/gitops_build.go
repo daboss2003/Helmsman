@@ -15,7 +15,10 @@ import (
 	"github.com/daboss2003/Helmsman/internal/cfgfile"
 	"github.com/daboss2003/Helmsman/internal/cfgstore"
 	"github.com/daboss2003/Helmsman/internal/definition"
+	"github.com/daboss2003/Helmsman/internal/envstore"
 	"github.com/daboss2003/Helmsman/internal/git"
+	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/Helmsman/internal/secretgen"
 )
 
 // configBindingResolver resolves {{hm.KEY}} tokens in a config file against its
@@ -151,6 +154,66 @@ func buildSpecFor(name string, svc definition.Service) builder.Spec {
 	}
 }
 
+// ensureGeneratedSecrets mints any `spec.secrets[].generate` value that does not
+// yet exist in the app's encrypted store, then persists the additions as a new
+// version. It is the declarative replacement for a bootstrap script's `openssl
+// rand`/`genrsa` lines: minted server-side, stored encrypted, never displayed.
+//
+// It is strictly idempotent — a name that already has a value is left untouched,
+// so re-deploys never rotate a live secret out from under a running app. A keypair
+// generate (rsa/ed25519) mints two entries: the private key under <NAME> and the
+// derived public key under <NAME>_PUB, both base64-encoded (Enc="b64") so the
+// PEM survives the no-newline store and is decoded when written as a secret_file.
+func (s *Server) ensureGeneratedSecrets(ctx context.Context, project string, def *definition.Definition, onLine func(string)) error {
+	type want struct{ name, spec string }
+	var wants []want
+	for _, sec := range def.Spec.Secrets {
+		if sec.Generate != "" {
+			wants = append(wants, want{sec.Name, sec.Generate})
+		}
+	}
+	if len(wants) == 0 {
+		return nil
+	}
+	if s.envStore == nil {
+		return fmt.Errorf("secret store unavailable")
+	}
+	cur, _, err := s.envStore.Current(project)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]bool, len(cur))
+	for _, e := range cur {
+		existing[e.Key] = true
+	}
+	var added []envstore.Entry
+	for _, w := range wants {
+		if existing[w.name] {
+			continue // never overwrite a live value
+		}
+		outs, err := secretgen.Mint(w.spec)
+		if err != nil {
+			return fmt.Errorf("secret %q: %w", w.name, err)
+		}
+		for _, o := range outs {
+			key := w.name + o.NameSuffix
+			if existing[key] {
+				continue
+			}
+			added = append(added, envstore.Entry{Key: key, Value: secret.New(o.Value), Secret: true, Enc: o.Enc})
+			existing[key] = true
+		}
+		onLine("minted secret " + w.name)
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	if _, err := s.envStore.Save(ctx, project, append(cur, added...), "generate"); err != nil {
+		return fmt.Errorf("persist generated secrets: %w", err)
+	}
+	return nil
+}
+
 // materializeManaged renders each service's config_files (from the repo @ pinned
 // commit, or an inline template) and writes each secret_files value (from the
 // encrypted store) into the run dir at the Helmsman-managed paths — the read-only
@@ -198,18 +261,24 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 			if s.envStore == nil {
 				return fmt.Errorf("service %q secret_files %q: secret store unavailable", name, sec)
 			}
-			val, ok, err := s.envStore.Reveal(project, sec)
+			ent, ok, err := s.envStore.Get(project, sec)
 			if err != nil {
 				return fmt.Errorf("service %q secret_files %q: %w", name, sec, err)
 			}
 			if !ok {
 				return fmt.Errorf("service %q secret_files %q: secret has no value — set it before deploying", name, sec)
 			}
+			// Decode any storage encoding (a generated PEM keypair is stored
+			// base64'd) so the file holds the real PEM/value bytes.
+			val, err := ent.DecodedValue()
+			if err != nil {
+				return fmt.Errorf("service %q secret_files %q: decode: %w", name, sec, err)
+			}
 			dest := filepath.Join(rd, filepath.FromSlash(definition.ManagedSecretPath(name, sec)))
 			if !confinedUnder(dest, rd) {
 				return fmt.Errorf("service %q secret file path escapes the run dir", name)
 			}
-			if err := atomicWrite(dest, []byte(val), 0o600, rd); err != nil {
+			if err := atomicWrite(dest, val, 0o600, rd); err != nil {
 				return fmt.Errorf("service %q secret file: %w", name, err)
 			}
 		}

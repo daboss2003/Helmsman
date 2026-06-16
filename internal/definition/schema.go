@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/daboss2003/Helmsman/internal/sandbox"
+	"github.com/daboss2003/Helmsman/internal/secretgen"
 	"gopkg.in/yaml.v3"
 )
 
@@ -306,6 +307,11 @@ func (s *Spec) validateServices() error {
 	declaredSecrets := map[string]bool{}
 	for _, sec := range s.Secrets {
 		declaredSecrets[sec.Name] = true
+		// A keypair generate also produces a derived public secret <NAME>_PUB,
+		// so references to it (e.g. in secret_files) are legitimate.
+		if secretgen.IsKeypair(sec.Generate) {
+			declaredSecrets[sec.Name+secretgen.PubSuffix] = true
+		}
 	}
 	names := map[string]bool{}
 	for n := range s.Compose.Services {
@@ -518,6 +524,18 @@ func (s *Spec) validateSecrets() error {
 	for _, sec := range s.Secrets {
 		if !secretRe.MatchString(sec.Name) {
 			return fmt.Errorf("secret name %q is invalid", sec.Name)
+		}
+		if sec.Generate != "" {
+			if err := secretgen.Validate(sec.Generate); err != nil {
+				return fmt.Errorf("secret %q: %w", sec.Name, err)
+			}
+			// A keypair also mints a derived public secret named <NAME>_PUB; make
+			// sure that companion name is itself valid (length, grammar).
+			if secretgen.IsKeypair(sec.Generate) {
+				if pub := sec.Name + secretgen.PubSuffix; !secretRe.MatchString(pub) {
+					return fmt.Errorf("secret %q: keypair public name %q is invalid (max 64 chars incl. %s)", sec.Name, pub, secretgen.PubSuffix)
+				}
+			}
 		}
 	}
 	return nil

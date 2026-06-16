@@ -9,6 +9,7 @@ package envstore
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,10 @@ type Entry struct {
 	Key    string
 	Value  secret.Redacted
 	Secret bool
+	// Enc marks how Value is encoded for storage. "" means a plain value; "b64"
+	// means Value is std-base64 and must be decoded before use (this is how
+	// multi-line secrets — generated PEM keypairs — survive the no-newline rule).
+	Enc string
 }
 
 // Version describes one saved blob version.
@@ -44,6 +49,7 @@ type entryJSON struct {
 	Key    string `json:"k"`
 	Value  string `json:"v"`
 	Secret bool   `json:"s"`
+	Enc    string `json:"e,omitempty"`
 }
 
 // Store persists encrypted, versioned env blobs.
@@ -93,7 +99,7 @@ func (s *Store) decode(blob []byte) ([]Entry, error) {
 	}
 	entries := make([]Entry, 0, len(js))
 	for _, e := range js {
-		entries = append(entries, Entry{Key: e.Key, Value: secret.New(e.Value), Secret: e.Secret})
+		entries = append(entries, Entry{Key: e.Key, Value: secret.New(e.Value), Secret: e.Secret, Enc: e.Enc})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 	return entries, nil
@@ -115,7 +121,7 @@ func (s *Store) Save(ctx context.Context, project string, entries []Entry, actor
 			return 0, fmt.Errorf("envstore: duplicate key %q", e.Key)
 		}
 		seen[e.Key] = true
-		js = append(js, entryJSON{Key: e.Key, Value: v, Secret: e.Secret})
+		js = append(js, entryJSON{Key: e.Key, Value: v, Secret: e.Secret, Enc: e.Enc})
 	}
 	sort.Slice(js, func(i, j int) bool { return js[i].Key < js[j].Key })
 	pt, err := json.Marshal(js)
@@ -207,6 +213,32 @@ func (s *Store) Reveal(project, key string) (string, bool, error) {
 		}
 	}
 	return "", false, nil
+}
+
+// Get returns one key's full entry, including its Enc marker (so a caller that
+// writes the value to a file can decode it). Prefer this over Reveal for
+// secret_files materialization.
+func (s *Store) Get(project, key string) (Entry, bool, error) {
+	entries, _, err := s.Current(project)
+	if err != nil {
+		return Entry{}, false, err
+	}
+	for _, e := range entries {
+		if e.Key == key {
+			return e, true, nil
+		}
+	}
+	return Entry{}, false, nil
+}
+
+// DecodedValue returns the entry's value with any storage encoding undone: a
+// "b64" entry (a generated PEM keypair) decodes back to the raw PEM bytes.
+func (e Entry) DecodedValue() ([]byte, error) {
+	v := e.Value.Reveal()
+	if e.Enc == "b64" {
+		return base64.StdEncoding.DecodeString(v)
+	}
+	return []byte(v), nil
 }
 
 func itoa(n int) string {
