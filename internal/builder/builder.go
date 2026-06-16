@@ -69,6 +69,14 @@ func SupportedLanguages() []string {
 	return []string{"node", "python", "go", "ruby", "php", "static", "generic"}
 }
 
+// DockerfilePath is the run_dir-relative path where Helmsman writes the generated
+// Dockerfile for a service (and the compose `build.dockerfile` value). Kept here so
+// the compose generator and the deploy-time writer always agree. The service name is
+// schema-validated ([a-z0-9][a-z0-9_-]*), so the path is traversal-free.
+func DockerfilePath(service string) string {
+	return ".helmsman/Dockerfile." + service
+}
+
 // Resolve picks the builder for a spec: an explicit known language, `auto` detection
 // from the repo's top-level files, or an error pointing the operator at `generic`.
 func Resolve(s Spec, files map[string]bool) (Builder, error) {

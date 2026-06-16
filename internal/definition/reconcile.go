@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/daboss2003/Helmsman/internal/builder"
 	"github.com/daboss2003/Helmsman/internal/compose"
 	"github.com/daboss2003/Helmsman/internal/edge"
 	"github.com/daboss2003/Helmsman/internal/provision"
@@ -23,8 +24,15 @@ func toProvisionSpec(d *Definition) provision.Spec {
 	ps := provision.Spec{Slug: d.Metadata.Slug}
 	for _, svc := range d.Spec.Compose.Services {
 		s := provision.Service{
-			Name: svc.Name, Image: svc.Image, EnvKeys: svc.Env,
+			Name: svc.Name, EnvKeys: svc.Env,
 			Command: svc.Command, Healthcheck: svc.Healthcheck, Restart: svc.Restart, DependsOn: svc.DependsOn,
+		}
+		if svc.Build != nil {
+			// Helmsman generates the Dockerfile into the run dir at deploy; the compose
+			// build context is the app's checkout (".").
+			s.Build = &provision.Build{Context: ".", Dockerfile: builder.DockerfilePath(svc.Name)}
+		} else {
+			s.Image = svc.Image
 		}
 		for _, p := range svc.Ports {
 			s.Ports = append(s.Ports, provision.Port{Internal: p.Internal, Publish: p.Publish, Public: p.Public})
@@ -43,14 +51,6 @@ func toProvisionSpec(d *Definition) provision.Spec {
 func ComposeBytes(d *Definition) ([]byte, error) {
 	if src := d.Spec.Compose.Source; src != "" && src != SourceGenerated {
 		return nil, fmt.Errorf("compose.source %q is not supported — Helmsman generates the compose", src)
-	}
-	// Build services need the Helmsman-generated Dockerfile (M20 Phase 2); refuse
-	// clearly until then rather than emit a compose pointing at a Dockerfile we don't
-	// yet produce.
-	for _, svc := range d.Spec.Compose.Services {
-		if svc.Build != nil {
-			return nil, fmt.Errorf("service %q: generated builds (compose.services[].build) are not generated yet (M20 Phase 2); use image: for now", svc.Name)
-		}
 	}
 	ps := toProvisionSpec(d)
 	if err := ps.Validate(); err != nil { // field-level gate before generation

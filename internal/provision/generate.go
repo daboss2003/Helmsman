@@ -17,7 +17,8 @@ type composeFile struct {
 }
 
 type composeService struct {
-	Image       string         `yaml:"image"`
+	Image       string         `yaml:"image,omitempty"`
+	Build       *composeBuild  `yaml:"build,omitempty"`
 	Restart     string         `yaml:"restart,omitempty"`
 	Ports       []string       `yaml:"ports,omitempty"`
 	Volumes     []string       `yaml:"volumes,omitempty"`
@@ -25,6 +26,13 @@ type composeService struct {
 	Command     []string       `yaml:"command,omitempty"`
 	Healthcheck *composeHealth `yaml:"healthcheck,omitempty"`
 	DependsOn   []string       `yaml:"depends_on,omitempty"`
+}
+
+// composeBuild is the generated `build:` directive — Helmsman builds the service's
+// image from a Helmsman-generated Dockerfile (the operator never writes one).
+type composeBuild struct {
+	Context    string `yaml:"context"`
+	Dockerfile string `yaml:"dockerfile,omitempty"`
 }
 
 type composeHealth struct {
@@ -47,7 +55,12 @@ func Generate(spec Spec) ([]byte, error) {
 	namedVols := map[string]nullYAML{}
 
 	for _, svc := range spec.Services {
-		cs := composeService{Image: svc.Image, Restart: svc.Restart, DependsOn: svc.DependsOn}
+		cs := composeService{Restart: svc.Restart, DependsOn: svc.DependsOn}
+		if svc.Build != nil {
+			cs.Build = &composeBuild{Context: svc.Build.Context, Dockerfile: svc.Build.Dockerfile}
+		} else {
+			cs.Image = svc.Image
+		}
 		for _, p := range svc.Ports {
 			if !p.Publish {
 				continue // internal-only: reachable on the compose network, no host map

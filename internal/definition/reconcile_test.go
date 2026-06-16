@@ -26,15 +26,23 @@ func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
 	}
 }
 
-// A build service can be DECLARED (valid schema) but is not generated yet — the build
-// subsystem lands in M20 Phase 2, so ComposeBytes must refuse it clearly rather than
-// emit a compose pointing at a Dockerfile we don't produce.
-func TestComposeBytesDefersBuild(t *testing.T) {
+// A build service generates a compose `build:` directive pointing at the Helmsman-
+// generated Dockerfile path (the Dockerfile itself is written into the run dir at
+// deploy time). It must NOT emit an image for that service.
+func TestComposeBytesGeneratesBuild(t *testing.T) {
 	d := base()
 	d.Spec.Compose.Services[0].Image = ""
 	d.Spec.Compose.Services[0].Build = &Build{Language: "node"}
-	if _, err := ComposeBytes(d); err == nil {
-		t.Error("generation of a build service must be deferred (Phase 2)")
+	raw, err := ComposeBytes(d)
+	if err != nil {
+		t.Fatalf("a build service must generate: %v", err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "build:") || !strings.Contains(out, ".helmsman/Dockerfile.web") {
+		t.Errorf("generated compose must carry the build directive:\n%s", out)
+	}
+	if strings.Contains(out, "image:") {
+		t.Errorf("a build service must not emit image:\n%s", out)
 	}
 }
 
