@@ -2,16 +2,41 @@ package web
 
 import (
 	"context"
+	"net/http"
 	"time"
 )
 
-// RunGitPoller is the "just connect the repo and it works" loop: it periodically
-// FETCHES every connected repo so change-detection needs NO webhook setup. It is
-// READ-PLANE ONLY — it never deploys; it surfaces an "update available" the operator
-// deploys with a click (push-to-deploy stays an explicit opt-in via the webhook +
-// auto_deploy, never this background loop). A fetch never mutates a running app, and
-// the loop is serialized through the same single-flight gate as deploys, so it can
-// never pile up docker/git children.
+// dashActiveWindow is how long after the last focused-dashboard heartbeat the git
+// poller still considers someone to be "checking" (so it keeps fetching). app.js
+// pings every ~40s while the tab is visible, so this comfortably covers a missed ping.
+const dashActiveWindow = 90 * time.Second
+
+// handleDashPing is the focused-dashboard heartbeat: app.js calls it on load and
+// every ~40s WHILE the tab is visible (paused when hidden). It records only "the
+// operator is actively looking" so the git poller fetches on demand rather than
+// around the clock.
+func (s *Server) handleDashPing(w http.ResponseWriter, r *http.Request) {
+	s.lastActive.Store(time.Now().UnixNano())
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// dashActiveRecently reports whether a focused dashboard pinged within the window.
+func (s *Server) dashActiveRecently() bool {
+	last := s.lastActive.Load()
+	return last != 0 && time.Since(time.Unix(0, last)) < dashActiveWindow
+}
+
+// RunGitPoller is the "just connect the repo and it works" loop: it FETCHES every
+// connected repo so change-detection needs NO webhook setup. It is READ-PLANE ONLY —
+// it never deploys; it surfaces an "update available" the operator deploys with a
+// click (push-to-deploy stays an explicit opt-in via the webhook + auto_deploy, never
+// this loop). A fetch never mutates a running app, and the loop is serialized through
+// the same single-flight gate as deploys, so it can never pile up docker/git children.
+//
+// Because Helmsman never auto-deploys, fetching when nobody is looking is wasted work
+// — so the loop only fetches while a focused dashboard is open (the heartbeat above).
+// When the operator opens/returns to the dashboard, the next tick fetches.
 //
 // interval <= 0 disables polling. Blocks until ctx is cancelled.
 func (s *Server) RunGitPoller(ctx context.Context, interval time.Duration) {
@@ -25,6 +50,9 @@ func (s *Server) RunGitPoller(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !s.dashActiveRecently() {
+				continue // nobody is checking — don't spend git/network on a fetch
+			}
 			s.pollAllRepos(ctx)
 		}
 	}

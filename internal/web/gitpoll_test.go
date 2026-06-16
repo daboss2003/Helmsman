@@ -39,3 +39,24 @@ func TestPollAllReposEmptyIsSafe(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.pollAllRepos(context.Background())
 }
+
+// The focus gate is what makes the poller idle when nobody is looking: a server
+// that has never been pinged is "inactive", a fresh heartbeat makes it "active",
+// and a heartbeat older than the window goes inactive again.
+func TestDashActiveRecentlyGate(t *testing.T) {
+	s := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "").srv
+
+	if s.dashActiveRecently() {
+		t.Fatal("never-pinged server must be inactive (so the poller stays idle)")
+	}
+
+	s.lastActive.Store(time.Now().UnixNano())
+	if !s.dashActiveRecently() {
+		t.Fatal("server pinged just now must be active")
+	}
+
+	s.lastActive.Store(time.Now().Add(-dashActiveWindow - time.Second).UnixNano())
+	if s.dashActiveRecently() {
+		t.Fatal("heartbeat older than the window must be inactive again")
+	}
+}
