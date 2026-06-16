@@ -85,7 +85,7 @@ func cmdInit(args []string) error {
 	if err := relPath("--out", *out); err != nil {
 		return err
 	}
-	svc := definition.Service{Name: "web", Image: *image}
+	svc := definition.Service{Image: *image}
 	if *port > 0 {
 		svc.Ports = []definition.Port{{Internal: *port}}
 	}
@@ -94,7 +94,7 @@ func cmdInit(args []string) error {
 		Kind:       "App",
 		Metadata:   definition.Metadata{Slug: *slug},
 		Spec: definition.Spec{
-			Compose: definition.Compose{Source: definition.SourceGenerated, Services: []definition.Service{svc}},
+			Compose: definition.Compose{Source: definition.SourceGenerated, Services: map[string]definition.Service{"web": svc}},
 		},
 	}
 	// Round-trip through Parse so the scaffold is guaranteed valid before it's written.

@@ -22,15 +22,16 @@ import (
 // service can never publish a port (Publish stays false).
 func toProvisionSpec(d *Definition) provision.Spec {
 	ps := provision.Spec{Slug: d.Metadata.Slug}
-	for _, svc := range d.Spec.Compose.Services {
+	for _, name := range d.Spec.serviceNames() { // sorted → deterministic compose
+		svc := d.Spec.Compose.Services[name]
 		s := provision.Service{
-			Name: svc.Name, EnvKeys: svc.Env,
+			Name:    name,
 			Command: svc.Command, Healthcheck: svc.Healthcheck, Restart: svc.Restart, DependsOn: svc.DependsOn,
 		}
 		if svc.Build != nil {
 			// Helmsman generates the Dockerfile into the run dir at deploy; the compose
 			// build context is the app's checkout (".").
-			s.Build = &provision.Build{Context: ".", Dockerfile: builder.DockerfilePath(svc.Name)}
+			s.Build = &provision.Build{Context: ".", Dockerfile: builder.DockerfilePath(name)}
 		} else {
 			s.Image = svc.Image
 		}
@@ -39,6 +40,15 @@ func toProvisionSpec(d *Definition) provision.Spec {
 		}
 		for _, v := range svc.Volumes {
 			s.Volumes = append(s.Volumes, provision.Volume{Name: v.Name, Source: v.Source, Target: v.Target, ReadOnly: v.ReadOnly})
+		}
+		ekeys := make([]string, 0, len(svc.Env))
+		for k := range svc.Env {
+			ekeys = append(ekeys, k)
+		}
+		sort.Strings(ekeys)
+		for _, k := range ekeys {
+			ev := svc.Env[k]
+			s.Env = append(s.Env, provision.EnvVar{Key: k, Value: ev.Value, Secret: ev.Secret})
 		}
 		ps.Services = append(ps.Services, s)
 	}
@@ -75,8 +85,8 @@ func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []st
 	// against THIS app's containers — validated like any Layer-1 route (no
 	// control-plane port, no loopback, FQDN host).
 	declared := map[string]bool{}
-	for _, svc := range d.Spec.Compose.Services {
-		declared[svc.Name] = true
+	for name := range d.Spec.Compose.Services {
+		declared[name] = true
 	}
 	for _, r := range d.Spec.Edge.Routes {
 		if !declared[r.Service] {

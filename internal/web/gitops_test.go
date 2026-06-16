@@ -27,7 +27,7 @@ spec:
   compose:
     source: generated
     services:
-      - name: web
+      web:
         image: nginx:1.27
 `
 
@@ -186,7 +186,7 @@ func TestDeployBuildServiceGeneratesDockerfile(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      - name: api\n        build: {language: go}\n"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      api:\n        build: {language: go}\n"
 	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
 		"helmsman.yaml": yaml,
 		"go.mod":        "module x\n\ngo 1.23\n",
@@ -234,7 +234,7 @@ func TestDeployCreatesBindDirs(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      - name: web\n        image: nginx:1.27\n        volumes:\n          - {source: appdata, target: /var/lib/app}\n"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: nginx:1.27\n        volumes:\n          - {source: appdata, target: /var/lib/app}\n"
 	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
 	cfg := configureRepo(t, e, slug, sha)
 	_ = e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})

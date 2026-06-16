@@ -17,7 +17,7 @@ func sampleSpec() Spec {
 			Image:   "nginx:1.27",
 			Ports:   []Port{{Internal: 8080, Publish: true}},
 			Volumes: []Volume{{Name: "data", Target: "/var/lib/data"}, {Source: "conf", Target: "/etc/app", ReadOnly: true}},
-			EnvKeys: []string{"LOG_LEVEL"},
+			Env:     []EnvVar{{Key: "LOG_LEVEL", Value: "info"}, {Key: "DB_PASSWORD", Secret: "DB_PASSWORD"}},
 			Restart: "unless-stopped",
 		}},
 	}
@@ -37,9 +37,12 @@ func TestGenerateProducesSafeComposeThatPassesValidator(t *testing.T) {
 	if !strings.Contains(s, "127.0.0.1:8080:8080") {
 		t.Errorf("port not loopback-bound:\n%s", s)
 	}
-	// Env is referenced, never valued.
-	if !strings.Contains(s, "LOG_LEVEL=${LOG_LEVEL}") {
-		t.Errorf("env not by-reference:\n%s", s)
+	// Non-secret literals are inline; secrets are by-reference (${NAME}), never valued.
+	if !strings.Contains(s, "LOG_LEVEL=info") {
+		t.Errorf("literal env not inline:\n%s", s)
+	}
+	if !strings.Contains(s, "DB_PASSWORD=${DB_PASSWORD}") {
+		t.Errorf("secret env not by-reference:\n%s", s)
 	}
 	// Must pass §5.6 against a run dir.
 	res := compose.ValidateBytes(out, compose.Env{}, "/srv/apps/shop", compose.Options{})
@@ -70,7 +73,8 @@ func TestValidateRejectsBadInput(t *testing.T) {
 		"traversal bind":       func(s *Spec) { s.Services[0].Volumes = []Volume{{Source: "../escape", Target: "/x"}} },
 		"both name+source":     func(s *Spec) { s.Services[0].Volumes = []Volume{{Name: "v", Source: "s", Target: "/x"}} },
 		"rel container target": func(s *Spec) { s.Services[0].Volumes = []Volume{{Name: "v", Target: "rel"}} },
-		"bad env key":          func(s *Spec) { s.Services[0].EnvKeys = []string{"1BAD"} },
+		"bad env key":          func(s *Spec) { s.Services[0].Env = []EnvVar{{Key: "1BAD"}} },
+		"env literal interp":   func(s *Spec) { s.Services[0].Env = []EnvVar{{Key: "X", Value: "${OTHER}"}} },
 		"unknown depends_on":   func(s *Spec) { s.Services[0].DependsOn = []string{"ghost"} },
 		"bad restart":          func(s *Spec) { s.Services[0].Restart = "sometimes" },
 		"newline in command":   func(s *Spec) { s.Services[0].Command = []string{"sh\n-c"} },

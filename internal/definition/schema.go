@@ -7,25 +7,22 @@
 // Helmsman OWNS the runtime: the operator declares a multi-service STACK here and
 // Helmsman GENERATES the compose (and, for build services, the Dockerfile). There is
 // no way to supply a raw compose/Dockerfile — `compose.source` is generated-only.
-//
-// This file is the typed schema. normalize.go is the parser-differential-resistant
-// parse (exact apiVersion, unknown-key reject, YAML anchor/alias/merge-key/
-// duplicate-key reject, single-document, canonical re-marshal). Each spec section is
-// a PROJECTION onto an existing artifact, so the deep validation reuses the existing
-// chokepoints (§5.6 compose validator, §6.2 edge gate, the secret store).
+// `services` is a map keyed by name; per-service `env` is a map of literals/secret
+// references (compose-familiar).
 package definition
 
 import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/daboss2003/Helmsman/internal/sandbox"
+	"gopkg.in/yaml.v3"
 )
 
-// APIVersion is the ONLY accepted envelope version — exact-match, fail-closed. An
-// unknown/future version is rejected, never best-effort parsed.
+// APIVersion is the ONLY accepted envelope version — exact-match, fail-closed.
 const APIVersion = "helmsman/v1"
 
 var (
@@ -63,7 +60,6 @@ type Metadata struct {
 // Spec is the managed surface. Each field projects onto an existing artifact.
 type Spec struct {
 	Compose Compose  `yaml:"compose"`
-	Env     []EnvVar `yaml:"env,omitempty"`
 	Secrets []Secret `yaml:"secrets,omitempty"`
 	Edge    Edge     `yaml:"edge"`
 	Scaling *Scaling `yaml:"scaling,omitempty"`
@@ -73,32 +69,65 @@ type Spec struct {
 
 // Compose is GENERATED-ONLY: Helmsman owns the compose. `source` defaults to and may
 // only be "generated". The legacy `repo_path`/`inline` sources are rejected; Path and
-// Inline are retained ONLY so a stale definition gets a clear, guiding rejection
-// instead of a cryptic unknown-field decode error.
+// Inline are retained ONLY so a stale definition gets a clear, guiding rejection.
 type Compose struct {
-	Source   string    `yaml:"source,omitempty"`
-	Services []Service `yaml:"services,omitempty"`
-	Path     string    `yaml:"path,omitempty"`
-	Inline   string    `yaml:"inline,omitempty"`
+	Source   string             `yaml:"source,omitempty"`
+	Services map[string]Service `yaml:"services,omitempty"`
+	Path     string             `yaml:"path,omitempty"`
+	Inline   string             `yaml:"inline,omitempty"`
 }
 
-// Service is one service in the generated stack. A service is `image` (pull) XOR
-// `build` (Helmsman generates the Dockerfile). No host-publish-by-default, no
-// dangerous keys — they cannot be expressed, so no input can produce them.
+// Service is one service in the generated stack (the map key is its name). A service
+// is `image` (pull) XOR `build` (Helmsman generates the Dockerfile).
 type Service struct {
-	Name         string        `yaml:"name"`
-	Image        string        `yaml:"image,omitempty"` // image XOR build
-	Build        *Build        `yaml:"build,omitempty"`
-	Ports        []Port        `yaml:"ports,omitempty"`
-	Volumes      []Volume      `yaml:"volumes,omitempty"`
-	Env          []string      `yaml:"env,omitempty"`          // env-var names (values live in env/secrets)
-	SecretFiles  []string      `yaml:"secret_files,omitempty"` // secret names mounted at /run/secrets/<name>
-	ConfigFiles  []ConfigFile  `yaml:"config_files,omitempty"`
-	CertBindings []CertBinding `yaml:"cert_bindings,omitempty"`
-	Command      []string      `yaml:"command,omitempty"`
-	Healthcheck  []string      `yaml:"healthcheck,omitempty"`
-	Restart      string        `yaml:"restart,omitempty"`
-	DependsOn    []string      `yaml:"depends_on,omitempty"`
+	Image        string              `yaml:"image,omitempty"` // image XOR build
+	Build        *Build              `yaml:"build,omitempty"`
+	Ports        []Port              `yaml:"ports,omitempty"`
+	Volumes      []Volume            `yaml:"volumes,omitempty"`
+	Env          map[string]EnvValue `yaml:"env,omitempty"` // KEY: literal | {secret: NAME}
+	SecretFiles  []string            `yaml:"secret_files,omitempty"`
+	ConfigFiles  []ConfigFile        `yaml:"config_files,omitempty"`
+	CertBindings []CertBinding       `yaml:"cert_bindings,omitempty"`
+	Command      []string            `yaml:"command,omitempty"`
+	Healthcheck  []string            `yaml:"healthcheck,omitempty"`
+	Restart      string              `yaml:"restart,omitempty"`
+	DependsOn    []string            `yaml:"depends_on,omitempty"`
+}
+
+// EnvValue is a per-service env var: a literal value XOR a `{secret: NAME}` reference.
+// A scalar is a literal; a mapping must be exactly `{ secret: NAME }`.
+type EnvValue struct {
+	Value  string
+	Secret string
+}
+
+// MarshalYAML renders the canonical form: a `{secret: NAME}` mapping for a reference,
+// else the scalar literal — so Canonical round-trips back through UnmarshalYAML.
+func (e EnvValue) MarshalYAML() (any, error) {
+	if e.Secret != "" {
+		return map[string]string{"secret": e.Secret}, nil
+	}
+	return e.Value, nil
+}
+
+// UnmarshalYAML accepts a scalar literal or a `{ secret: NAME }` mapping (only).
+func (e *EnvValue) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		e.Value = n.Value
+		return nil
+	case yaml.MappingNode:
+		if len(n.Content) != 2 || n.Content[0].Value != "secret" {
+			return fmt.Errorf("env value mapping must be exactly { secret: NAME }")
+		}
+		e.Secret = n.Content[1].Value
+		if e.Secret == "" {
+			return fmt.Errorf("env value { secret: } requires a name")
+		}
+		return nil
+	default:
+		return fmt.Errorf("env value must be a literal or { secret: NAME }")
+	}
 }
 
 // Port is one container port. Internal is the in-container port; Publish maps it to
@@ -109,9 +138,7 @@ type Port struct {
 	Public   bool `yaml:"public"`
 }
 
-// Build is the declarative build spec — Helmsman GENERATES the Dockerfile from it
-// (there is no raw Dockerfile). language "auto" (default) detects the stack from the
-// repo; "generic" uses `base` + the operator's own commands (best effort).
+// Build is the declarative build spec — Helmsman GENERATES the Dockerfile from it.
 type Build struct {
 	Language string            `yaml:"language,omitempty"`
 	Version  string            `yaml:"version,omitempty"`
@@ -133,32 +160,23 @@ type Volume struct {
 }
 
 // ConfigFile is an app config file Helmsman renders + bind-mounts read-only into a
-// service. Content is a repo path (read via git cat-file @ pinned commit) XOR inline.
+// service. Content is a repo path (git cat-file @ pinned commit) XOR inline template.
 type ConfigFile struct {
 	Repo     string `yaml:"repo,omitempty"`
 	Template string `yaml:"template,omitempty"`
 	Mount    string `yaml:"mount"`
 }
 
-// CertBinding syncs a managed cert to a service (renew + reload handled by Helmsman,
-// so the app never runs a docker.sock cert-reloader).
+// CertBinding syncs a managed cert to a service (renew + reload handled by Helmsman).
 type CertBinding struct {
 	Hostname string `yaml:"hostname"`
 	Mount    string `yaml:"mount"`
 }
 
-// EnvVar is a non-secret literal (Value) XOR a secret reference (Secret = name).
-type EnvVar struct {
-	Name   string `yaml:"name"`
-	Value  string `yaml:"value"`
-	Secret string `yaml:"secret"`
-}
-
-// Secret declares a name (+ optional generate hint) — NEVER a value. The file is
-// never secret-bearing.
+// Secret declares a name (+ optional generate hint) — NEVER a value.
 type Secret struct {
 	Name     string `yaml:"name"`
-	Generate string `yaml:"generate"` // optional hint: e.g. "hex32", "base64-32"
+	Generate string `yaml:"generate"`
 }
 
 // Edge is the Layer-1 route input (§6).
@@ -166,12 +184,11 @@ type Edge struct {
 	Routes []Route `yaml:"routes,omitempty"`
 }
 
-// Route is one managed edge vhost. Upstream is a SELECTOR — "service:port" — resolved
-// against this app's discovered containers, never a literal dial target.
+// Route is one managed edge vhost. Upstream is a SELECTOR — "service:port".
 type Route struct {
 	Hostname        string `yaml:"hostname"`
-	Service         string `yaml:"service"` // which of this app's services
-	Port            int    `yaml:"port"`    // the service's internal port
+	Service         string `yaml:"service"`
+	Port            int    `yaml:"port"`
 	PathPrefix      string `yaml:"path_prefix"`
 	HSTS            bool   `yaml:"hsts"`
 	SecurityHeaders bool   `yaml:"security_headers"`
@@ -199,21 +216,17 @@ type Git struct {
 	AutoDeploy bool   `yaml:"auto_deploy"`
 }
 
-// Setup is the per-app setup script (Mode 3). It is declared HERE and synced into the
-// setup store; the portal is a read-only view + the gated Run (no literal paste).
+// Setup is the per-app setup script (Mode 3), declared here and synced into the setup
+// store; the portal is a read-only view + the gated Run (no literal paste).
 type Setup struct {
 	Script   string   `yaml:"script"`
 	Trigger  string   `yaml:"trigger"`
 	Produces []string `yaml:"produces,omitempty"`
 }
 
-// SourceGenerated is the only accepted compose source — Helmsman generates the
-// compose. (The legacy repo_path/inline sources were removed; Helmsman owns it.)
+// SourceGenerated is the only accepted compose source.
 const SourceGenerated = "generated"
 
-// validateEnvelope enforces the fail-closed envelope rules (exact apiVersion, kind,
-// immutable-slug shape). Deep per-projection validation is done by the reconciler
-// through the existing chokepoints.
 func (d *Definition) validateEnvelope() error {
 	if d.APIVersion != APIVersion {
 		return fmt.Errorf("apiVersion must be exactly %q (got %q) — unknown versions are rejected", APIVersion, d.APIVersion)
@@ -227,9 +240,6 @@ func (d *Definition) validateEnvelope() error {
 	return d.Spec.validate()
 }
 
-// validate enforces the structural spec rules. Helmsman owns the compose, so the only
-// accepted source is "generated" (default); the deep §5.6/§6.2 chokepoints do the
-// rest.
 func (s *Spec) validate() error {
 	switch s.Compose.Source {
 	case "", SourceGenerated:
@@ -249,7 +259,7 @@ func (s *Spec) validate() error {
 	if err := s.validateServices(); err != nil {
 		return err
 	}
-	if err := s.validateSecretsAndEnv(); err != nil {
+	if err := s.validateSecrets(); err != nil {
 		return err
 	}
 	if err := s.validateEdge(); err != nil {
@@ -258,89 +268,124 @@ func (s *Spec) validate() error {
 	return s.validateSetup()
 }
 
+// serviceNames returns the stack's service names, sorted (deterministic validation).
+func (s *Spec) serviceNames() []string {
+	names := make([]string, 0, len(s.Compose.Services))
+	for n := range s.Compose.Services {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (s *Spec) validateServices() error {
 	declaredSecrets := map[string]bool{}
 	for _, sec := range s.Secrets {
 		declaredSecrets[sec.Name] = true
 	}
 	names := map[string]bool{}
-	for _, svc := range s.Compose.Services {
-		if !svcRe.MatchString(svc.Name) {
-			return fmt.Errorf("service name %q is invalid", svc.Name)
+	for n := range s.Compose.Services {
+		names[n] = true
+	}
+	for _, name := range s.serviceNames() {
+		if !svcRe.MatchString(name) {
+			return fmt.Errorf("service name %q is invalid", name)
 		}
-		if names[svc.Name] {
-			return fmt.Errorf("duplicate service %q", svc.Name)
-		}
-		names[svc.Name] = true
+		svc := s.Compose.Services[name]
 
-		// image XOR build — exactly one source of the container image.
 		hasImage := svc.Image != ""
 		hasBuild := svc.Build != nil
 		if hasImage == hasBuild {
-			return fmt.Errorf("service %q must set exactly one of image or build", svc.Name)
+			return fmt.Errorf("service %q must set exactly one of image or build", name)
 		}
 		if hasBuild {
-			if err := validateBuild(svc.Name, svc.Build); err != nil {
+			if err := validateBuild(name, svc.Build); err != nil {
 				return err
 			}
 		}
 		for _, p := range svc.Ports {
 			if p.Internal < 1 || p.Internal > 65535 {
-				return fmt.Errorf("service %q port %d is out of range", svc.Name, p.Internal)
+				return fmt.Errorf("service %q port %d is out of range", name, p.Internal)
 			}
 			if controlPort(p.Internal) {
-				return fmt.Errorf("service %q port %d is a reserved control-plane port", svc.Name, p.Internal)
+				return fmt.Errorf("service %q port %d is a reserved control-plane port", name, p.Internal)
 			}
 			if p.Public && !p.Publish {
-				return fmt.Errorf("service %q port %d sets public without publish", svc.Name, p.Internal)
+				return fmt.Errorf("service %q port %d sets public without publish", name, p.Internal)
 			}
 		}
-		for _, k := range svc.Env {
-			if !envKeyRe.MatchString(k) {
-				return fmt.Errorf("service %q env key %q is invalid", svc.Name, k)
-			}
+		if err := validateServiceEnv(name, svc.Env, declaredSecrets); err != nil {
+			return err
 		}
 		for _, sf := range svc.SecretFiles {
 			if !declaredSecrets[sf] {
-				return fmt.Errorf("service %q secret_files references undeclared secret %q", svc.Name, sf)
+				return fmt.Errorf("service %q secret_files references undeclared secret %q", name, sf)
 			}
 		}
 		for _, cf := range svc.ConfigFiles {
-			if err := validateConfigFile(svc.Name, cf); err != nil {
+			if err := validateConfigFile(name, cf); err != nil {
 				return err
 			}
 		}
 		for _, cb := range svc.CertBindings {
-			if err := validateCertBinding(svc.Name, cb); err != nil {
+			if err := validateCertBinding(name, cb); err != nil {
 				return err
 			}
 		}
 		for _, v := range svc.Volumes {
-			if err := validateVolume(svc.Name, v); err != nil {
+			if err := validateVolume(name, v); err != nil {
 				return err
 			}
 		}
 		if !validRestart[svc.Restart] {
-			return fmt.Errorf("service %q restart %q is not allowed", svc.Name, svc.Restart)
+			return fmt.Errorf("service %q restart %q is not allowed", name, svc.Restart)
 		}
-		if err := validateExec("command", svc.Name, svc.Command); err != nil {
+		if err := validateExec("command", name, svc.Command); err != nil {
 			return err
 		}
-		if err := validateExec("healthcheck", svc.Name, svc.Healthcheck); err != nil {
+		if err := validateExec("healthcheck", name, svc.Healthcheck); err != nil {
 			return err
 		}
 		for _, d := range svc.DependsOn {
-			if d == svc.Name {
-				return fmt.Errorf("service %q cannot depend on itself", svc.Name)
+			if d == name {
+				return fmt.Errorf("service %q cannot depend on itself", name)
+			}
+			if !names[d] {
+				return fmt.Errorf("service %q depends_on unknown service %q", name, d)
 			}
 		}
 	}
-	// depends_on references must name a real sibling.
-	for _, svc := range s.Compose.Services {
-		for _, d := range svc.DependsOn {
-			if !names[d] {
-				return fmt.Errorf("service %q depends_on unknown service %q", svc.Name, d)
+	return nil
+}
+
+// validateServiceEnv checks each per-service env entry: a valid KEY, a literal with no
+// `${` interpolation sequence (so a literal can't smuggle a compose variable) / no
+// control chars, or a `{secret: NAME}` ref to a DECLARED secret.
+func validateServiceEnv(svc string, env map[string]EnvValue, declaredSecrets map[string]bool) error {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if !envKeyRe.MatchString(k) {
+			return fmt.Errorf("service %q env key %q is invalid", svc, k)
+		}
+		v := env[k]
+		if v.Secret != "" {
+			if !secretRe.MatchString(v.Secret) {
+				return fmt.Errorf("service %q env %q references an invalid secret name %q", svc, k, v.Secret)
 			}
+			if !declaredSecrets[v.Secret] {
+				return fmt.Errorf("service %q env %q references undeclared secret %q", svc, k, v.Secret)
+			}
+			continue
+		}
+		if strings.ContainsAny(v.Value, "\x00\n\r") {
+			return fmt.Errorf("service %q env %q value contains a control character", svc, k)
+		}
+		if strings.Contains(v.Value, "${") {
+			return fmt.Errorf("service %q env %q literal must not contain ${...} (use a secret reference)", svc, k)
 		}
 	}
 	return nil
@@ -427,23 +472,10 @@ func validateVolume(svc string, v Volume) error {
 	return nil
 }
 
-func (s *Spec) validateSecretsAndEnv() error {
-	declared := map[string]bool{}
+func (s *Spec) validateSecrets() error {
 	for _, sec := range s.Secrets {
 		if !secretRe.MatchString(sec.Name) {
 			return fmt.Errorf("secret name %q is invalid", sec.Name)
-		}
-		declared[sec.Name] = true
-	}
-	for _, e := range s.Env {
-		if !envKeyRe.MatchString(e.Name) {
-			return fmt.Errorf("env name %q is invalid", e.Name)
-		}
-		if e.Value != "" && e.Secret != "" {
-			return fmt.Errorf("env %q sets both value and secret (pick one)", e.Name)
-		}
-		if e.Secret != "" && !declared[e.Secret] {
-			return fmt.Errorf("env %q references undeclared secret %q", e.Name, e.Secret)
 		}
 	}
 	return nil
@@ -451,8 +483,8 @@ func (s *Spec) validateSecretsAndEnv() error {
 
 func (s *Spec) validateEdge() error {
 	declared := map[string]bool{}
-	for _, svc := range s.Compose.Services {
-		declared[svc.Name] = true
+	for n := range s.Compose.Services {
+		declared[n] = true
 	}
 	for _, r := range s.Edge.Routes {
 		h := r.Hostname
@@ -484,7 +516,6 @@ func (s *Spec) validateSetup() error {
 	return nil
 }
 
-// mountPath requires an absolute, clean container path (no NUL/newline).
 func mountPath(p string) error {
 	if p == "" || !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\x00\n") {
 		return fmt.Errorf("must be an absolute container path")
@@ -492,8 +523,6 @@ func mountPath(p string) error {
 	return nil
 }
 
-// relConfined requires a repo-relative, traversal-free path (the deep symlink-aware
-// confinement is re-asserted under the checkout/run_dir at §5.6/materialize time).
 func relConfined(p string) error {
 	if p == "" || filepath.IsAbs(p) || p == ".." ||
 		strings.HasPrefix(p, "../") || strings.Contains(p, "/../") || strings.HasSuffix(p, "/..") ||
@@ -503,7 +532,6 @@ func relConfined(p string) error {
 	return nil
 }
 
-// validateExec checks an exec-form argv: each element non-empty, no NUL/newline.
 func validateExec(field, svc string, argv []string) error {
 	for _, a := range argv {
 		if a == "" {

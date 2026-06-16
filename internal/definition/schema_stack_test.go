@@ -12,19 +12,19 @@ func TestServiceImageXorBuild(t *testing.T) {
 		spec    string
 		wantErr bool
 	}{
-		"image only": {`  compose: {source: generated, services: [{name: web, image: nginx:1}]}`, false},
+		"image only": {`  compose: {source: generated, services: {web: {image: nginx:1}}}`, false},
 		"build only": {`  compose:
     source: generated
     services:
-      - name: web
+      web:
         build: {language: node}`, false},
 		"both image and build": {`  compose:
     source: generated
     services:
-      - name: web
+      web:
         image: nginx:1
         build: {language: node}`, true},
-		"neither": {`  compose: {source: generated, services: [{name: web}]}`, true},
+		"neither": {`  compose: {source: generated, services: {web: {}}}`, true},
 	}
 	for name, c := range cases {
 		_, err := Parse([]byte(docWith(c.spec)))
@@ -51,9 +51,35 @@ func TestBuildValidation(t *testing.T) {
 		spec := `  compose:
     source: generated
     services:
-      - name: web
+      web:
         build: ` + c.build
 		_, err := Parse([]byte(docWith(spec)))
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s: wantErr=%v got err=%v", name, c.wantErr, err)
+		}
+	}
+}
+
+func TestServiceEnvValidation(t *testing.T) {
+	cases := map[string]struct {
+		spec    string
+		wantErr bool
+	}{
+		"literal ok": {`  compose: {source: generated, services: {web: {image: nginx:1, env: {LOG_LEVEL: info}}}}`, false},
+		"secret declared": {`  compose:
+    source: generated
+    services:
+      web:
+        image: nginx:1
+        env: {DB: {secret: DB_PASSWORD}}
+  secrets: [{name: DB_PASSWORD}]`, false},
+		"secret undeclared":  {`  compose: {source: generated, services: {web: {image: nginx:1, env: {DB: {secret: NOPE}}}}}`, true},
+		"literal interp":     {`  compose: {source: generated, services: {web: {image: nginx:1, env: {X: "${OTHER}"}}}}`, true},
+		"bad env key":        {`  compose: {source: generated, services: {web: {image: nginx:1, env: {"bad-key": v}}}}`, true},
+		"bad env value form": {`  compose: {source: generated, services: {web: {image: nginx:1, env: {X: {wrong: y}}}}}`, true},
+	}
+	for name, c := range cases {
+		_, err := Parse([]byte(docWith(c.spec)))
 		if (err != nil) != c.wantErr {
 			t.Errorf("%s: wantErr=%v got err=%v", name, c.wantErr, err)
 		}
@@ -64,7 +90,7 @@ func TestSecretFilesMustBeDeclared(t *testing.T) {
 	declared := `  compose:
     source: generated
     services:
-      - name: web
+      web:
         image: nginx:1
         secret_files: [api_key]
   secrets: [{name: api_key}]`
@@ -74,7 +100,7 @@ func TestSecretFilesMustBeDeclared(t *testing.T) {
 	undeclared := `  compose:
     source: generated
     services:
-      - name: web
+      web:
         image: nginx:1
         secret_files: [ghost]`
 	if _, err := Parse([]byte(docWith(undeclared))); err == nil {
@@ -99,7 +125,7 @@ func TestConfigFileValidation(t *testing.T) {
 		spec := `  compose:
     source: generated
     services:
-      - name: web
+      web:
         image: nginx:1
         config_files: [` + c.cf + `]`
 		_, err := Parse([]byte(docWith(spec)))
@@ -122,7 +148,7 @@ func TestCertBindingValidation(t *testing.T) {
 		spec := `  compose:
     source: generated
     services:
-      - name: web
+      web:
         image: nginx:1
         cert_bindings: [` + c.cb + `]`
 		_, err := Parse([]byte(docWith(spec)))
@@ -136,7 +162,7 @@ func TestPortPublicRequiresPublish(t *testing.T) {
 	spec := `  compose:
     source: generated
     services:
-      - name: web
+      web:
         image: nginx:1
         ports: [{internal: 8883, public: true}]`
 	if _, err := Parse([]byte(docWith(spec))); err == nil {
@@ -145,18 +171,17 @@ func TestPortPublicRequiresPublish(t *testing.T) {
 }
 
 func TestSetupValidation(t *testing.T) {
-	ok := `  compose: {source: generated, services: [{name: web, image: nginx:1}]}
+	ok := `  compose: {source: generated, services: {web: {image: nginx:1}}}
   setup: {script: "#!/bin/sh\necho hi", trigger: on_demand, produces: ["env:TOKEN"]}`
 	if _, err := Parse([]byte(docWith(ok))); err != nil {
 		t.Errorf("a valid setup must pass: %v", err)
 	}
-	badTrigger := `  compose: {source: generated, services: [{name: web, image: nginx:1}]}
+	badTrigger := `  compose: {source: generated, services: {web: {image: nginx:1}}}
   setup: {script: "x", trigger: whenever}`
 	if _, err := Parse([]byte(docWith(badTrigger))); err == nil {
 		t.Error("an invalid setup trigger must be rejected")
 	}
-	// auto setup trigger + git.auto_deploy is a hard reject.
-	autoConflict := `  compose: {source: generated, services: [{name: web, image: nginx:1}]}
+	autoConflict := `  compose: {source: generated, services: {web: {image: nginx:1}}}
   git: {repo: "https://x/y", auto_deploy: true}
   setup: {script: "x", trigger: before_each_deploy}`
 	if _, err := Parse([]byte(docWith(autoConflict))); err == nil {

@@ -50,7 +50,7 @@ func setupYAML(slug, script, trigger string, produces ...string) string {
 		q[i] = strconv.Quote(p)
 	}
 	return "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: " + slug + "}\n" +
-		"spec:\n  compose: {source: generated, services: [{name: web, image: nginx:1}]}\n" +
+		"spec:\n  compose: {source: generated, services: {web: {image: nginx:1}}}\n" +
 		"  setup: {script: " + strconv.Quote(script) + ", trigger: " + trigger + ", produces: [" + strings.Join(q, ", ") + "]}\n"
 }
 

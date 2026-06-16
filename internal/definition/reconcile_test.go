@@ -15,7 +15,6 @@ func TestValidateGeneratedHappyPath(t *testing.T) {
 }
 
 func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
-	// The generated compose must pass §5.6 (no dangerous keys exist by construction).
 	d := base()
 	raw, err := ComposeBytes(d)
 	if err != nil {
@@ -27,12 +26,14 @@ func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
 }
 
 // A build service generates a compose `build:` directive pointing at the Helmsman-
-// generated Dockerfile path (the Dockerfile itself is written into the run dir at
-// deploy time). It must NOT emit an image for that service.
+// generated Dockerfile path; it must NOT emit an image for that service.
 func TestComposeBytesGeneratesBuild(t *testing.T) {
 	d := base()
-	d.Spec.Compose.Services[0].Image = ""
-	d.Spec.Compose.Services[0].Build = &Build{Language: "node"}
+	web := d.Spec.Compose.Services["web"]
+	web.Image = ""
+	web.Build = &Build{Language: "node"}
+	web.Env = nil
+	d.Spec.Compose.Services["web"] = web
 	raw, err := ComposeBytes(d)
 	if err != nil {
 		t.Fatalf("a build service must generate: %v", err)
@@ -53,12 +54,15 @@ spec:
   compose:
     source: generated
     services:
-      - name: api
+      api:
         image: ghcr.io/acme/api:1
         ports:
           - internal: 3000
+        env:
+          NODE_ENV: production
+          DB_PASSWORD: { secret: DB_PASSWORD }
         depends_on: [emqx]
-      - name: emqx
+      emqx:
         image: emqx/emqx:5.8.3
         ports:
           - internal: 8883
@@ -68,6 +72,8 @@ spec:
         volumes:
           - name: emqx_data
             target: /opt/emqx/data
+  secrets:
+    - name: DB_PASSWORD
   edge:
     routes:
       - hostname: api.example.com
@@ -76,7 +82,8 @@ spec:
 `
 
 // A multi-service stack (the CredLock shape) parses, and Helmsman GENERATES a compose
-// carrying the public port publish and the named volume.
+// carrying the public port publish, the named volume, the inline literal env, and the
+// per-service secret reference (KEY=${NAME}).
 func TestGeneratedMultiServiceStack(t *testing.T) {
 	d, err := Parse([]byte(stackDef))
 	if err != nil {
@@ -90,11 +97,10 @@ func TestGeneratedMultiServiceStack(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(raw)
-	if !strings.Contains(out, "8883:8883") {
-		t.Errorf("generated compose must publish the public MQTT port:\n%s", out)
-	}
-	if !strings.Contains(out, "emqx_data") {
-		t.Errorf("generated compose must declare the named volume:\n%s", out)
+	for _, want := range []string{"8883:8883", "emqx_data", "NODE_ENV=production", "DB_PASSWORD=${DB_PASSWORD}"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generated compose missing %q:\n%s", want, out)
+		}
 	}
 }
 

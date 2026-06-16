@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/daboss2003/Helmsman/internal/builder"
@@ -42,7 +43,7 @@ func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, sl
 		Spec: definition.Spec{
 			Compose: definition.Compose{
 				Source:   definition.SourceGenerated,
-				Services: []definition.Service{{Name: "app", Build: &definition.Build{Language: b.Name()}}},
+				Services: map[string]definition.Service{"app": {Build: &definition.Build{Language: b.Name()}}},
 			},
 		},
 	}
@@ -55,7 +56,13 @@ func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, sl
 // the pinned commit.
 func (s *Server) writeGeneratedDockerfiles(ctx context.Context, repo *git.Repo, sha, rd string, def *definition.Definition, onLine func(string)) error {
 	var top map[string]bool
-	for _, svc := range def.Spec.Compose.Services {
+	names := make([]string, 0, len(def.Spec.Compose.Services))
+	for n := range def.Spec.Compose.Services {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		svc := def.Spec.Compose.Services[name]
 		if svc.Build == nil {
 			continue
 		}
@@ -66,32 +73,32 @@ func (s *Server) writeGeneratedDockerfiles(ctx context.Context, repo *git.Repo, 
 			}
 			top = topLevelSet(files)
 		}
-		dockerfile, err := builder.Generate(buildSpecFor(svc), top)
+		dockerfile, err := builder.Generate(buildSpecFor(name, svc), top)
 		if err != nil {
-			return fmt.Errorf("service %q: %w", svc.Name, err)
+			return fmt.Errorf("service %q: %w", name, err)
 		}
-		dest := filepath.Join(rd, filepath.FromSlash(builder.DockerfilePath(svc.Name)))
+		dest := filepath.Join(rd, filepath.FromSlash(builder.DockerfilePath(name)))
 		if !confinedUnder(dest, rd) {
-			return fmt.Errorf("service %q: generated Dockerfile path escapes the run dir", svc.Name)
+			return fmt.Errorf("service %q: generated Dockerfile path escapes the run dir", name)
 		}
 		// Symlink-safe write (temp + rename; ancestors checked) — see atomicWrite.
 		if err := atomicWrite(dest, []byte(dockerfile), 0o644, rd); err != nil {
-			return fmt.Errorf("service %q: write Dockerfile: %w", svc.Name, err)
+			return fmt.Errorf("service %q: write Dockerfile: %w", name, err)
 		}
-		onLine("generated Dockerfile for " + svc.Name)
+		onLine("generated Dockerfile for " + name)
 	}
 	return nil
 }
 
 // buildSpecFor projects a definition build onto the builder spec (non-root defaults on).
-func buildSpecFor(svc definition.Service) builder.Spec {
+func buildSpecFor(name string, svc definition.Service) builder.Spec {
 	b := svc.Build
 	nonroot := true
 	if b.Nonroot != nil {
 		nonroot = *b.Nonroot
 	}
 	return builder.Spec{
-		Service:  svc.Name,
+		Service:  name,
 		Language: b.Language,
 		Version:  b.Version,
 		Base:     b.Base,

@@ -84,10 +84,15 @@ func Generate(spec Spec) ([]byte, error) {
 			}
 			cs.Volumes = append(cs.Volumes, entry)
 		}
-		for _, k := range svc.EnvKeys {
-			// Reference only — the value is provided by the 0600 --env-file at deploy
-			// (the encrypted env store), never baked into the YAML.
-			cs.Environment = append(cs.Environment, k+"=${"+k+"}")
+		for _, e := range svc.Env {
+			if e.Secret != "" {
+				// Secret reference: ${NAME} resolved from the 0600 --env-file at deploy
+				// (the encrypted store), never baked into the YAML.
+				cs.Environment = append(cs.Environment, e.Key+"=${"+e.Secret+"}")
+			} else {
+				// Non-secret literal — safe inline (validated: no ${...}, no control chars).
+				cs.Environment = append(cs.Environment, e.Key+"="+e.Value)
+			}
 		}
 		if len(svc.Command) > 0 {
 			cs.Command = svc.Command
