@@ -19,7 +19,7 @@ Like the per-app file, the dashboard keeps this in sync; you can also keep it in
 
 Helmsman keeps settings in three layers, by how sensitive they are:
 
-1. **The root of trust** — your master key, the dashboard login, the IP allowlist, and the network address. These live in `config.yaml` and are set **over SSH at install**. The dashboard can **never** change them — so even a fully compromised dashboard can't widen who's allowed in or read your key.
+1. **The root of trust** — your master key, the dashboard login, the IP allowlist, and the network address. These live in `config.yaml` and are set **over SSH at install**. The dashboard can **never** change them; they're set over SSH at install only.
 2. **Server settings** — the host-wide defaults and coordination above.
 3. **App settings** — everything about an individual app: its image, env, secrets, routes, scaling, and so on.
 

@@ -13,7 +13,17 @@ This is the one part you do over SSH. It takes about five minutes: put the progr
 
 ## 1. Install the program
 
-**Debian / Ubuntu (recommended)** — install from the APT repo and get `apt upgrade` updates:
+> `apt install helmsman` with nothing else only works for packages that ship in Debian/Ubuntu's own repositories (that's why `apt install python` just works). Helmsman is third-party, so `apt` needs to be told where to find it once — exactly like installing Docker, Chrome, or Tailscale. Pick one:
+
+**Quickest — install the `.deb` directly.** Download the `.deb` for your architecture from the [latest release](https://github.com/daboss2003/Helmsman/releases/latest), then:
+
+```bash
+sudo apt install ./helmsman_<version>_amd64.deb
+```
+
+`apt` pulls in any dependencies, creates the `helmsman` service user, and installs the systemd unit — so you can **skip Step 4**. To update later, download the newer `.deb` and run the same command.
+
+**Best for updates — add the signed APT repo (once).** Then `sudo apt upgrade` keeps Helmsman current automatically, and every download is signature-checked:
 
 ```bash
 curl -fsSL https://daboss2003.github.io/Helmsman/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
@@ -21,9 +31,9 @@ echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github
 sudo apt update && sudo apt install helmsman
 ```
 
-The package creates the `helmsman` service user and installs the systemd unit; skip the user/dir setup in Step 4. (Fedora/RHEL: a matching `.rpm` is on each [release](https://github.com/daboss2003/Helmsman/releases).)
+(Fedora/RHEL: a matching `.rpm` is on each release — `sudo dnf install ./helmsman_<version>.x86_64.rpm`.)
 
-**Any Linux (manual)** — download the binary for your architecture from the [releases page](https://github.com/daboss2003/Helmsman/releases) and install it:
+**Any other Linux — the raw binary.** Grab the binary for your architecture from the [releases page](https://github.com/daboss2003/Helmsman/releases) and put it in place (update by replacing the file). With this option you also do Step 4 to create the service:
 
 ```bash
 install -m0755 helmsman /usr/local/bin/helmsman
@@ -70,15 +80,12 @@ edge:
   acme_email: "you@example.com"     # used by Let's Encrypt for your certificates
 
 admin:
-  hostname: "admin.example.com"     # Helmsman serves the dashboard here over HTTPS,
-                                    # behind your ip_allowlist. Point its DNS at this
-                                    # server. Omit it and you reach the dashboard over
-                                    # an SSH tunnel instead.
+  hostname: "admin.example.com"     # the dashboard's address; point its DNS at this server
 
 data_dir: "/var/lib/helmsman"       # where Helmsman keeps its data
 ```
 
-> **You don't run a proxy or forward a port.** With `admin.hostname` set, the managed edge serves the dashboard at that address over HTTPS (still behind your IP allowlist). Point the hostname's DNS at your server and that's it. Leave `admin.hostname` out only if you'd rather reach the dashboard over an SSH tunnel.
+Set `admin.hostname` to the address you want the dashboard on, and point that hostname's DNS at your server — Helmsman serves it over HTTPS, behind your IP allowlist. (Prefer not to expose it at all? Leave `admin.hostname` out and reach the dashboard over an SSH tunnel instead — see the next guide.)
 
 Helmsman validates this file at startup. If a required value is missing or the file permissions are too open, it stops with a clear message explaining what to fix.
 

@@ -35,7 +35,7 @@ In your app's definition or config files, refer to a secret **by name** rather t
 
 ```yaml
 env:
-  - DATABASE_URL: "secret: DATABASE_URL"
+  DATABASE_URL: { secret: DATABASE_URL }
 ```
 
 The actual value is set separately (dashboard or import) and supplied when the app runs. This keeps real credentials out of your YAML and out of your repo, so those files are safe to commit. A secret reference only ever resolves within the same app.

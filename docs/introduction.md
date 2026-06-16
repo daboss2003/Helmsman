@@ -23,15 +23,16 @@ metadata:
   slug: my-app
 spec:
   compose:
-    inline: |
-      services:
-        web:
-          image: ghcr.io/example/web:1.4.2
-          expose: ["8080"]
+    source: generated
+    services:
+      web:
+        image: ghcr.io/example/web:1.4.2
+        ports: [{ internal: 8080 }]
   edge:
     routes:
-      - hostname: "app.example.com"
-        upstream: "web:8080"
+      - hostname: app.example.com
+        service: web
+        port: 8080
 ```
 
 That's a running app with a public HTTPS address. Helmsman pulls the image, starts it, points `app.example.com` at it, and issues the certificate.

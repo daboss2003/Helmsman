@@ -6,15 +6,15 @@ Helmsman is running. This guide walks through signing in and deploying an app wi
 
 ## Sign in
 
-If you set `admin.hostname` during installation, **Helmsman serves the dashboard for you** at that address over HTTPS (behind your IP allowlist) — just open it in your browser:
+Open the dashboard in your browser at the hostname you set during installation:
 
 ```
 https://admin.example.com
 ```
 
-No proxy to run, no port to forward. Sign in with the username and password you set during installation.
+Sign in with the username and password you set during installation.
 
-> **Didn't set a hostname yet?** Until you do (e.g. while DNS is still propagating), reach the dashboard over an SSH tunnel — this also stays as a recovery path if the edge is ever down:
+> **Didn't set a hostname yet?** Until you do (e.g. while DNS is still propagating), reach the dashboard over an SSH tunnel — this also works as a recovery path if the edge is ever down:
 >
 > ```bash
 > ssh -L 9000:127.0.0.1:9000 operator@your-server
@@ -40,7 +40,7 @@ Open your app and go to **Env**. Add non-secret values as plain settings, and pa
 Open **Edge** and add a route:
 
 - **Domain** — the public address, e.g. `app.example.com` (point its DNS at your server).
-- **App** — the app and port to route to, e.g. `web:8080`.
+- **Service & port** — the service to route to and its internal port, e.g. `web` on `8080`.
 
 Save it. Helmsman issues a TLS certificate for the domain and configures the routing. Within moments, `https://app.example.com` is live.
 
@@ -50,7 +50,7 @@ To deploy from a repository, you have two options.
 
 **Connect with GitHub.** If GitHub is configured (see [Deploy from a Git repo](./gitops.md)), click **Connect with GitHub**, authorize, and choose a repo from the list. Helmsman creates a deploy key for it.
 
-**Connect any repo.** Click **Connect repo** and provide the URL, branch, the path to your Compose file, and — for a private repo — a key or token.
+**Connect any repo.** Click **Connect repo** and provide the URL, branch, and — for a private repo — a key or token. Helmsman reads the `helmsman.yaml` in your repo (and scaffolds a starter one if it's missing) — you don't commit a compose file.
 
 Once connected, Helmsman watches the repository. When you push a commit, an **update available** notice appears with a summary of the changes. Click **Deploy** to release it.
 
@@ -79,20 +79,21 @@ metadata:
   slug: my-app
 spec:
   compose:
-    inline: |
-      services:
-        web:
-          image: ghcr.io/example/web:1.4.2
-          expose: ["8080"]
-  env:
-    - LOG_LEVEL: "info"
-    - DATABASE_URL: "secret: DATABASE_URL"
+    source: generated
+    services:
+      web:
+        image: ghcr.io/example/web:1.4.2
+        ports: [{ internal: 8080 }]
+        env:
+          LOG_LEVEL: info
+          DATABASE_URL: { secret: DATABASE_URL }   # referenced by name
   secrets:
     - name: DATABASE_URL
   edge:
     routes:
-      - hostname: "app.example.com"
-        upstream: "web:8080"
+      - hostname: app.example.com
+        service: web
+        port: 8080
 ```
 
 See [The `helmsman.yaml` file](./definition-file.md) for the full reference.

@@ -2,7 +2,7 @@
 
 Helmsman is internet-facing by default. Every install owns the public ports `:80`/`:443`,
 runs ACME/Let's Encrypt for you, terminates TLS, and reverse-proxies the admin UI and each of
-your apps. You never stand up a separate proxy, hand-write TLS config, or run `certbot`.
+your apps.
 
 This document explains how that edge works, why it is built the way it is, and how to drive it
 safely — including the trade-offs that were made deliberately and what backstops protect you
@@ -11,8 +11,8 @@ when a configuration mistake slips through.
 > **One-line summary.** From a single required field per app — a hostname — Helmsman derives a
 > complete, hardened HTTPS vhost. The admin UI stays on loopback. A supervised, sandboxed child
 > Caddy does the public-facing work in its own user, cgroup, and memory-capped slice. What Caddy
-> actually runs is always Helmsman's typed render of a protected base plus your routes plus an
-> additive overlay — never a config you pasted, loaded verbatim.
+> actually runs is always Helmsman's typed render of a protected base plus your routes — generated
+> from `helmsman.yaml`, never a config you author by hand.
 
 **See also:** [README](../README.md) · [Security model](./security.md) ·
 [App provisioning](./gitops.md) · [Configuration reference](./architecture.md) ·
@@ -26,12 +26,9 @@ when a configuration mistake slips through.
 - [How the edge is owned (process isolation)](#how-the-edge-is-owned-process-isolation)
 - [Automatic HTTPS / ACME](#automatic-https--acme)
 - [Per-app reverse proxy: routes & upstreams](#per-app-reverse-proxy-routes--upstreams)
-- [The three-layer config model](#the-three-layer-config-model)
-- [Settings → Caddy: the read-and-render editor](#settings--caddy-the-read-and-render-editor)
-- [Fail-to-save on conflict](#fail-to-save-on-conflict)
+- [How the edge config is rendered](#how-the-edge-config-is-rendered)
 - [The secure-by-default baseline (SBD-1..8)](#the-secure-by-default-baseline-sbd-18)
 - [Non-HTTP services: cert-only / shared-cert](#non-http-services-cert-only--shared-cert)
-- [The raw-config caveat — why a linter is not enough](#the-raw-config-caveat--why-a-linter-is-not-enough)
 - [Recovery & escape hatches](#recovery--escape-hatches)
 - [Configuration reference](#configuration-reference)
 
@@ -59,14 +56,13 @@ This is the path you get by doing nothing. Helmsman **owns the edge**:
   matcher) and each app vhost to its allowlisted internal upstream.
 - The admin UI **still** binds loopback `127.0.0.1:9000`. Only the *child* binds public ports.
 
-The operator never stands up a proxy, writes TLS config, or runs certbot. Required config:
+Required config:
 
 | Key | Meaning | If missing |
 |---|---|---|
 | `edge.acme_email` | Contact for the ACME account | **Fail-closed.** Onboarding refuses to mark setup "complete" and prints the exact CLI line to set it. |
 | `edge.acme_ca` | The single, pinned ACME issuer | No fallback issuer is ever used (see [ACME](#automatic-https--acme)). |
 | `edge.apply_probe_window` | Health-probe window after an apply | Defaults to `20s`. |
-| `caddy_editor.mode` | `strict` or `review` for the raw editor | Defaults to `strict`. |
 
 ### `external` (narrow advanced escape hatch)
 
@@ -77,8 +73,7 @@ deliberate, narrow escape hatch — not an off-switch and not a casual setting.
   into `managed` by doing nothing. Setting `external` is always a deliberate operator act.
 - In `external` mode Helmsman **binds loopback only**, never opens `:80`/`:443`, never constructs
   the edge subsystem, and **never grants `CAP_NET_BIND_SERVICE`**.
-- The Settings → Caddy editor and the per-app TLS controls are **hidden** — there is no managed
-  edge to edit.
+- The per-app TLS controls are **hidden** — there is no managed edge to drive.
 - Helmsman emits paste-ready proxy snippets for your front proxy but **applies nothing**.
 
 **Fail-closed boot is stronger here** (this is the most-abused trust seam — the XFF/trusted-proxy
@@ -156,10 +151,7 @@ abuse class:
   never falls back to another. A fallback would land certs at a *different* on-disk path and silently
   break shared-volume cert readers — a real outage class.
 - **On-demand TLS is OFF by default.** Only hostnames present in your routes get certificates. A
-  hostile SNI cannot make Helmsman request arbitrary certs and burn through rate limits. (If
-  on-demand is ever enabled via the editor, the renderer **force-rewrites** the `ask` endpoint to a
-  fixed Helmsman loopback validator that answers "yes" only for known route/allowlist hostnames,
-  plus a rate limit.)
+  hostile SNI cannot make Helmsman request arbitrary certs and burn through rate limits.
 - **Resolves-to-this-box check at issuance.** Helmsman validates that a hostname resolves to this
   box **at issuance time**, not merely when you added the route. A name that no longer points here
   will not silently keep trying.
@@ -189,8 +181,8 @@ incremental patches — a full re-render is far easier to keep bug-free.
 
 These are not "nice to have." They are the runtime controls that actually stop a misconfigured or
 compromised edge from reaching your secrets. Config validation is *necessary but not sufficient*
-(see [the raw-config caveat](#the-raw-config-caveat--why-a-linter-is-not-enough)); these are what
-make it safe.
+(a linter cannot see the `127.0.0.1:9000` a DNS name becomes at dial time); these are what make it
+safe.
 
 - **Custom pinned dialer.** The edge dials every upstream through a dialer that **re-resolves and
   refuses, on every connection**, loopback (`127.0.0.0/8`, `::1`), link-local/metadata
@@ -215,12 +207,12 @@ make it safe.
 
 ### Example managed route
 
-A typed route (Tab 1 of the editor; see below) for an HTTP app. You generally never write this by
-hand — the structured UI builds it from a hostname and a discovered upstream — but here is what
-Helmsman renders on your behalf:
+A typed route for an HTTP app. You never write this by hand — Helmsman builds it from the
+`hostname`/`service`/`port` you declare in `helmsman.yaml` and a discovered upstream — but here is
+what Helmsman renders on your behalf:
 
 ```jsonc
-// Layer 1 — one route per app vhost, rendered from app_routes
+// One route per app vhost, rendered from the typed route set
 {
   "match": [{ "host": ["dashboard.example.com"] }],
   "handle": [{
@@ -239,74 +231,43 @@ Helmsman renders on your behalf:
 
 ---
 
-## The three-layer config model
+## How the edge config is rendered
 
-Everything Caddy runs is the composite of **three typed layers**, where the **highest layer wins in
-authoring priority but has the lowest authority**. Higher-numbered layers may *add*; they may never
-redefine, shadow, or weaken a lower layer.
+You never author Caddy config — file or portal. The edge config is **typed and generated from
+`helmsman.yaml` only**: you declare routes (and cert bindings) per app, and Helmsman renders the
+whole proxy document. What Caddy runs is always Helmsman's typed render of two parts:
 
-| Layer | Source | Editable? | What it contains |
-|---|---|---|---|
-| **Layer 0 — protected base** | Helmsman code (typed structs) | **No** | The admin block (unix socket, `enforce_origin:true`); the identity-pinned admin→`:9000` route *with* its allowlist matcher; global TLS (pinned ACME CA + email, on-demand off); XFF-overwrite + header bundle; default unmatched-Host = 404/close. |
-| **Layer 1 — routes** | `app_routes` (typed structs) | Via the Routes tab | One route per app vhost. |
-| **Layer 2 — operator overlay** | Your raw text (Advanced tab) | Yes, **additive only** | Extra vhosts, headers, and matchers on **operator-owned hostnames**. |
+| Part | Source | What it contains |
+|---|---|---|
+| **Protected base** | Helmsman code (typed structs) | The admin block (unix socket, `enforce_origin:true`); the identity-pinned admin→`:9000` route *with* its allowlist matcher; global TLS (pinned ACME CA + email, on-demand off); XFF-overwrite + header bundle; default unmatched-Host = 404/close. |
+| **Routes** | `spec.edge.routes` (typed structs) | One route per app vhost. |
 
-Layer 2 is the only thing your raw input actually becomes. It is highest in authoring priority and
-**lowest in authority**: it can *add*, never redefine/shadow Layers 0 or 1, and it may **not** speak
-about `admin`, `apps.tls.automation`, or `apps.pki` at all. This is the operational meaning of SBD-7
-and the SBD-8 recovery guarantee below.
+The config is **marshalled from typed structs**, never string-concatenated — this is the operational
+meaning of SBD-7 and the SBD-8 recovery guarantee below.
 
 **Minimum-safe protected base** (ships with every install, safe before any route exists): admin on
 the unix socket; on-demand off; ACME only for route hostnames; one server on `[:443, :80]` (`:80` =
 ACME + redirect only) with `routes:[]` and unmatched-Host = close/404; **no admin vhost unless you
 set `admin.hostname`.** A fresh install is a public IP with HTTPS-capable Caddy that *proxies to
-nothing and exposes no admin surface* until you add your first route. This base is Layer 0 of the
-editor model and the recovery floor for SBD-8.
+nothing and exposes no admin surface* until you add your first route. This base is the recovery floor
+for SBD-8.
 
----
+> An app's managed config file (see [App provisioning](./gitops.md)) is a **completely different
+> surface** and never mixes with the edge config.
 
-## Settings → Caddy: the read-and-render editor
+### Apply pipeline (fail-closed)
 
-The editor has **two tabs over one config**:
+Every change to the route set re-renders the whole document and applies it atomically:
 
-- **Tab 1 — Routes (default, safe).** The structured per-app route UI: typed structs, dropdown
-  upstreams. 95% of operators never leave it.
-- **Tab 2 — Advanced (raw).** Paste or edit raw Caddy config — **Caddyfile or JSON** — as an
-  **additive overlay**.
-
-> An app's templated config file (managed config files, see [App provisioning](./gitops.md))
-> is a **completely different surface** and never mixes with the edge config.
-
-### What "edit the Caddy config" actually means
-
-This is the most important mental model on this page. **The config you paste is a declaration of
-desired intent — never an artifact that is executed.**
-
-Helmsman:
-
-1. **Reads** your text,
-2. **Parses** it into the same typed model its own renderer uses,
-3. **Conflict-checks and validates** the parsed model, and
-4. **Re-marshals** that model into the document Caddy loads.
-
-The text is an *input format, never an execution path.* What Caddy runs is **always** Helmsman's
-typed render of the composite (Layer 0 ⊕ 1 ⊕ 2). A stored paste is **never loaded verbatim** — every
-apply and every restore *re-derives* from typed structs: Layer 0 from code, Layer 1 from the current
-`app_routes`, Layer 2 by re-parsing your overlay as untrusted text. So your raw input reduces to
-exactly the **Layer-2 additive overlay** — and that overlay can add, never redefine.
-
-### Validation + apply pipeline (fail-closed)
-
-Nothing touches the live proxy until steps 1–2 pass:
-
-1. **Adapt + sandbox.** Caddyfile → JSON via `caddy adapt`, run **inside a network-off, FS-jailed
-   sandbox** with `--environ` **stripped** and CWD set to a tmp dir containing only the snippet dir.
-   The raw text is **pre-scanned for `import`** and any import outside the snippet dir is rejected
-   *before* adapt (the file read happens during adapt). Then `caddy validate` plus a throwaway-Caddy
-   dry-load — listeners remapped to ephemeral loopback, control-plane targets remapped to
-   **blackhole sinks that fail loudly if dialed.**
-2. **Invariant linter** on the parsed **composite** JSON. See [the reject list](#fail-to-save-on-conflict).
-3. **Atomic apply + auto-rollback.** Snapshot the current live config (held by Helmsman, not read
+1. **Invariant linter** on the rendered composite JSON. The linter REJECTs (control-plane tier,
+   never downgradable): any `on_demand.ask` that is not exactly the typed loopback validator (the
+   renderer **force-rewrites** it); a missing or non-`127.0.0.1:9000` admin route; the admin
+   allowlist matcher absent, widened, or **not structurally first**; any upstream resolving (at
+   **lint and dial**) to loopback/metadata/`9000`/`2019`/`2375`; a listener on
+   `80`/`443`/`9000`/`2019`/`2375`; any `header_up` on `X-Forwarded-For` / `X-Real-IP` / `Forwarded`;
+   any `events.exec` / process-spawn; file-read/template-execution directives (`templates`,
+   `respond {file.*}`, `php_fastcgi`); `file_server`/`root` under any sensitive dir.
+2. **Atomic apply + auto-rollback.** Snapshot the current live config (held by Helmsman, not read
    back from a possibly-broken instance) → `/load` the composite (atomic — a bad load leaves the old
    one running) → **health probe within `apply_probe_window`**. The probe includes:
    - a **negative from-internet test** — the admin vhost must return **403/404 from an
@@ -316,45 +277,14 @@ Nothing touches the live proxy until steps 1–2 pass:
 
    Any failure → **auto-rollback** + `level=security` audit. The operator cannot leave the edge down
    by walking away.
-4. **Version history + recovery.** `edge_config_versions` stores all three layers **separately**.
-   Restore **re-derives** (Layer 0 from code, Layer 1 from `app_routes`, Layer 2 from the stored
-   overlay text *re-validated as untrusted*) — it **never loads a stored `composite_json`**. Version
-   rows are HMAC-protected so a DB tamper cannot become a loaded config.
-
----
-
-## Fail-to-save on conflict
-
-If the pasted config **conflicts with anything Helmsman already manages, the save is rejected** — a
-hard, typed error pointing at the offending path. It is **never silently merged or overridden.** This
-gate sits **before** the rest of the pipeline (between parse and adapt).
-
-A "conflict" is any construct that would change, shadow, redefine, weaken, or reach something
-Helmsman owns. This is the **control-plane reject tier**, and `caddy_editor.mode: review` **cannot
-soften it**:
-
-| # | Rejected because it… | Examples |
-|---|---|---|
-| **1** | …shadows a managed hostname (after lowercase/trailing-dot/IDN canonicalization **and** wildcard-overlap simulation) | A route whose host matcher equals or shadows an app-route vhost (incl. an auto-scaled pool hostname), a cert-only hostname, the admin vhost, or a catch-all/wildcard. |
-| **2** | …touches issuance or PKI you don't own | Any `admin` key; any `tls.automation` field (issuer/ca/email/account/on-demand), global *or* per-site; any `apps.pki` key. |
-| **3** | …could reach the control plane | Any upstream resolving (at **lint and dial**) to loopback/metadata/`9000`/`2019`/`2375`; any placeholder (`{env.*}` / `{$…}`) in an upstream or admin field; a listener on `80`/`443`/`9000`/`2019`/`2375`. |
-| **4** | …rewrites the trust seam | Any `header_up` on `X-Forwarded-For` / `X-Real-IP` / `Forwarded` (XFF is Layer-0-owned). |
-| **5** | …executes or reads files it shouldn't | `exec` / `templates` / `respond {file.*}` / `file_server` under a sensitive dir; `import` outside the snippet dir. |
-
-Additional linter REJECTs on the parsed composite (also control-plane tier, never downgradable):
-any `on_demand.ask` that is not exactly the typed loopback validator (the renderer **force-rewrites**
-it); a missing or non-`127.0.0.1:9000` admin route; the admin allowlist matcher absent, widened, or
-**not structurally first**; any `events.exec` / process-spawn; file-read/template-execution
-directives (`templates`, `respond {file.*}`, `php_fastcgi`); `file_server`/`root` under any sensitive
-dir.
+3. **Version history + recovery.** `edge_config_versions` stores the route set. Restore
+   **re-derives** (the protected base from code, routes from the stored route set) — it **never loads
+   a stored `composite_json`**. Version rows are HMAC-protected so a DB tamper cannot become a loaded
+   config.
 
 > **Pool membership changes at deploy time.** Because an app's pool membership and hostname candidacy
 > can change when you deploy, the **full conflict check (including wildcard overlap) is re-run on
-> every Layer-1 change.** A previously-valid wildcard overlay that now overlaps a newly-pooled
-> hostname is **stripped fail-closed** — Layer 2 can never shadow a managed pool.
-
-**Footgun-tier** rejects (not control-plane) *may* be downgraded to warn-and-acknowledge under
-`caddy_editor.mode: review`. The control-plane tier above never is.
+> every route change** — a render that would overlap a newly-pooled hostname is rejected fail-closed.
 
 ---
 
@@ -369,11 +299,11 @@ test on a fresh install.** These are **release-blocking** on the first edge-owni
 |---|---|---|
 | **SBD-1** | Admin UI never reachable through the public edge by accident | Admin UI binds `127.0.0.1:9000` only. The edge serves **no admin vhost at all** unless you explicitly set `admin.hostname` (default: reach the UI via SSH tunnel / port-forward). If set, the admin vhost renders with the **IP allowlist as the first matcher, injected from typed config** (not operator text) → upstream `127.0.0.1:9000`. The allowlist cannot be omitted. |
 | **SBD-2** | Caddy admin API never public | `admin.listen = unix//run/helmsman/caddy-admin.sock` (preferred) or `127.0.0.1:2019`, never routable; `enforce_origin:true`, origins loopback-only. No public vhost may proxy to `:2019`. |
-| **SBD-3** | On-demand TLS off; ACME bounded | Absent from the base. If ever enabled via the editor, the renderer **force-rewrites the `ask` endpoint** to a fixed loopback validator that answers "yes" only for known route/allowlist hostnames, plus a rate limit. ACME issues only for configured app vhosts. |
+| **SBD-3** | On-demand TLS off; ACME bounded | Absent from the base; the renderer **force-rewrites any `ask` endpoint** to a fixed loopback validator that answers "yes" only for known route/allowlist hostnames, plus a rate limit. ACME issues only for configured app vhosts. |
 | **SBD-4** | Only configured app vhosts served; control-plane ports unreachable as upstreams | Exactly the route-derived vhost set (+ optional admin vhost); **no catch-all/wildcard proxy**; no upstream targets `9000`/`2019`/`2375` or any internal port (struct-validated **and** re-checked at render **and** refused at dial); default unmatched-Host = `404`/close, never proxy. |
 | **SBD-5** | Network isolation of edge from control plane | The structural backstop — pinned dialer + upstream allowlist + egress firewall + unix-socket admin (see [the backstops](#the-structural-backstops-that-keep-the-edge-out-of-the-control-plane)). |
 | **SBD-6** | Egress allow-listing unchanged by always-on | Outbound ops calls stay host-pinned; edge egress is limited to the ACME CA / OCSP / CRL + pinned app hosts. |
-| **SBD-7** | Config rendering safety | Proxy config is marshalled from typed structs (never string concat). Operator-pasted input is parsed into the **same typed model and re-marshalled** — paste is an *input format*, not an execution path. |
+| **SBD-7** | Config rendering safety | Proxy config is marshalled from typed structs (never string concat), generated from the typed routes in `helmsman.yaml` — there is no path by which an operator authors Caddy config. |
 | **SBD-8** | The edge can never go down irrecoverably | Every apply is validate → stage → load with a retained last-known-good and an armed health-probe watchdog; on failure, **auto-revert**. The typed base config is always loadable as the recovery floor; **SSH is the ultimate recovery floor.** |
 
 ---
@@ -401,47 +331,46 @@ container that mounts that path, could then read live TLS keys. Instead, Helmsma
   plugin; assuming it exists caused a prior outage. Do **not** mount the proxy data dir into any
   monitored app container.
 
-#### `cert_bindings` — wiring a cert to an app declaratively
+#### `cert_bindings` — wiring a cert to a service declaratively
 
-An `app_cert_bindings` row connects the cert-only pattern to an app: the edge is the ACME agent for
-a hostname (matching one of the app's routes), the cert-sync helper copies the leaf cert + key to a
-per-consumer `0600` path under the app's `run_dir`, and template placeholders inject those **synced**
-paths into the app's config so config and files always agree:
+A `cert_bindings` entry on a service connects the cert-only pattern to an app: the edge is the ACME
+agent for a `hostname`, and the cert-sync helper writes the leaf cert + key into the service's
+`mount` dir as `tls.crt` (0644) and `tls.key` (0600). The app reads them straight from that path —
+there are no template tokens for certs. A `cert_bindings` entry has exactly two fields:
 
-```text
-{{hm.cert.<binding>.crt}}   →  /run/helmsman/apps/<app>/certs/<binding>.crt   (0600, consumer-owned)
-{{hm.cert.<binding>.key}}   →  /run/helmsman/apps/<app>/certs/<binding>.key
-{{hm.cert.<binding>.ca}}    →  the issuing CA chain
+```yaml
+cert_bindings:
+  - hostname: mqtt.example.com   # the FQDN the edge issues a cert for
+    mount: /etc/mosquitto/certs  # the in-container dir Helmsman syncs tls.crt + tls.key into
 ```
 
-- `required: true` **blocks the consumer's start** until the cert is present (a hard ordering gate —
-  the container never polls or waits; if the cert can't issue, deploy fails fast with a reason rather
-  than spin-looping).
-- Renewal **re-copies and signals** the consumer via static argv.
-
-See [App provisioning → managed config files](./gitops.md) for how `{{hm.cert.*}}`
-placeholders are rendered host-side without ever touching the app's own `${…}` runtime placeholders.
+The deploy **waits automatically** until the cert is synced — the container never polls or waits; if
+the cert can't issue, the deploy fails fast with a reason rather than spin-looping. Renewal re-syncs
+the files in place.
 
 #### Example: cert-only binding for an MQTT-over-TLS broker
 
 ```yaml
-# In the app's helmsman definition — the edge issues the cert; the broker serves TLS itself.
-routes:
-  - hostname: mqtt.example.com
-    mode: cert-only          # edge is ACME agent only — serves no traffic on this host
+# In the app's helmsman.yaml — the edge issues the cert; the broker serves TLS itself.
+spec:
+  edge:
+    routes:
+      - hostname: mqtt.example.com   # edge issues the cert; the broker terminates TLS on its own port
+        service: broker
+        port: 8883
+  compose:
+    source: generated
+    services:
+      broker:
+        image: eclipse-mosquitto:2
+        cert_bindings:
+          - hostname: mqtt.example.com
+            mount: /etc/mosquitto/certs   # tls.crt + tls.key land here, synced + renewed by Helmsman
 
-cert_bindings:
-  - name: mqtt_tls
-    hostname: mqtt.example.com
-    required: true           # broker will not start until the synced cert exists
-    reload:
-      # static argv — a service name cannot inject; cert-sync runs this on renewal
-      signal: SIGHUP
-
-# The broker's managed config file references the SYNCED paths, never the proxy data dir:
+# The broker's managed config file points at the synced paths:
 #   listener 8883
-#   certfile {{hm.cert.mqtt_tls.crt}}
-#   keyfile  {{hm.cert.mqtt_tls.key}}
+#   certfile /etc/mosquitto/certs/tls.crt
+#   keyfile  /etc/mosquitto/certs/tls.key
 ```
 
 ### `tcp-passthrough` / `tcp-terminate` (L4, opt-in, default off)
@@ -454,39 +383,6 @@ unless you specifically need SNI-routed L4.
 
 ---
 
-## The raw-config caveat — why a linter is not enough
-
-> **Be honest with yourself about what static analysis can and cannot catch.**
-
-The obvious design — "adapt the pasted Caddyfile to JSON, then lint the JSON tree" — is
-**bypassable**, because **Caddy resolves `{env.*}` placeholders and DNS names at *runtime*, not at
-lint time.** A linter sees the literal string `{env.X}` or a hostname — not the `127.0.0.1:9000` it
-becomes at dial time.
-
-That is why several constructs are **hard-rejected** in the first place (any placeholder in an
-upstream/dial/admin field, any listener on a control-plane port — see [the reject list](#fail-to-save-on-conflict)):
-they are *precisely* the ones that defeat static analysis, so Helmsman refuses them outright rather
-than pretend to validate them.
-
-And it is why the editor's **real** safety is **structural and runtime**, not the linter:
-
-1. **The pinned dialer** re-resolves and refuses control-plane targets on *every connection* — so a
-   DNS name (or a rebind) that the linter saw as innocuous is refused at dial.
-2. **The egress firewall** makes the control-plane ports and metadata *physically unreachable* from
-   the edge slice — so a config the linter missed simply cannot reach them.
-3. **The unix-socket admin** means there is often no TCP `:2019` to proxy to at all.
-4. **The negative from-internet probe** after every apply proves the allowlist *blocks* (403/404
-   from an un-allowlisted vantage), not just that it admits.
-5. **Auto-rollback** reverts any apply whose health probe fails, within `apply_probe_window`.
-6. **`helmsman edge restore-default`** (SSH) is the iron floor — see below.
-
-The linter is **defense-in-depth on top of** those controls, not the thing standing between you and a
-control-plane breach. Treat the Advanced tab accordingly: it can only *add* to operator-owned
-hostnames, and even a perfectly-crafted overlay cannot dial something the firewall has already made
-unreachable.
-
----
-
 ## Recovery & escape hatches
 
 The edge is designed so it can **never become irrecoverable**:
@@ -495,18 +391,12 @@ The edge is designed so it can **never become irrecoverable**:
   config.
 - **Auto-rollback.** A failed health probe within `apply_probe_window` reverts to the retained
   last-known-good automatically. *You cannot leave the edge down by walking away.*
-- **Re-derived restore.** Restoring a version re-derives Layer 0 from code, Layer 1 from the current
-  `app_routes`, and Layer 2 from the stored overlay text (re-validated as untrusted). It never loads
-  a stored composite. HMAC-protected version rows mean a DB tamper cannot become a loaded config.
-- **The iron escape hatch (SSH-only):**
-
-  ```bash
-  helmsman edge restore-default
-  ```
-
-  Rebuilds Layer 0 + the admin allowlist from typed structs, drops the operator overlay, and **keeps
-  your app routes.** The edge is never irrecoverable, and **SSH is always the recovery floor** — even
-  if the UI itself is unreachable.
+- **Re-derived restore.** Restoring a version re-derives the protected base from code and the routes
+  from the stored route set. It never loads a stored composite. HMAC-protected version rows mean a DB
+  tamper cannot become a loaded config.
+- **The protected base is always loadable.** Because it is rendered from typed structs, the
+  minimum-safe base (admin allowlist + ACME, proxying nothing) is always available as the recovery
+  floor — and **SSH is the ultimate recovery floor**, even if the UI itself is unreachable.
 
 ---
 
@@ -551,10 +441,6 @@ edge:
   apply_probe_window: 20s       # health-probe window after each apply (default 20s)
   l4_enabled: false             # layer-4 SNI routing — requires a CUSTOM build; default off
 
-caddy_editor:
-  mode: strict                  # "strict" (default) | "review" (footgun-tier rejects may be acked;
-                                #   control-plane-tier rejects are NEVER downgradable)
-
 admin:
   # Optional. If unset, the admin UI is reachable only via SSH tunnel / port-forward to 127.0.0.1:9000
   # (the edge serves NO admin vhost — SBD-1). If set, the admin vhost is rendered with the IP
@@ -573,6 +459,5 @@ trusted_proxies:
 | `edge.acme_ca` | *(your CA)* | Single pinned issuer. **No fallback** — a fallback would diverge cert paths and break shared-cert readers. |
 | `edge.apply_probe_window` | `20s` | Window for the post-apply health probe (incl. the negative from-internet test) before auto-rollback. |
 | `edge.l4_enabled` | `false` | Enabling L4 SNI routing requires a **custom proxy build**; you own its CVE cadence. |
-| `caddy_editor.mode` | `strict` | `review` only softens footgun-tier rejects; never the control-plane tier. |
 | `admin.hostname` | *(unset)* | When unset, no admin vhost is served at all (SBD-1). |
 | `trusted_proxies` | *(none)* | **Required for `external` boot:** a specific edge IP, `≤ /24`, not a bridge CIDR; boot also probes that `:9000` is unreachable from non-loopback. |
