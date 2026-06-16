@@ -348,8 +348,7 @@ func (s *Server) Handler() http.Handler {
 	// Setup-script sandbox (M9, Mode 3 — OFF by default, hard-gated). The run is
 	// confirm-token-gated and fail-closed; it never runs from an auto path.
 	mux.HandleFunc("GET /apps/{project}/setup", s.requireAuth(s.withCSRFToken(s.handleSetupGet)))
-	mux.HandleFunc("POST /apps/{project}/setup", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleSetupSave))))
-	mux.HandleFunc("POST /apps/{project}/setup/plan", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleSetupPlan))))
+	mux.HandleFunc("POST /apps/{project}/setup/sync", capBody(1<<20, s.requireAuth(s.requireCSRF(s.handleSetupSync))))
 	mux.HandleFunc("POST /apps/{project}/setup/run", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSetupRun))))
 	mux.HandleFunc("POST /apps/{project}/setup/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSetupDelete))))
 	// Repo-path GitOps (M6).

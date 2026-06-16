@@ -643,6 +643,12 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 		s.gitStore.SetState(bg, slug, "update_blocked")
 		return fmt.Errorf("generate Dockerfile: %w", err)
 	}
+	// Pre-create bind-mount source dirs (Helmsman-owned, confined) so Docker doesn't
+	// create a missing one as root.
+	if err := materializeBindDirs(rd, defBindSources(def)); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return err
+	}
 	app := &monitor.App{Project: slug, WorkingDir: rd, ConfigFiles: []string{composeAbs}}
 	if err := s.materializeConfigFiles(app, env); err != nil {
 		s.gitStore.SetState(bg, slug, "update_blocked")

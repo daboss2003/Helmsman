@@ -109,6 +109,46 @@ func buildSpecFor(svc definition.Service) builder.Spec {
 	}
 }
 
+// defBindSources is every run_dir-relative bind source declared across the stack's
+// services (named volumes excluded — Docker manages those).
+func defBindSources(def *definition.Definition) []string {
+	var out []string
+	for _, svc := range def.Spec.Compose.Services {
+		for _, v := range svc.Volumes {
+			if v.Source != "" && v.Name == "" {
+				out = append(out, v.Source)
+			}
+		}
+	}
+	return out
+}
+
+// materializeBindDirs pre-creates each bind source as a Helmsman-owned directory under
+// the run dir BEFORE `docker compose up`, so a missing bind isn't created by the Docker
+// daemon as root. Each is confined under the run dir (symlink-safe); an existing path
+// (file or dir) is left untouched.
+func materializeBindDirs(rd string, binds []string) error {
+	for _, src := range binds {
+		if src == "" {
+			continue
+		}
+		dest := filepath.Join(rd, filepath.FromSlash(src))
+		if !confinedUnder(dest, rd) {
+			return fmt.Errorf("bind source %q escapes the app directory", src)
+		}
+		if _, err := os.Lstat(dest); err == nil {
+			continue // already present (file or dir) — don't touch it
+		}
+		if err := os.MkdirAll(dest, 0o750); err != nil {
+			return fmt.Errorf("create bind dir %q: %w", src, err)
+		}
+		if noSymlinkComponents(dest, rd) != nil {
+			return fmt.Errorf("bind dir %q crosses a symlink", src)
+		}
+	}
+	return nil
+}
+
 // defHasBuild reports whether any service builds from source (→ compose --build).
 func defHasBuild(def *definition.Definition) bool {
 	for _, svc := range def.Spec.Compose.Services {

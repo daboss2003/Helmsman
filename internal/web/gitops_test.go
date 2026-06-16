@@ -228,6 +228,22 @@ func TestDeployScaffoldsWhenNoHelmsmanYAML(t *testing.T) {
 	}
 }
 
+// A bind volume's source dir is pre-created (Helmsman-owned) under the run dir before
+// `up`, so Docker doesn't create a missing one as root.
+func TestDeployCreatesBindDirs(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      - name: web\n        image: nginx:1.27\n        volumes:\n          - {source: appdata, target: /var/lib/app}\n"
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
+	cfg := configureRepo(t, e, slug, sha)
+	_ = e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	info, err := os.Stat(filepath.Join(e.srv.appRunDir(slug), "appdata"))
+	if err != nil || !info.IsDir() {
+		t.Errorf("bind source dir not pre-created: %v", err)
+	}
+}
+
 // No helmsman.yaml AND an undetectable stack → rejected with guidance (no deploy).
 func TestDeployRejectsUndetectableRepoWithoutHelmsmanYAML(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
