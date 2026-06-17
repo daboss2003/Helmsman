@@ -382,23 +382,32 @@ spec:
 
 ### `spec.scaling`
 
-Process-level auto-scaling of **one stateless, edge-fronted HTTP service's replica count** (§8A). **Opt-in; disabled if omitted.**
+Process-level auto-scaling of a stateless service's replica count (§8A). **Opt-in.** It's a **list** — one policy per service — so you can scale several services in one app (e.g. an HTTP `api` *and* an L4 `resolver`). Each must pass scaling candidacy (HTTP edge upstream **or** L4 upstream, stateless, no fixed host port, no RW volume).
 
 ```yaml
 scaling:
-  enabled: true
-  service: api                  # the one service to scale (must pass candidacy C1–C7)
-  min: 1
-  max: 4
-  up_cpu_pct: 65               # scale up above this sustained CPU %
-  down_cpu_pct: 25            # scale down below this
-  per_replica_mem_mib: 96    # per-replica memory reservation (MiB); feeds the host-capacity guard
+  - service: api               # an HTTP service behind an edge.route
+    enabled: true
+    min: 1
+    max: 5
+    up_cpu_pct: 70             # scale up above this sustained CPU %
+    down_cpu_pct: 30           # scale down below this (≥20-pt gap from up)
+    per_replica_mem_mib: 256   # per-replica memory reservation; feeds the host-capacity guard
+  - service: resolver          # a non-HTTP service fronted by an edge.l4_route
+    enabled: true
+    min: 1
+    max: 4
+    up_cpu_pct: 65
+    down_cpu_pct: 25
+    per_replica_mem_mib: 96
 ```
 
-| Field | Type | Default | Notes |
+A deploy persists each policy (unset thresholds default to 80/40, with a positive breach window + down-lazy cooldowns); a policy that violates the controller contract (e.g. a <20-pt dead band) blocks the deploy. Omitted services are left as-is (you can also manage policies in the dashboard). Scaling a **non-HTTP** service additionally needs an [`l4_route`](#specedgel4_routes-tcpudp-load-balancing) + nginx (see that section).
+
+| Field (per list entry) | Type | Default | Notes |
 |---|---|---|---|
+| `service` | string | required | The service this policy scales — must exist, be unique across entries, and pass the **candidacy gate** (edge HTTP **or** L4 upstream, no fixed host port, no exclusive RW volume, not stateful/clustered, stateless restart contract). **Stateful services — databases, brokers — are rejected with a clear reason.** |
 | `enabled` | bool | `false` | Opt-in. |
-| `service` | string | — | The single service to scale. Must pass the **candidacy gate C1–C7** (edge HTTP upstream, no fixed host port, no exclusive RW volume, not stateful/clustered, no deploy-time identity placeholder, honors the stateless restart contract, explicit opt-in). **Stateful services — databases, brokers — are rejected with a clear reason.** |
 | `min` / `max` | int | `1`/`1` | Replica bounds. On a small box `effective_max` **collapses to 1** — scaling becomes a permanent safe no-op and a wanted scale-up fires `scale_refused_no_capacity` rather than queuing a docker child. |
 | `up_cpu_pct` / `down_cpu_pct` | float | — | Scale up above / down below this sustained CPU %. Hysteresis is up-eager / down-lazy with a dead band between them. |
 | `up_mem_pct` / `down_mem_pct` | float | — | Optional memory triggers, with the same hysteresis. |
@@ -687,15 +696,15 @@ spec:
         redirect_http: true
         hsts: true
 
-  # ---- opt-in auto-scaling of the one stateless, edge-fronted HTTP service ---
+  # ---- opt-in auto-scaling (a list — one policy per service) ---
   scaling:
-    enabled: true
-    service: api                  # must pass candidacy C1–C7; gaining a host port / RW volume scales it back to 1
-    min: 1
-    max: 4                        # effective_max collapses to 1 on a near-OOM box (safe no-op + alert)
-    up_cpu_pct: 65                # scale up when sustained CPU is above this
-    down_cpu_pct: 25             # scale down when it falls below this
-    per_replica_mem_mib: 96      # per-replica memory reservation; feeds the host-capacity guard
+    - service: api                # must pass candidacy; gaining a host port / RW volume scales it back to 1
+      enabled: true
+      min: 1
+      max: 4                      # effective_max collapses to 1 on a near-OOM box (safe no-op + alert)
+      up_cpu_pct: 65             # scale up when sustained CPU is above this
+      down_cpu_pct: 25           # scale down when it falls below this
+      per_replica_mem_mib: 96    # per-replica memory reservation; feeds the host-capacity guard
 
   git:
     ref: refs/heads/main
@@ -740,13 +749,14 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.edge.l4_routes[].protocol` | `tcp` \| `udp` | required | — |
 | `spec.edge.l4_routes[].lb` | `round_robin` \| `least_conn` \| `hash_client_ip` | no | `round_robin` |
 | `spec.edge.l4_routes[].tls` | `passthrough` | no | `passthrough` |
-| `spec.scaling.enabled` | bool | no | `false` |
-| `spec.scaling.service` | string | if enabled | — |
-| `spec.scaling.min` / `.max` | int | no | `1` / `1` |
-| `spec.scaling.up_cpu_pct` / `.down_cpu_pct` | float | no | — |
-| `spec.scaling.up_mem_pct` / `.down_mem_pct` | float | no | — |
-| `spec.scaling.per_replica_mem_mib` | int | no | — |
-| `spec.scaling.per_replica_cpu_milli` | int | no | — |
+| `spec.scaling[]` | list of per-service policies | no | — |
+| `spec.scaling[].service` | string | required | must exist + be unique across entries |
+| `spec.scaling[].enabled` | bool | no | `false` |
+| `spec.scaling[].min` / `.max` | int | no | `1` / `1` |
+| `spec.scaling[].up_cpu_pct` / `.down_cpu_pct` | float | no | `80` / `40` |
+| `spec.scaling[].up_mem_pct` / `.down_mem_pct` | float | no | `80` / `40` |
+| `spec.scaling[].per_replica_mem_mib` | int | no | — |
+| `spec.scaling[].per_replica_cpu_milli` | int | no | — |
 | `spec.git.ref` | string (fully-qualified) | no | — |
 | `spec.git.auto_deploy` | bool | no | **`false`** |
 

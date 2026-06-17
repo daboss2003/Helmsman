@@ -8,6 +8,7 @@ import (
 	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/edge"
 	"github.com/daboss2003/Helmsman/internal/l4"
+	"github.com/daboss2003/Helmsman/internal/scale"
 )
 
 // applyRoutes makes a deployed app's helmsman.yaml the source of truth for its edge
@@ -73,4 +74,60 @@ func (s *Server) applyRoutes(ctx context.Context, project string, def *definitio
 		}
 	}
 	return nil
+}
+
+// applyScaling persists this app's helmsman.yaml scaling policies (one per service)
+// into the scale store, so a repo's yaml drives auto-scaling for SEVERAL services —
+// e.g. an HTTP api and an L4 resolver in one app. Additive + gated: it only runs when
+// the scaler is owned and the def declares scaling; SavePolicy validates each policy
+// (and a bad one — e.g. too-small dead band — blocks the deploy, fail-closed). It does
+// not touch services the def omits, so dashboard-managed policies are left alone.
+func (s *Server) applyScaling(ctx context.Context, project string, def *definition.Definition) error {
+	if s.scaling == nil || len(def.Spec.Scaling) == 0 {
+		return nil
+	}
+	for _, sc := range def.Spec.Scaling {
+		if err := s.scaling.SavePolicy(ctx, scale.Key{App: project, Service: sc.Service}, scalingPolicyRow(sc)); err != nil {
+			return fmt.Errorf("apply scaling for %q: %w", sc.Service, err)
+		}
+	}
+	return nil
+}
+
+// scalingPolicyRow maps a definition scaling entry to a controller policy, filling
+// the dashboard defaults for any field the YAML omits so the controller contract
+// (≥20-pt dead band, positive breach window, down-lazy cooldowns) holds.
+func scalingPolicyRow(sc definition.Scaling) scale.PolicyRow {
+	upCPU, downCPU := sc.UpCPUPct, sc.DownCPUPct
+	if upCPU == 0 {
+		upCPU = 80
+	}
+	if downCPU == 0 {
+		downCPU = 40
+	}
+	upMem, downMem := sc.UpMemPct, sc.DownMemPct
+	if upMem == 0 {
+		upMem = 80
+	}
+	if downMem == 0 {
+		downMem = 40
+	}
+	min, max := sc.Min, sc.Max
+	if min < 1 {
+		min = 1
+	}
+	if max < min {
+		max = min
+	}
+	return scale.PolicyRow{
+		Policy: scale.Policy{
+			Min: min, Max: max,
+			UpCPUPct: upCPU, DownCPUPct: downCPU,
+			UpMemPct: upMem, DownMemPct: downMem,
+			BreachForSecs: 60, CooldownUpSecs: 60, CooldownDownSecs: 300,
+		},
+		Enabled:       sc.Enabled,
+		PerReplicaMem: uint64(sc.PerReplicaMemMiB) << 20,
+		PerReplicaCPU: uint64(sc.PerReplicaCPUMilli),
+	}
 }

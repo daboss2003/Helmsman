@@ -188,3 +188,22 @@ func TestSetupValidation(t *testing.T) {
 		t.Error("auto setup trigger + git.auto_deploy must be rejected")
 	}
 }
+
+func TestScalingValidation(t *testing.T) {
+	base := "  compose:\n    source: generated\n    services:\n      web: {image: nginx:1}\n      api: {image: nginx:1}\n"
+	good := base + "  scaling:\n    - {service: web, enabled: true, min: 1, max: 3}\n    - {service: api, min: 1, max: 2}\n"
+	if _, err := Parse([]byte(docWith(good))); err != nil {
+		t.Fatalf("two-service scaling should be valid: %v", err)
+	}
+	bad := map[string]string{
+		"unknown service":  base + "  scaling:\n    - {service: ghost, min: 1, max: 2}\n",
+		"duplicate":        base + "  scaling:\n    - {service: web, min: 1, max: 2}\n    - {service: web, min: 1, max: 3}\n",
+		"min over max":     base + "  scaling:\n    - {service: web, min: 5, max: 2}\n",
+		"pct out of range": base + "  scaling:\n    - {service: web, up_cpu_pct: 150}\n",
+	}
+	for name, spec := range bad {
+		if _, err := Parse([]byte(docWith(spec))); err == nil {
+			t.Errorf("%s: expected rejection", name)
+		}
+	}
+}

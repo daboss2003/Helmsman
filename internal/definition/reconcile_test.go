@@ -120,7 +120,7 @@ func TestDiffPlan(t *testing.T) {
 		t.Errorf("identical defs must be an empty (idempotent) plan, got %v", p.Changes)
 	}
 	d2 := base()
-	d2.Spec.Scaling = &Scaling{Service: "web", Max: 3}
+	d2.Spec.Scaling = []Scaling{{Service: "web", Max: 3}}
 	p, _ := DiffPlan(base(), d2)
 	if p.Empty() || len(p.Changes) == 0 {
 		t.Error("a changed def must produce a non-empty plan")

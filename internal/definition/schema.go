@@ -61,12 +61,12 @@ type Metadata struct {
 
 // Spec is the managed surface. Each field projects onto an existing artifact.
 type Spec struct {
-	Compose Compose  `yaml:"compose"`
-	Secrets []Secret `yaml:"secrets,omitempty"`
-	Edge    Edge     `yaml:"edge"`
-	Scaling *Scaling `yaml:"scaling,omitempty"`
-	Git     *Git     `yaml:"git,omitempty"`
-	Setup   *Setup   `yaml:"setup,omitempty"`
+	Compose Compose   `yaml:"compose"`
+	Secrets []Secret  `yaml:"secrets,omitempty"`
+	Edge    Edge      `yaml:"edge"`
+	Scaling []Scaling `yaml:"scaling,omitempty"` // one policy per service (auto-scale several services in one app)
+	Git     *Git      `yaml:"git,omitempty"`
+	Setup   *Setup    `yaml:"setup,omitempty"`
 }
 
 // Compose is GENERATED-ONLY: Helmsman owns the compose. `source` defaults to and may
@@ -308,7 +308,49 @@ func (s *Spec) validate() error {
 	if err := s.validateEdge(); err != nil {
 		return err
 	}
+	if err := s.validateScaling(); err != nil {
+		return err
+	}
 	return s.validateSetup()
+}
+
+// validateScaling checks each per-service scaling policy: the service exists, no
+// service appears twice, and the fields are structurally sane. The full controller
+// contract (dead band, breach window, cooldowns) is applied + re-validated when the
+// policy is persisted at deploy.
+func (s *Spec) validateScaling() error {
+	declared := map[string]bool{}
+	for n := range s.Compose.Services {
+		declared[n] = true
+	}
+	seen := map[string]bool{}
+	for _, sc := range s.Scaling {
+		if !svcRe.MatchString(sc.Service) {
+			return fmt.Errorf("scaling entry must name a valid service")
+		}
+		if !declared[sc.Service] {
+			return fmt.Errorf("scaling targets unknown service %q", sc.Service)
+		}
+		if seen[sc.Service] {
+			return fmt.Errorf("scaling declared twice for service %q", sc.Service)
+		}
+		seen[sc.Service] = true
+		if sc.Min < 0 || sc.Max < 0 {
+			return fmt.Errorf("scaling %q: min/max must be >= 0", sc.Service)
+		}
+		if sc.Max > 0 && sc.Min > sc.Max {
+			return fmt.Errorf("scaling %q: min (%d) cannot exceed max (%d)", sc.Service, sc.Min, sc.Max)
+		}
+		for _, p := range []struct {
+			name string
+			v    float64
+		}{{"up_cpu_pct", sc.UpCPUPct}, {"down_cpu_pct", sc.DownCPUPct}, {"up_mem_pct", sc.UpMemPct}, {"down_mem_pct", sc.DownMemPct}} {
+			if p.v < 0 || p.v > 100 {
+				return fmt.Errorf("scaling %q: %s must be within 0–100", sc.Service, p.name)
+			}
+		}
+	}
+	return nil
 }
 
 // serviceNames returns the stack's service names, sorted (deterministic validation).

@@ -31,17 +31,17 @@ func TestStoreRoundTripAndCurrent(t *testing.T) {
 	}
 	// A second version becomes the live canonical.
 	d2 := base()
-	d2.Spec.Scaling = &Scaling{Service: "web", Max: 4}
+	d2.Spec.Scaling = []Scaling{{Service: "web", Max: 4}}
 	if _, err := s.SaveCanonical(ctx, d2, "second"); err != nil {
 		t.Fatal(err)
 	}
 	cur, err := s.Current("shop")
-	if err != nil || cur.Spec.Scaling == nil || cur.Spec.Scaling.Max != 4 {
+	if err != nil || len(cur.Spec.Scaling) == 0 || cur.Spec.Scaling[0].Max != 4 {
 		t.Fatalf("Current must return the latest version, got %+v err=%v", cur, err)
 	}
 	// Rollback re-derives an earlier version (re-parsed + re-validated).
 	v1, err := s.Version("shop", id1)
-	if err != nil || v1.Spec.Scaling != nil {
+	if err != nil || len(v1.Spec.Scaling) != 0 {
 		t.Fatalf("Version(id1) should re-derive the first def, got %+v err=%v", v1, err)
 	}
 	if vs, _ := s.List("shop"); len(vs) != 2 {

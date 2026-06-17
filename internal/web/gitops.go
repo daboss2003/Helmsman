@@ -737,6 +737,11 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 		s.gitStore.SetState(bg, slug, "update_blocked")
 		return fmt.Errorf("apply routes: %w", err)
 	}
+	// Apply per-service auto-scaling policies from helmsman.yaml (a bad policy blocks).
+	if err := s.applyScaling(ctx, slug, def); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return fmt.Errorf("apply scaling: %w", err)
+	}
 
 	// (6) pin the deployed commit (ref keeps gc from pruning it; DB drives the FSM).
 	if err := repo.SetDeployedRef(bg, sha); err != nil {
