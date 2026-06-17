@@ -136,7 +136,7 @@ compose:
 | Field | Notes |
 |---|---|
 | `image` **XOR** `build` | pull a registry image, or have Helmsman build it from your repo (below). Exactly one. |
-| `ports` | a list of `{ internal, publish, public }`. `internal` is the container port; omit `publish` for internal-only (the usual case — expose it with an `edge` route). `publish: true` maps it to the host loopback; add `public: true` for all interfaces (e.g. a non-HTTP TLS port like MQTT). Control-plane ports (9000/2019/2375) are rejected. |
+| `ports` | a list of `{ internal, publish, public, protocol }`. `internal` is the container port; omit `publish` for internal-only (the usual case — expose it with an `edge` route). `publish: true` maps it to the host loopback; add `public: true` for all interfaces (e.g. a non-HTTP TLS port like MQTT). `protocol` is `tcp` (default) or `udp` — declare two entries to publish both on one port (e.g. DNS on 53). Control-plane ports (9000/2019/2375) are rejected; host ports 80/443 belong to the edge and are rejected too. |
 | `env` | a **map**: `KEY: value` (a non-secret literal, rendered inline) or `KEY: { secret: NAME }` (a reference to a declared secret, resolved from the encrypted store at deploy — the value never touches the YAML). A literal containing `${…}` is rejected (use a secret reference). |
 | `secret_files` | a list of declared secret names; each is written to a file and mounted at `/run/secrets/<name>` (the `*_FILE` pattern). |
 | `config_files` | app config files Helmsman renders and bind-mounts read-only — see [`config_files`](#specconfig_files). |
@@ -156,6 +156,7 @@ hardened, non-root, multi-stage Dockerfile.
 ```yaml
 build:
   language: auto         # auto (default, detect) | node | python | go | ruby | php | static | generic
+  dir: services/api      # repo-relative subdir to build from (default "." — the repo root)
   version: "22"          # runtime version (a sane default is picked)
   install: npm ci        # dependency install (one line)
   build: npm run build   # build / compile (one line)
@@ -165,8 +166,12 @@ build:
   run_as_nonroot: true   # default true
 ```
 
-- `language: auto` (the default) detects the stack from your repo's top-level files (`package.json`,
+- `language: auto` (the default) detects the stack from the build dir's files (`package.json`,
   `go.mod`, `requirements.txt` / `pyproject.toml`, `Gemfile`, `composer.json`, `index.html`, …).
+- `dir` builds from a **subdirectory** of the repo (a traversal-free, repo-relative path). Use it for a
+  monorepo — e.g. a Go service in `dns-resolver/` of a Node repo: set `language: go` (or rely on
+  auto-detect, which then reads `dns-resolver/`'s files) and `dir: dns-resolver`. Omit it to build the
+  repo root (the default).
 - For a stack Helmsman doesn't recognise, use `language: generic` with your own `base:` image plus
   `install` / `build` / `start`.
 - `install` / `build` run as build steps; each must be a single line (a newline is rejected so a value
@@ -676,7 +681,9 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.compose.source` | `generated` | no (default) | `generated` |
 | `spec.compose.services.<name>.image` \| `.build` | string \| object | exactly one | — |
 | `…services.<name>.build.language` | enum (auto/node/python/go/ruby/php/static/generic) | no | `auto` |
-| `…services.<name>.ports[]` | `{internal, publish, public}` | no | — |
+| `…services.<name>.build.dir` | string (repo-relative subdir) | no | `.` |
+| `…services.<name>.ports[]` | `{internal, publish, public, protocol}` | no | — |
+| `…services.<name>.ports[].protocol` | `tcp` \| `udp` | no | `tcp` |
 | `…services.<name>.env.<KEY>` | literal \| `{secret: NAME}` | no | — |
 | `…services.<name>.secret_files[]` | string (a declared secret name) | no | — |
 | `…services.<name>.config_files[]` | `{repo\|template, mount}` | no | — |

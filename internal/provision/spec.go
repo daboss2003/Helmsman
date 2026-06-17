@@ -30,9 +30,10 @@ var validRestart = map[string]bool{"": true, "no": true, "always": true, "on-fai
 // maps it to the host. Public binds 0.0.0.0 (requires an explicit ack) — the
 // default binds loopback only (plan §7: 127.0.0.1 unless "expose publicly").
 type Port struct {
-	Internal int  `json:"internal"`
-	Publish  bool `json:"publish"`
-	Public   bool `json:"public"`
+	Internal int    `json:"internal"`
+	Publish  bool   `json:"publish"`
+	Public   bool   `json:"public"`
+	Protocol string `json:"protocol,omitempty"` // "" (=tcp) | "tcp" | "udp"
 }
 
 // Volume is a named volume XOR a run_dir-confined bind. Exactly one of Name/Source.
@@ -148,6 +149,9 @@ func (svc Service) validate(siblings map[string]bool) error {
 		}
 		if controlPorts[p.Internal] {
 			return fmt.Errorf("port %d is a reserved control-plane port", p.Internal)
+		}
+		if p.Protocol != "" && p.Protocol != "tcp" && p.Protocol != "udp" {
+			return fmt.Errorf("port %d protocol %q must be tcp or udp", p.Internal, p.Protocol)
 		}
 	}
 	for _, v := range svc.Volumes {

@@ -36,7 +36,7 @@ func toProvisionSpec(d *Definition) provision.Spec {
 			s.Image = svc.Image
 		}
 		for _, p := range svc.Ports {
-			s.Ports = append(s.Ports, provision.Port{Internal: p.Internal, Publish: p.Publish, Public: p.Public})
+			s.Ports = append(s.Ports, provision.Port{Internal: p.Internal, Publish: p.Publish, Public: p.Public, Protocol: p.Protocol})
 		}
 		for _, v := range svc.Volumes {
 			s.Volumes = append(s.Volumes, provision.Volume{Name: v.Name, Source: v.Source, Target: v.Target, ReadOnly: v.ReadOnly})

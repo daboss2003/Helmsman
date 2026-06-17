@@ -97,7 +97,7 @@ func (s *Server) writeGeneratedDockerfiles(ctx context.Context, repo *git.Repo, 
 			return fmt.Errorf("write .dockerignore: %w", err)
 		}
 	}
-	var top map[string]bool
+	var files []string
 	names := make([]string, 0, len(def.Spec.Compose.Services))
 	for n := range def.Spec.Compose.Services {
 		names = append(names, n)
@@ -108,14 +108,16 @@ func (s *Server) writeGeneratedDockerfiles(ctx context.Context, repo *git.Repo, 
 		if svc.Build == nil {
 			continue
 		}
-		if top == nil {
-			files, err := repo.LsFiles(ctx, sha)
-			if err != nil {
+		if files == nil {
+			var err error
+			if files, err = repo.LsFiles(ctx, sha); err != nil {
 				return fmt.Errorf("list repo files: %w", err)
 			}
-			top = topLevelSet(files)
 		}
-		dockerfile, err := builder.Generate(buildSpecFor(name, svc), top)
+		// Auto-detection (language: auto) reads the files in the service's build dir
+		// (the repo root when build.dir is unset), so a Go service in a subdir of a
+		// Node repo detects correctly.
+		dockerfile, err := builder.Generate(buildSpecFor(name, svc), filesInDir(files, svc.Build.Dir))
 		if err != nil {
 			return fmt.Errorf("service %q: %w", name, err)
 		}
@@ -142,6 +144,7 @@ func buildSpecFor(name string, svc definition.Service) builder.Spec {
 	return builder.Spec{
 		Service:  name,
 		Language: b.Language,
+		Dir:      b.Dir,
 		Version:  b.Version,
 		Base:     b.Base,
 		Install:  b.Install,
@@ -576,4 +579,25 @@ func topLevelSet(files []string) map[string]bool {
 		top[f] = true
 	}
 	return top
+}
+
+// filesInDir is the set of file names directly under dir (for stack detection of a
+// build.dir subdir). dir=="" means the repo top level. Nested files are ignored —
+// detection keys off the manifests that sit at the build root (go.mod, package.json…).
+func filesInDir(files []string, dir string) map[string]bool {
+	dir = strings.Trim(strings.TrimPrefix(dir, "./"), "/")
+	if dir == "" {
+		return topLevelSet(files)
+	}
+	prefix := dir + "/"
+	set := map[string]bool{}
+	for _, f := range files {
+		f = strings.TrimPrefix(f, "./")
+		rest, ok := strings.CutPrefix(f, prefix)
+		if !ok || rest == "" || strings.Contains(rest, "/") {
+			continue // only entries directly under dir signal the stack
+		}
+		set[rest] = true
+	}
+	return set
 }

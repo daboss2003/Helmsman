@@ -39,6 +39,32 @@ func TestAutoDetectFailsWithGuidance(t *testing.T) {
 	}
 }
 
+// build.dir scopes the COPY to the subdir; with no Dir the Dockerfile is unchanged.
+func TestBuildDirScopesCopy(t *testing.T) {
+	root, err := Generate(Spec{Language: "go"}, map[string]bool{"go.mod": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(root, "COPY . .") {
+		t.Errorf("default build should COPY . . (byte-identical):\n%s", root)
+	}
+
+	sub, err := Generate(Spec{Language: "go", Dir: "dns-resolver"}, map[string]bool{"go.mod": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sub, "COPY dns-resolver .") {
+		t.Errorf("build.dir should scope the COPY to the subdir:\n%s", sub)
+	}
+	if strings.Contains(sub, "COPY . .") {
+		t.Errorf("build.dir build must not COPY the repo root:\n%s", sub)
+	}
+	// The build-stage artifact copy is unaffected (it copies from the stage, not ctx).
+	if !strings.Contains(sub, "COPY --from=build /out/app /app/app") {
+		t.Errorf("build-stage copy should be untouched:\n%s", sub)
+	}
+}
+
 func TestUnsupportedLanguage(t *testing.T) {
 	if _, err := Resolve(Spec{Language: "cobol"}, nil); err == nil {
 		t.Error("unsupported language must error")

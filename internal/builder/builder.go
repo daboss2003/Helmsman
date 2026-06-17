@@ -21,6 +21,7 @@ import (
 type Spec struct {
 	Service  string            // service name (labels / Dockerfile naming)
 	Language string            // auto | node | python | go | ruby | php | static | generic
+	Dir      string            // repo-relative subdir to build from ("" = repo root)
 	Version  string            // runtime version (e.g. "20"); builder picks a sane default
 	Base     string            // generic only: the base image
 	Install  string            // dependency install command (shell)
@@ -30,6 +31,19 @@ type Spec struct {
 	Packages []string          // extra OS packages
 	Output   string            // build output dir to ship (static: served dir, e.g. "dist")
 	Nonroot  bool              // run the image as a non-root user (default true at the caller)
+}
+
+// src joins the build subdir (if any) with a context-relative path. With no Dir it
+// returns the path unchanged, so default Dockerfiles stay byte-identical (no churn
+// for existing apps); with Dir set it scopes a COPY to that subdir of the context.
+func (s Spec) src(p string) string {
+	if s.Dir == "" {
+		return p
+	}
+	if p == "." {
+		return s.Dir
+	}
+	return s.Dir + "/" + p
 }
 
 // Builder generates a Dockerfile for one language/stack.

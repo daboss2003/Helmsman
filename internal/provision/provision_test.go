@@ -51,6 +51,35 @@ func TestGenerateProducesSafeComposeThatPassesValidator(t *testing.T) {
 	}
 }
 
+// A udp protocol is emitted as a /udp suffix; tcp/"" stay bare so existing
+// (no-protocol) apps render byte-identically. A DNS resolver can publish both.
+func TestGeneratePortProtocol(t *testing.T) {
+	spec := sampleSpec()
+	spec.Services[0].Ports = []Port{
+		{Internal: 53, Publish: true, Public: true, Protocol: "udp"},
+		{Internal: 53, Publish: true, Public: true, Protocol: "tcp"},
+		{Internal: 8080, Publish: true}, // no protocol → bare mapping (backward compat)
+	}
+	out, err := Generate(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "53:53/udp") {
+		t.Errorf("missing udp mapping:\n%s", s)
+	}
+	if !strings.Contains(s, "53:53/tcp") {
+		t.Errorf("missing tcp mapping:\n%s", s)
+	}
+	if !strings.Contains(s, "127.0.0.1:8080:8080") || strings.Contains(s, "8080:8080/") {
+		t.Errorf("no-protocol port should stay a bare loopback mapping:\n%s", s)
+	}
+	// The generated compose must still pass §5.6 (the validator tolerates /proto).
+	if res := compose.ValidateBytes(out, compose.Env{}, "/srv/apps/shop", compose.Options{}); !res.OK() {
+		t.Fatalf("udp compose failed §5.6: %s", res.Error())
+	}
+}
+
 // Public publish binds all interfaces only when explicitly acked.
 func TestGeneratePublicPortBindsAllInterfaces(t *testing.T) {
 	spec := sampleSpec()

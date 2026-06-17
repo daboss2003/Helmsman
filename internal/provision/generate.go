@@ -69,7 +69,13 @@ func Generate(spec Spec) ([]byte, error) {
 			if p.Public {
 				host = "" // bind all interfaces (operator-acked; §5.6 still judges it)
 			}
-			cs.Ports = append(cs.Ports, fmt.Sprintf("%s%d:%d", host, p.Internal, p.Internal))
+			// Append the protocol only when set, so a plain TCP mapping stays
+			// byte-identical to before (no churn for existing apps).
+			proto := ""
+			if p.Protocol != "" {
+				proto = "/" + p.Protocol
+			}
+			cs.Ports = append(cs.Ports, fmt.Sprintf("%s%d:%d%s", host, p.Internal, p.Internal, proto))
 		}
 		for _, v := range svc.Volumes {
 			src := v.Name

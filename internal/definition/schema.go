@@ -135,15 +135,17 @@ func (e *EnvValue) UnmarshalYAML(n *yaml.Node) error {
 // Port is one container port. Internal is the in-container port; Publish maps it to
 // the host (loopback by default, all interfaces only when Public).
 type Port struct {
-	Internal int  `yaml:"internal"`
-	Publish  bool `yaml:"publish"`
-	Public   bool `yaml:"public"`
+	Internal int    `yaml:"internal"`
+	Publish  bool   `yaml:"publish"`
+	Public   bool   `yaml:"public"`
+	Protocol string `yaml:"protocol,omitempty"` // "" (=tcp) | "tcp" | "udp"
 }
 
 // Build is the declarative build spec — Helmsman GENERATES the Dockerfile from it.
 type Build struct {
 	Language string            `yaml:"language,omitempty"`
 	Version  string            `yaml:"version,omitempty"`
+	Dir      string            `yaml:"dir,omitempty"`  // repo-relative subdir to build from (default ".")
 	Base     string            `yaml:"base,omitempty"` // generic only
 	Install  string            `yaml:"install,omitempty"`
 	BuildCmd string            `yaml:"build,omitempty"`
@@ -343,6 +345,9 @@ func (s *Spec) validateServices() error {
 			if p.Public && !p.Publish {
 				return fmt.Errorf("service %q port %d sets public without publish", name, p.Internal)
 			}
+			if p.Protocol != "" && p.Protocol != "tcp" && p.Protocol != "udp" {
+				return fmt.Errorf("service %q port %d protocol %q must be tcp or udp", name, p.Internal, p.Protocol)
+			}
 		}
 		if err := validateServiceEnv(name, svc.Env, declaredSecrets); err != nil {
 			return err
@@ -451,6 +456,11 @@ func validateBuild(svc string, b *Build) error {
 	if b.Output != "" {
 		if err := relConfined(b.Output); err != nil {
 			return fmt.Errorf("service %q build.output %q: %w", svc, b.Output, err)
+		}
+	}
+	if b.Dir != "" {
+		if err := relConfined(b.Dir); err != nil {
+			return fmt.Errorf("service %q build.dir %q: %w", svc, b.Dir, err)
 		}
 	}
 	return nil
