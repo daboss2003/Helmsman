@@ -19,18 +19,27 @@ import (
 )
 
 type configFileView struct {
-	Name          string
-	RelPath       string
-	Bindings      []cfgfile.Binding
+	Service       string // canonical: the service this file mounts into ("" for legacy)
+	Name          string // display: legacy name, or the mount basename (canonical)
+	RelPath       string // legacy rel_path (display)
+	Mount         string // canonical container mount
+	Source        string // canonical: "(inline)" or the repo path
+	Bindings      []bindingView
 	SecretBearing bool
 	Mode          string
 	Drift         string // "", "ok", "host-edited", "not-rendered"
 }
 
+// bindingView is the display form of one {{hm.KEY}} binding: "key" + its source
+// string ("secret:NAME", "env:NAME", "app:slug", "cert:HOST.field", "literal:VALUE").
+type bindingView struct{ Key, Source string }
+
 type certBindingView struct {
-	BindingName string
+	Service     string // canonical: the service the cert mounts into ("" for legacy)
+	BindingName string // legacy binding name
 	Hostname    string
-	SyncDirRel  string
+	SyncDirRel  string // legacy sync dir (display)
+	Mount       string // canonical container mount
 	Required    bool
 }
 
@@ -50,9 +59,17 @@ func (s *Server) handleConfigFilesGet(w http.ResponseWriter, r *http.Request) {
 	if snap := s.snapshot(); snap != nil {
 		app = snap.AppByProject(project)
 	}
+	// Canonical-first: an app with a helmsman.yaml authors config files + cert
+	// bindings PER SERVICE in the canonical (the source of truth). Legacy
+	// provisioned apps (no canonical) keep the app-level cfgStore editor.
+	if def := s.currentDef(project); def != nil {
+		s.populateCanonicalConfig(&data, def, project)
+		s.render(w, r, "config_files.html", data)
+		return
+	}
 	files, _ := s.cfgStore.ConfigFiles(project)
 	for _, f := range files {
-		v := configFileView{Name: f.Name, RelPath: f.RelPath, Bindings: f.Bindings, SecretBearing: f.SecretBearing, Mode: fmt.Sprintf("%#o", f.Mode)}
+		v := configFileView{Name: f.Name, RelPath: f.RelPath, Bindings: legacyBindingViews(f.Bindings), SecretBearing: f.SecretBearing, Mode: fmt.Sprintf("%#o", f.Mode)}
 		v.Drift = s.configDrift(app, f)
 		data.ManagedFiles = append(data.ManagedFiles, v)
 	}
@@ -61,6 +78,15 @@ func (s *Server) handleConfigFilesGet(w http.ResponseWriter, r *http.Request) {
 		data.CertBindings = append(data.CertBindings, certBindingView{BindingName: c.BindingName, Hostname: c.Hostname, SyncDirRel: c.SyncDirRel, Required: c.Required})
 	}
 	s.render(w, r, "config_files.html", data)
+}
+
+// legacyBindingViews renders cfgStore bindings (Key + "kind:arg" Source) for display.
+func legacyBindingViews(bs []cfgfile.Binding) []bindingView {
+	out := make([]bindingView, 0, len(bs))
+	for _, b := range bs {
+		out = append(out, bindingView{Key: b.Key, Source: b.Source})
+	}
+	return out
 }
 
 // configDrift compares the on-disk file's sha to the last rendered sha.
@@ -95,6 +121,12 @@ func (s *Server) handleConfigFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "protected project", http.StatusForbidden)
 		return
 	}
+	// Canonical-first write-back: author the file into its service's config_files in
+	// the canonical helmsman.yaml, then reconcile. Falls back to the legacy cfgStore.
+	if def := s.currentDef(project); def != nil {
+		s.saveCanonicalConfigFile(w, r, def, project)
+		return
+	}
 	in := cfgstore.SaveInput{
 		Name:     r.PostFormValue("name"),
 		RelPath:  r.PostFormValue("rel_path"),
@@ -122,6 +154,10 @@ func (s *Server) handleConfigFileDelete(w http.ResponseWriter, r *http.Request) 
 	project := r.PathValue("project")
 	if s.cfg.IsProtectedProject(project) {
 		http.Error(w, "protected project", http.StatusForbidden)
+		return
+	}
+	if def := s.currentDef(project); def != nil {
+		s.deleteCanonicalConfigFile(w, r, def, project)
 		return
 	}
 	_ = s.cfgStore.DeleteConfigFile(r.Context(), project, r.PostFormValue("name"))
@@ -178,6 +214,10 @@ func (s *Server) handleCertBindingSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "protected project", http.StatusForbidden)
 		return
 	}
+	if def := s.currentDef(project); def != nil {
+		s.saveCanonicalCertBinding(w, r, def, project)
+		return
+	}
 	cb := cfgstore.CertBinding{
 		BindingName: r.PostFormValue("binding_name"),
 		Hostname:    r.PostFormValue("hostname"),
@@ -201,6 +241,10 @@ func (s *Server) handleCertBindingDelete(w http.ResponseWriter, r *http.Request)
 	project := r.PathValue("project")
 	if s.cfg.IsProtectedProject(project) {
 		http.Error(w, "protected project", http.StatusForbidden)
+		return
+	}
+	if def := s.currentDef(project); def != nil {
+		s.deleteCanonicalCertBinding(w, r, def, project)
 		return
 	}
 	_ = s.cfgStore.DeleteCertBinding(r.Context(), project, r.PostFormValue("binding_name"))

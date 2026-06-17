@@ -38,8 +38,11 @@ type tmplData struct {
 	EnvVersions    []envstore.Version
 	FileSecrets    []fileSecretView
 
-	ManagedFiles []configFileView
-	CertBindings []certBindingView
+	ManagedFiles    []configFileView
+	CertBindings    []certBindingView
+	ConfigCanonical bool             // config files are authored in the canonical helmsman.yaml (per-service)
+	ConfigServices  []string         // the app's service names (for the per-service add/update selects)
+	LegacyFiles     []configFileView // legacy app-level config files awaiting migration into the canonical
 
 	Git    *gitView
 	Setup  *setupView

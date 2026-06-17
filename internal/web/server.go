@@ -354,6 +354,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/config-files", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleConfigFileSave))))
 	mux.HandleFunc("POST /apps/{project}/config-files/preview", capBody(256<<10, s.requireAuth(s.requireCSRF(s.handleConfigFilePreview))))
 	mux.HandleFunc("POST /apps/{project}/config-files/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleConfigFileDelete))))
+	mux.HandleFunc("POST /apps/{project}/config-files/migrate", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleConfigFileMigrate))))
 	mux.HandleFunc("POST /apps/{project}/cert-bindings", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleCertBindingSave))))
 	mux.HandleFunc("POST /apps/{project}/cert-bindings/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleCertBindingDelete))))
 	// App provisioning wizard (M8, modes 1 & 2). validate is a dry preview;
