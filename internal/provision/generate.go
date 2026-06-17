@@ -69,13 +69,21 @@ func Generate(spec Spec) ([]byte, error) {
 			if p.Public {
 				host = "" // bind all interfaces (operator-acked; §5.6 still judges it)
 			}
+			// The host port defaults to the container port (host==container, the
+			// historical behavior); a distinct `published` maps host→container so a
+			// non-root container can bind a privileged host port (Docker's root
+			// daemon does the privileged bind, not the app).
+			hostPort := p.Internal
+			if p.Published != 0 {
+				hostPort = p.Published
+			}
 			// Append the protocol only when set, so a plain TCP mapping stays
 			// byte-identical to before (no churn for existing apps).
 			proto := ""
 			if p.Protocol != "" {
 				proto = "/" + p.Protocol
 			}
-			cs.Ports = append(cs.Ports, fmt.Sprintf("%s%d:%d%s", host, p.Internal, p.Internal, proto))
+			cs.Ports = append(cs.Ports, fmt.Sprintf("%s%d:%d%s", host, hostPort, p.Internal, proto))
 		}
 		for _, v := range svc.Volumes {
 			src := v.Name

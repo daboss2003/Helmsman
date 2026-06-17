@@ -136,7 +136,8 @@ compose:
 | Field | Notes |
 |---|---|
 | `image` **XOR** `build` | pull a registry image, or have Helmsman build it from your repo (below). Exactly one. |
-| `ports` | a list of `{ internal, publish, public, protocol }`. `internal` is the container port; omit `publish` for internal-only (the usual case — expose it with an `edge` route). `publish: true` maps it to the host loopback; add `public: true` for all interfaces (e.g. a non-HTTP TLS port like MQTT). `protocol` is `tcp` (default) or `udp` — declare two entries to publish both on one port (e.g. DNS on 53). Control-plane ports (9000/2019/2375) are rejected; host ports 80/443 belong to the edge and are rejected too. |
+| `ports` | a list of `{ internal, publish, public, protocol, published }`. `internal` is the container port; omit `publish` for internal-only (the usual case — expose it with an `edge` route). `publish: true` maps it to the host loopback; add `public: true` for all interfaces (e.g. a non-HTTP TLS port like MQTT). `protocol` is `tcp` (default) or `udp` — declare two entries to publish both on one port (e.g. DNS on 53). `published` is the **host** port (defaults to `internal`); set it to map a privileged host port to an unprivileged container port — see below. Control-plane ports (9000/2019/2375) are rejected; host ports 80/443 belong to the edge and are rejected too. |
+| | **Binding privileged ports (<1024) without root:** Helmsman runs containers as non-root, which can't bind ports like 53/853. Instead of running as root, let the container listen on a high port and map the privileged host port to it — Docker's (root) daemon does the privileged bind, your app stays non-root: `{ internal: 8853, published: 853, publish: true, public: true }` → clients reach `:853`, the resolver binds `8853`. |
 | `env` | a **map**: `KEY: value` (a non-secret literal, rendered inline) or `KEY: { secret: NAME }` (a reference to a declared secret, resolved from the encrypted store at deploy — the value never touches the YAML). A literal containing `${…}` is rejected (use a secret reference). |
 | `secret_files` | a list of declared secret names; each is written to a file and mounted at `/run/secrets/<name>` (the `*_FILE` pattern). |
 | `config_files` | app config files Helmsman renders and bind-mounts read-only — see [`config_files`](#specconfig_files). |
@@ -682,8 +683,9 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.compose.services.<name>.image` \| `.build` | string \| object | exactly one | — |
 | `…services.<name>.build.language` | enum (auto/node/python/go/ruby/php/static/generic) | no | `auto` |
 | `…services.<name>.build.dir` | string (repo-relative subdir) | no | `.` |
-| `…services.<name>.ports[]` | `{internal, publish, public, protocol}` | no | — |
+| `…services.<name>.ports[]` | `{internal, publish, public, protocol, published}` | no | — |
 | `…services.<name>.ports[].protocol` | `tcp` \| `udp` | no | `tcp` |
+| `…services.<name>.ports[].published` | int (host port) | no | = `internal` |
 | `…services.<name>.env.<KEY>` | literal \| `{secret: NAME}` | no | — |
 | `…services.<name>.secret_files[]` | string (a declared secret name) | no | — |
 | `…services.<name>.config_files[]` | `{repo\|template, mount}` | no | — |

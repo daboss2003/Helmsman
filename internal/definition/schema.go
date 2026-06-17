@@ -135,10 +135,11 @@ func (e *EnvValue) UnmarshalYAML(n *yaml.Node) error {
 // Port is one container port. Internal is the in-container port; Publish maps it to
 // the host (loopback by default, all interfaces only when Public).
 type Port struct {
-	Internal int    `yaml:"internal"`
-	Publish  bool   `yaml:"publish"`
-	Public   bool   `yaml:"public"`
-	Protocol string `yaml:"protocol,omitempty"` // "" (=tcp) | "tcp" | "udp"
+	Internal  int    `yaml:"internal"`
+	Publish   bool   `yaml:"publish"`
+	Public    bool   `yaml:"public"`
+	Protocol  string `yaml:"protocol,omitempty"`  // "" (=tcp) | "tcp" | "udp"
+	Published int    `yaml:"published,omitempty"` // host port (default = internal); maps host→container so a non-root container can bind a privileged host port
 }
 
 // Build is the declarative build spec — Helmsman GENERATES the Dockerfile from it.
@@ -347,6 +348,20 @@ func (s *Spec) validateServices() error {
 			}
 			if p.Protocol != "" && p.Protocol != "tcp" && p.Protocol != "udp" {
 				return fmt.Errorf("service %q port %d protocol %q must be tcp or udp", name, p.Internal, p.Protocol)
+			}
+			if p.Published != 0 {
+				if !p.Publish {
+					return fmt.Errorf("service %q port %d sets published without publish", name, p.Internal)
+				}
+				if p.Published < 1 || p.Published > 65535 {
+					return fmt.Errorf("service %q published port %d is out of range", name, p.Published)
+				}
+				if controlPort(p.Published) {
+					return fmt.Errorf("service %q published port %d is a reserved control-plane port", name, p.Published)
+				}
+				if p.Published == 80 || p.Published == 443 {
+					return fmt.Errorf("service %q published port %d is reserved for the managed edge", name, p.Published)
+				}
 			}
 		}
 		if err := validateServiceEnv(name, svc.Env, declaredSecrets); err != nil {

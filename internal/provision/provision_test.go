@@ -80,6 +80,31 @@ func TestGeneratePortProtocol(t *testing.T) {
 	}
 }
 
+// A distinct `published` host port maps host→container (e.g. publish 853 to a
+// container listening on 8853), so a non-root container can serve a privileged
+// host port without cap_add or running as root. Unset → host==container.
+func TestGeneratePublishedHostPort(t *testing.T) {
+	spec := sampleSpec()
+	spec.Services[0].Ports = []Port{
+		{Internal: 8853, Published: 853, Publish: true, Public: true, Protocol: "tcp"},
+		{Internal: 8080, Publish: true}, // no published → host==container (8080:8080)
+	}
+	out, err := Generate(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "853:8853/tcp") {
+		t.Errorf("published host port should map 853→8853:\n%s", s)
+	}
+	if !strings.Contains(s, "127.0.0.1:8080:8080") {
+		t.Errorf("port without published must stay host==container:\n%s", s)
+	}
+	if res := compose.ValidateBytes(out, compose.Env{}, "/srv/apps/shop", compose.Options{}); !res.OK() {
+		t.Fatalf("published-port compose failed §5.6: %s", res.Error())
+	}
+}
+
 // Public publish binds all interfaces only when explicitly acked.
 func TestGeneratePublicPortBindsAllInterfaces(t *testing.T) {
 	spec := sampleSpec()
@@ -98,6 +123,7 @@ func TestValidateRejectsBadInput(t *testing.T) {
 		"bad slug":             func(s *Spec) { s.Slug = "Bad Slug" },
 		"empty tag":            func(s *Spec) { s.Services[0].Image = "nginx" },
 		"control port":         func(s *Spec) { s.Services[0].Ports = []Port{{Internal: 9000, Publish: true}} },
+		"published control":    func(s *Spec) { s.Services[0].Ports = []Port{{Internal: 8853, Published: 2375, Publish: true}} },
 		"abs bind":             func(s *Spec) { s.Services[0].Volumes = []Volume{{Source: "/etc", Target: "/x"}} },
 		"traversal bind":       func(s *Spec) { s.Services[0].Volumes = []Volume{{Source: "../escape", Target: "/x"}} },
 		"both name+source":     func(s *Spec) { s.Services[0].Volumes = []Volume{{Name: "v", Source: "s", Target: "/x"}} },
