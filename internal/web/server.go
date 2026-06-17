@@ -29,6 +29,7 @@ import (
 	"github.com/daboss2003/Helmsman/internal/envstore"
 	"github.com/daboss2003/Helmsman/internal/github"
 	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/Helmsman/internal/l4"
 	"github.com/daboss2003/Helmsman/internal/monitor"
 	"github.com/daboss2003/Helmsman/internal/ops"
 	"github.com/daboss2003/Helmsman/internal/provstore"
@@ -82,28 +83,30 @@ const loginBodyLimit = 64 << 10
 // degrades gracefully (e.g. nil mon → "collecting…"; nil runner → write plane
 // shown disabled).
 type Deps struct {
-	DB         *store.DB
-	ConfigPath string // for SIGHUP allowlist+auth reload
-	Log        *slog.Logger
-	Monitor    *monitor.Monitor
-	OpsStore   *ops.ConfigStore
-	Prober     *ops.Prober
-	Runner     *dockerexec.Runner
-	Docker     *docker.Client
-	EnvStore   *envstore.Store
-	CfgStore   *cfgstore.Store
-	GitStore   *gitstore.Store
-	ProvStore  *provstore.Store
-	SetupStore *setupstore.Store
-	AlertStore *alertstore.Store
-	EdgeRoutes *edge.RouteStore
-	EdgeRecon  *edge.Reconciler      // nil when the edge isn't owned (external/unavailable)
-	EdgeReason string                // why the edge isn't owned (banner), "" when owned
-	SelfHeal   *selfheal.Store       // supervisor FSM + expected_down leases (may be nil)
-	Scaling    *scale.Store          // auto-scaling policies + state (may be nil)
-	DockerSem  *dockerexec.Semaphore // global one-docker-child semaphore (shared with Runner)
-	APITokens  *apitoken.Store       // scoped read/deploy API tokens (M19; may be nil → /api/v1 disabled)
-	Backups    *backupstore.Store    // encrypted Helmsman-state backups (may be nil)
+	DB          *store.DB
+	ConfigPath  string // for SIGHUP allowlist+auth reload
+	Log         *slog.Logger
+	Monitor     *monitor.Monitor
+	OpsStore    *ops.ConfigStore
+	Prober      *ops.Prober
+	Runner      *dockerexec.Runner
+	Docker      *docker.Client
+	EnvStore    *envstore.Store
+	CfgStore    *cfgstore.Store
+	GitStore    *gitstore.Store
+	ProvStore   *provstore.Store
+	SetupStore  *setupstore.Store
+	AlertStore  *alertstore.Store
+	EdgeRoutes  *edge.RouteStore
+	EdgeRecon   *edge.Reconciler            // nil when the edge isn't owned (external/unavailable)
+	EdgeReason  string                      // why the edge isn't owned (banner), "" when owned
+	L4Routes    *l4.RouteStore              // managed L4 (TCP/UDP) routes (nil when L4 LB disabled)
+	L4Reconcile func(context.Context) error // push the L4 route set to the nginx-stream LB (nil when disabled)
+	SelfHeal    *selfheal.Store             // supervisor FSM + expected_down leases (may be nil)
+	Scaling     *scale.Store                // auto-scaling policies + state (may be nil)
+	DockerSem   *dockerexec.Semaphore       // global one-docker-child semaphore (shared with Runner)
+	APITokens   *apitoken.Store             // scoped read/deploy API tokens (M19; may be nil → /api/v1 disabled)
+	Backups     *backupstore.Store          // encrypted Helmsman-state backups (may be nil)
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
@@ -133,6 +136,8 @@ type Server struct {
 	edgeRoutes     *edge.RouteStore              // managed-edge routes (may be nil)
 	edgeRecon      *edge.Reconciler              // edge config reconciler (nil when edge unowned)
 	edgeReason     string                        // why the edge isn't owned (banner)
+	l4Routes       *l4.RouteStore                // managed L4 (TCP/UDP) routes (nil when L4 LB disabled)
+	l4Reconcile    func(context.Context) error   // push the L4 route set to the LB (nil when disabled)
 	selfHeal       *selfheal.Store               // supervisor FSM + expected_down leases (may be nil)
 	scaling        *scale.Store                  // auto-scaling policies + state (may be nil)
 	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
@@ -185,6 +190,8 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		alertStore:    d.AlertStore,
 		edgeRoutes:    d.EdgeRoutes,
 		edgeRecon:     d.EdgeRecon,
+		l4Routes:      d.L4Routes,
+		l4Reconcile:   d.L4Reconcile,
 		edgeReason:    d.EdgeReason,
 		selfHeal:      d.SelfHeal,
 		scaling:       d.Scaling,

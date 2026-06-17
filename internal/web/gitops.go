@@ -730,6 +730,14 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 		onLine("warning: could not record managed-file digests: " + err.Error())
 	}
 
+	// Apply this app's helmsman.yaml routes (L7 + L4) as the source of truth and
+	// reconcile the live edge / L4 LB. A persist failure (bad route or a cross-app
+	// hostname/listener collision) blocks — the operator must resolve it.
+	if err := s.applyRoutes(ctx, slug, def); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return fmt.Errorf("apply routes: %w", err)
+	}
+
 	// (6) pin the deployed commit (ref keeps gc from pruning it; DB drives the FSM).
 	if err := repo.SetDeployedRef(bg, sha); err != nil {
 		onLine("warning: could not pin deployed ref: " + err.Error())

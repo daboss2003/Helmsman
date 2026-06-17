@@ -15,7 +15,7 @@ import (
 
 func TestAvailableFailClosed(t *testing.T) {
 	// On this (non-Linux) box the L4 LB must be unavailable, fail-closed.
-	ok, why := Available("nginx")
+	ok, why := Available()
 	if ok {
 		t.Skip("running on Linux; off-Linux fail-closed path not exercised")
 	}

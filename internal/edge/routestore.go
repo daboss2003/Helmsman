@@ -16,6 +16,46 @@ type RouteStore struct{ db *store.DB }
 // NewRouteStore builds a RouteStore.
 func NewRouteStore(db *store.DB) *RouteStore { return &RouteStore{db: db} }
 
+// ReplaceProject atomically replaces all of one project's routes with the given set
+// — the deploy-time op so a repo's helmsman.yaml is the source of truth for its edge
+// routes. Each route is validated first; a cross-app hostname collision trips the
+// UNIQUE(hostname, path_prefix) constraint and fails the whole transaction (nothing
+// changes), so a deploy can't hijack another app's hostname. Callers should only
+// invoke this when the definition DECLARES routes, so an app whose routes are managed
+// in the dashboard (none in helmsman.yaml) is never silently wiped.
+func (s *RouteStore) ReplaceProject(ctx context.Context, project string, routes []Route) error {
+	for i := range routes {
+		routes[i].AppID = project
+		routes[i].Hostname = strings.ToLower(strings.TrimSpace(routes[i].Hostname))
+		routes[i].Upstream = strings.TrimSpace(routes[i].Upstream)
+		if routes[i].UpstreamScheme == "" {
+			routes[i].UpstreamScheme = "http"
+		}
+		if err := ValidateRoute(routes[i]); err != nil {
+			return err
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM app_routes WHERE app_id = ?`, project); err != nil {
+		return err
+	}
+	now := time.Now().Unix()
+	for _, r := range routes {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO app_routes(app_id, hostname, upstream, upstream_scheme, path_prefix, redirect_http, hsts, security_headers, enabled, created_at)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.AppID, r.Hostname, r.Upstream, r.UpstreamScheme, r.PathPrefix,
+			b2i(r.RedirectHTTP), b2i(r.HSTS), b2i(r.SecurityHeaders), b2i(r.Enabled), now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Save validates + upserts a route by id (0 = insert). ValidateRoute rejects
 // wildcards, control-plane upstreams, and loopback targets before it can persist.
 func (s *RouteStore) Save(ctx context.Context, r Route) error {

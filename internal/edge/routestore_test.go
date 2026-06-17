@@ -48,3 +48,37 @@ func TestRouteStoreRejectsControlPlaneUpstream(t *testing.T) {
 		t.Error("a control-plane upstream must be rejected at the store")
 	}
 }
+
+// ReplaceProject makes helmsman.yaml the source of truth: it swaps one project's
+// routes atomically and never touches another project's, and a cross-app hostname
+// collision is rejected (the original owner survives).
+func TestReplaceProject(t *testing.T) {
+	s := newRouteStore(t)
+	ctx := context.Background()
+	if err := s.ReplaceProject(ctx, "shop", []Route{
+		{Hostname: "shop.example.com", Upstream: "web:8080", Enabled: true},
+		{Hostname: "api.example.com", Upstream: "api:3000", Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceProject(ctx, "blog", []Route{{Hostname: "blog.example.com", Upstream: "blog:80", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	// Re-applying shop replaces only shop's routes; blog is untouched.
+	if err := s.ReplaceProject(ctx, "shop", []Route{{Hostname: "shop.example.com", Upstream: "web:9090", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	routes, _ := s.List()
+	if len(routes) != 2 {
+		t.Fatalf("expected shop(1)+blog(1)=2 routes, got %d", len(routes))
+	}
+	// A second app claiming a hostname another app owns is rejected; owner survives.
+	err := s.ReplaceProject(ctx, "evil", []Route{{Hostname: "blog.example.com", Upstream: "evil:80", Enabled: true}})
+	if err == nil {
+		t.Fatal("a cross-app hostname collision must be rejected")
+	}
+	routes, _ = s.List()
+	if len(routes) != 2 {
+		t.Fatalf("owner's route must survive a rejected collision, got %d routes", len(routes))
+	}
+}

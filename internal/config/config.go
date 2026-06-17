@@ -99,7 +99,8 @@ type EdgeConfig struct {
 	ACMEEmail        string   `yaml:"acme_email"`
 	ACMECA           string   `yaml:"acme_ca"`
 	ApplyProbeWindow Duration `yaml:"apply_probe_window"`
-	L4Enabled        bool     `yaml:"l4_enabled"`
+	L4Enabled        bool     `yaml:"l4_enabled"`      // own a managed L4 (TCP/UDP) load balancer (nginx-stream)
+	L4NginxDigest    string   `yaml:"l4_nginx_digest"` // pinned SHA-256 of the nginx binary (optional)
 }
 
 // AdminConfig optionally fronts the admin UI through the edge and points at the

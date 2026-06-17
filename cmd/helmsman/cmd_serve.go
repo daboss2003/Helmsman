@@ -25,6 +25,7 @@ import (
 	"github.com/daboss2003/Helmsman/internal/envstore"
 	"github.com/daboss2003/Helmsman/internal/gitstore"
 	"github.com/daboss2003/Helmsman/internal/hostmon"
+	"github.com/daboss2003/Helmsman/internal/l4"
 	"github.com/daboss2003/Helmsman/internal/monitor"
 	"github.com/daboss2003/Helmsman/internal/ops"
 	"github.com/daboss2003/Helmsman/internal/opsclient"
@@ -233,29 +234,64 @@ func cmdServe(args []string) error {
 		edgeReason = "external edge mode — Helmsman does not own the edge"
 	}
 
+	// Managed L4 (TCP/UDP) load balancer (opt-in via edge.l4_enabled): a supervised
+	// child nginx-stream fronting fixed public ports (DNS/DoT/MQTTS) for internal
+	// replica pools. Off by default; fail-closed if the host can't own it.
+	var l4Routes *l4.RouteStore
+	var l4Reconcile func(context.Context) error
+	if cfg.Edge.Mode == config.EdgeManaged && cfg.Edge.L4Enabled {
+		if ok, why := l4.Available(); ok {
+			l4Routes = l4.NewRouteStore(db)
+			l4dir := filepath.Join(cfg.DataDir, "l4")
+			sup := &l4.Supervisor{
+				ConfigPath: filepath.Join(l4dir, "nginx.conf"),
+				Prefix:     l4dir,
+				Digest:     cfg.Edge.L4NginxDigest,
+				Log:        log,
+			}
+			l4Reconcile = func(c context.Context) error {
+				rs, lerr := l4Routes.List()
+				if lerr != nil {
+					return lerr
+				}
+				return sup.Reconcile(c, rs)
+			}
+			if rerr := l4Reconcile(ctx); rerr != nil { // write the initial config from the store
+				log.Warn("l4: initial reconcile failed", "err", rerr)
+			}
+			wg.Add(1)
+			go func() { defer wg.Done(); sup.Run(ctx) }()
+			log.Info("managed L4 LB started")
+		} else {
+			log.Warn("managed L4 LB not owned on this host", "reason", why)
+		}
+	}
+
 	srv, err := web.New(cfg, web.Deps{
-		DB:         db,
-		ConfigPath: *configPath,
-		Log:        log,
-		Monitor:    mon,
-		OpsStore:   opsStore,
-		Prober:     prober,
-		Runner:     runner,
-		Docker:     dockerCli,
-		EnvStore:   envStore,
-		CfgStore:   cfgStore,
-		GitStore:   gitStore,
-		ProvStore:  provStore,
-		SetupStore: setupStore,
-		AlertStore: alertStore,
-		EdgeRoutes: edgeRoutes,
-		EdgeRecon:  edgeRecon,
-		EdgeReason: edgeReason,
-		SelfHeal:   selfHealStore,
-		Scaling:    scalingStore,
-		DockerSem:  dockerSem,
-		APITokens:  apiTokenStore,
-		Backups:    backupStore,
+		DB:          db,
+		ConfigPath:  *configPath,
+		Log:         log,
+		Monitor:     mon,
+		OpsStore:    opsStore,
+		Prober:      prober,
+		Runner:      runner,
+		Docker:      dockerCli,
+		EnvStore:    envStore,
+		CfgStore:    cfgStore,
+		GitStore:    gitStore,
+		ProvStore:   provStore,
+		SetupStore:  setupStore,
+		AlertStore:  alertStore,
+		EdgeRoutes:  edgeRoutes,
+		EdgeRecon:   edgeRecon,
+		EdgeReason:  edgeReason,
+		L4Routes:    l4Routes,
+		L4Reconcile: l4Reconcile,
+		SelfHeal:    selfHealStore,
+		Scaling:     scalingStore,
+		DockerSem:   dockerSem,
+		APITokens:   apiTokenStore,
+		Backups:     backupStore,
 	})
 	if err != nil {
 		return err

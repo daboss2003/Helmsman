@@ -167,7 +167,7 @@ var shellBinaries = map[string]bool{
 // dashCSafe are the non-shell binaries that legitimately take a literal "-c" flag
 // (git's `-c key=value` config flags). A "-c" on anything else — including a
 // command name held in a const/var, which we can't prove is safe — is flagged.
-var dashCSafe = map[string]bool{"git": true}
+var dashCSafe = map[string]bool{"git": true, "nginx": true}
 
 // findShellExec flags shell command construction. A violation is an exec.Command/
 // CommandContext call (alias-resolved) that EITHER names a shell binary as a literal
@@ -182,10 +182,17 @@ func findShellExec(gf goFile) []string {
 		if !ok || !pkgCall(call, aliases, "os/exec", "Command", "CommandContext") {
 			return true
 		}
+		// The command name is Args[0] for Command(name, ...) but Args[1] for
+		// CommandContext(ctx, name, ...); without this offset a CommandContext call
+		// could never be recognized as a known-safe literal binary.
+		cmdIdx := 0
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "CommandContext" {
+			cmdIdx = 1
+		}
 		var argv0 string
 		hasLit0 := false
-		if len(call.Args) > 0 {
-			argv0, hasLit0 = litString(call.Args[0])
+		if len(call.Args) > cmdIdx {
+			argv0, hasLit0 = litString(call.Args[cmdIdx])
 		}
 		hasShell, hasDashC := false, false
 		for _, a := range call.Args {

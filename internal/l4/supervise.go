@@ -16,16 +16,19 @@ import (
 	"time"
 )
 
+// nginxBin is fixed (never operator-supplied): the binary is invoked with the `-c`
+// config flag, and the static-shell-exec lint (SEC-1) only permits `-c` on a literal,
+// allowlisted command — a dynamic binary name + `-c` is exactly the shell-injection
+// shape it forbids. Helmsman pins the binary by digest (VerifyDigest), not by path.
+const nginxBin = "nginx"
+
 // Available reports whether this host can OWN the managed L4 load balancer — a
 // supervised child nginx (stream module) with its own systemd slice +
 // CAP_NET_BIND_SERVICE + egress firewall (the L4 analog of the edge, plan §6),
 // Linux-only. Off Linux, or with no nginx binary, it is FAIL-CLOSED unavailable.
-func Available(nginxBin string) (bool, string) {
+func Available() (bool, string) {
 	if runtime.GOOS != "linux" {
 		return false, "managed L4 LB requires Linux (got " + runtime.GOOS + ")"
-	}
-	if nginxBin == "" {
-		nginxBin = "nginx"
 	}
 	if _, err := exec.LookPath(nginxBin); err != nil {
 		return false, "nginx binary not found on PATH"
@@ -60,7 +63,6 @@ func VerifyDigest(nginxPath, want string) error {
 // a rejected render keeps the last-good config serving (fail-closed). The testConf /
 // signal seams let the reconcile state machine be unit-tested without a real nginx.
 type Supervisor struct {
-	NginxBin   string // nginx binary (default "nginx")
 	ConfigPath string // the live config file the master reads (Helmsman-owned)
 	Prefix     string // nginx -p prefix dir (Helmsman-owned, e.g. /var/lib/helmsman/l4)
 	Digest     string // pinned SHA-256 of the nginx binary (optional)
@@ -111,7 +113,7 @@ func (s *Supervisor) runTest(ctx context.Context, configPath string) error {
 	if s.testConf != nil {
 		return s.testConf(ctx, configPath)
 	}
-	cmd := exec.CommandContext(ctx, s.bin(), "-t", "-c", configPath, "-p", s.Prefix)
+	cmd := exec.CommandContext(ctx, "nginx", "-t", "-c", configPath, "-p", s.Prefix) // literal: SEC-1 requires it
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, out)
@@ -126,26 +128,26 @@ func (s *Supervisor) doSighup(p *os.Process) error {
 	return p.Signal(syscall.SIGHUP)
 }
 
-func (s *Supervisor) bin() string {
-	if s.NginxBin == "" {
-		return "nginx"
-	}
-	return s.NginxBin
-}
-
 // Run supervises the child nginx with capped backoff until ctx is cancelled. It is
 // fail-closed: if the host can't own the L4 LB (non-Linux, no binary, digest
 // mismatch) it logs and returns without starting anything. The systemd slice / user
 // / caps / egress firewall are the OS deployment layer (plan §6); this owns the
 // lifecycle. Not exercised off-Linux.
 func (s *Supervisor) Run(ctx context.Context) {
-	if ok, why := Available(s.NginxBin); !ok {
+	if ok, why := Available(); !ok {
 		s.Log.Warn("managed L4 LB not started", "reason", why)
 		return
 	}
-	if err := VerifyDigest(s.bin(), s.Digest); err != nil {
-		s.Log.Error("managed L4 LB not started", "err", err)
-		return
+	if s.Digest != "" {
+		path, err := exec.LookPath(nginxBin)
+		if err != nil {
+			s.Log.Error("managed L4 LB not started", "err", err)
+			return
+		}
+		if err := VerifyDigest(path, s.Digest); err != nil {
+			s.Log.Error("managed L4 LB not started", "err", err)
+			return
+		}
 	}
 	// Ensure a valid config exists before the first launch (an empty stream block
 	// is a valid floor; routes are pushed via Reconcile).
@@ -184,7 +186,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 // lifecycle and can SIGHUP it for a graceful reload. The resource set / slice / caps
 // are pinned by the OS layer.
 func (s *Supervisor) launch(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, s.bin(), "-c", s.ConfigPath, "-p", s.Prefix, "-g", "daemon off;")
+	cmd := exec.CommandContext(ctx, "nginx", "-c", s.ConfigPath, "-p", s.Prefix, "-g", "daemon off;") // literal: SEC-1 requires it
 	cmd.Env = []string{"HOME=" + s.Prefix}
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
