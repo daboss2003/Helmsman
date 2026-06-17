@@ -55,6 +55,11 @@ nfpms:
     contents:
       - src: deploy/systemd/helmsman.service
         dst: /usr/lib/systemd/system/helmsman.service
+      # Reference drop-in (NOT auto-active): grants the supervised edge/L4 children
+      # CAP_NET_BIND_SERVICE. Copy into helmsman.service.d/ only if the host owns the
+      # public edge and/or the L4 load balancer (see the file header).
+      - src: deploy/systemd/helmsman-privileged-ports.conf
+        dst: /usr/share/helmsman/systemd/helmsman-privileged-ports.conf
       - src: deploy/socket-proxy/docker-compose.yml
         dst: /usr/share/helmsman/socket-proxy/docker-compose.yml
       - src: deploy/nfpm/config.example.yaml

@@ -20,6 +20,12 @@ auth:
 edge:
   mode: "managed"                     # Helmsman runs the web server + HTTPS for you
   acme_email: "you@example.com"
+  # Optional: own a managed L4 (TCP/UDP) load balancer for non-HTTP stream services
+  # (DNS 53, DoT 853, MQTTS 8883) so they can run as an auto-scaled internal replica
+  # pool. Requires nginx installed on the host + the privileged-ports systemd drop-in
+  # (see /usr/share/helmsman/systemd/). Off by default.
+  # l4_enabled: true
+  # l4_nginx_digest: ""               # optional SHA-256 pin of the nginx binary
 
 admin:
   hostname: "admin.example.com"       # Helmsman serves the dashboard here over HTTPS,

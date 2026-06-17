@@ -344,6 +344,42 @@ edge:
 
 The `edge.routes` block is **parsed into the typed edge model and re-marshalled** (read-and-render, never run verbatim). The save fails if it shadows a managed hostname, touches `admin`/`tls.automation`/`pki`, targets `9000/2019/2375`, grabs `:80/:443`, or weakens XFF. **The definition file contributes only Layer-1 routes** — never the protected Layer-0 base. See [Managed edge & routes](./edge-and-tls.md).
 
+### `spec.edge.l4_routes` (TCP/UDP load balancing)
+
+The HTTP edge fronts `edge.routes`. For a **non-HTTP** stream service — DNS (53), DoT (853), MQTTS (8883) — an `l4_route` makes Helmsman's L4 load balancer own the public port and fan traffic across the service's **internal** replicas. That's what lets a fixed-port service be **auto-scaled**: it stops publishing a host port (the LB owns it), so it passes scaling candidacy as an "L4 upstream" instead of being disqualified for grabbing a host port.
+
+```yaml
+spec:
+  compose:
+    source: generated
+    services:
+      coredns:
+        build: { language: go, dir: dns-resolver }
+        ports:
+          - { internal: 5353 }            # internal-only — the L4 LB owns the public port
+  edge:
+    l4_routes:
+      - { listen: 53,  protocol: udp, service: coredns, port: 5353, lb: hash_client_ip }
+      - { listen: 53,  protocol: tcp, service: coredns, port: 5353 }
+      - { listen: 853, protocol: tcp, service: coredns, port: 5353, tls: passthrough }
+```
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `listen` | int | required | The **host** port the L4 LB binds. Not `80`/`443` (the HTTP edge's) or a control port (`9000/2019/2375`). A `listen+protocol` is globally unique — two apps can't claim it. |
+| `protocol` | `tcp` \| `udp` | required | Declare two entries to serve both on one port (DNS). |
+| `service` | string | required | The service whose replicas receive traffic — a selector, resolved to this app's containers, never a literal host:port. |
+| `port` | int | required | The service's **internal** container port. |
+| `lb` | enum | `round_robin` | `round_robin` \| `least_conn` \| `hash_client_ip` (client-IP affinity — useful for DNS/MQTT). |
+| `tls` | enum | `passthrough` | `passthrough` only for now — the LB forwards raw bytes and the **app** terminates TLS (issue its cert with a [`cert_binding`](#speccert_bindings)). `terminate` is not yet supported. |
+
+> **Prerequisites (the L4 LB is opt-in and not bundled):**
+> 1. Install **nginx** on the host yourself (`apt install nginx` — it carries the `stream` module). Helmsman does **not** ship or pull nginx; it's only needed if you use L4 routes.
+> 2. Set `edge.l4_enabled: true` in `config.yaml`.
+> 3. To bind privileged ports (53/853) the supervised nginx needs `CAP_NET_BIND_SERVICE` — apply the `helmsman-privileged-ports` systemd drop-in (shipped under `/usr/share/helmsman/systemd/`). Or map a privileged host port to a high container port and keep nginx unprivileged.
+>
+> With those in place, a deploy persists the routes, renders the nginx-stream config, and reloads it. Without them (`l4_enabled` off, or non-Linux/no nginx) `l4_routes` validate but the LB simply isn't started — fail-closed, no effect on the rest of the deploy.
+
 ### `spec.scaling`
 
 Process-level auto-scaling of **one stateless, edge-fronted HTTP service's replica count** (§8A). **Opt-in; disabled if omitted.**
@@ -700,6 +736,10 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.edge.routes[].redirect_http` | bool | no | `true` |
 | `spec.edge.routes[].hsts` | bool | no | per-edge |
 | `spec.edge.routes[].security_headers` | bool | no | per-edge |
+| `spec.edge.l4_routes[]` | `{listen, protocol, service, port, lb, tls}` | no | — |
+| `spec.edge.l4_routes[].protocol` | `tcp` \| `udp` | required | — |
+| `spec.edge.l4_routes[].lb` | `round_robin` \| `least_conn` \| `hash_client_ip` | no | `round_robin` |
+| `spec.edge.l4_routes[].tls` | `passthrough` | no | `passthrough` |
 | `spec.scaling.enabled` | bool | no | `false` |
 | `spec.scaling.service` | string | if enabled | — |
 | `spec.scaling.min` / `.max` | int | no | `1` / `1` |

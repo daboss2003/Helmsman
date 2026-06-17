@@ -12,6 +12,8 @@ Auto-scaling adjusts how many copies (**replicas**) of a service run, based on l
 
 **Only stateless services qualify.** A service must be **stateless and edge-fronted** — no fixed host port, no read-write data volume — because running several copies of something stateful (like a database) would corrupt its data. You confirm this when enabling it, and Helmsman re-checks each cycle: if a service gains a writable volume or starts looking stateful, it's scaled back down and left alone.
 
+**Edge-fronted means HTTP *or* L4.** Normally "edge-fronted" is an HTTP service behind an `edge.route`. A **non-HTTP** stream service (DNS, MQTT) can also scale if you front it with an [`edge.l4_route`](./definition-file.md#specedgel4_routes-tcpudp-load-balancing): the L4 load balancer owns the public port and the replicas stay internal, so it no longer "publishes a fixed host port." This needs **nginx installed on the host** and `edge.l4_enabled` (it's opt-in and not bundled — see the definition-file reference). Without it, such services run as a single instance.
+
 **It only adds capacity when there's room.** Before starting another replica, Helmsman checks there's provably enough memory and CPU, keeping headroom for itself and the edge. On a server that's near its limit it **collapses to a single replica** and won't scale up. It moves **one step at a time** with separate scale-up and scale-down thresholds (and a hold window), so it doesn't flap up and down.
 
 **You're alerted if it can't scale up.** If it declines to scale because the server is constrained, it can alert you — that's your cue the box needs more resources.
