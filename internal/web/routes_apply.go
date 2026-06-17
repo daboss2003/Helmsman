@@ -3,13 +3,84 @@ package web
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/edge"
 	"github.com/daboss2003/Helmsman/internal/l4"
 	"github.com/daboss2003/Helmsman/internal/scale"
 )
+
+// handleDefinitionYAML serves the app's canonical helmsman.yaml — "the file,
+// dashboard-updated last." For a repo-connected app that's drifted (last edited in
+// the dashboard), this is how the operator commits those edits back to the repo.
+func (s *Server) handleDefinitionYAML(w http.ResponseWriter, r *http.Request) {
+	if s.defStore == nil {
+		http.Error(w, "definition store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	project := r.PathValue("project")
+	def, err := s.defStore.Current(project)
+	if err != nil {
+		http.Error(w, "could not load the definition", http.StatusInternalServerError)
+		return
+	}
+	if def == nil {
+		http.Error(w, "no canonical definition yet — deploy once to create it", http.StatusNotFound)
+		return
+	}
+	canon, err := definition.Canonical(def)
+	if err != nil {
+		http.Error(w, "could not render the definition", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Header().Set("Content-Disposition", `attachment; filename="helmsman.yaml"`)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(canon)
+}
+
+// applyDefinition makes def the app's CANONICAL helmsman.yaml (the single source of
+// truth) and reconciles every runtime projection from it. Both planes call it: a
+// deploy (file edit) and the dashboard editors (write-back), so the definition is
+// always "the file, whoever-edited-last." It re-validates the canonical form (the
+// same gate a committed file gets), persists it as a new version, then applies the
+// projections (edge/L4 routes, scaling). note records the writer (e.g. "git deploy:
+// <sha>" / "dashboard: scaling api") and drives drift detection vs the repo.
+func (s *Server) applyDefinition(ctx context.Context, project string, def *definition.Definition, note string) error {
+	if s.defStore != nil {
+		canon, err := definition.Canonical(def)
+		if err != nil {
+			return fmt.Errorf("render canonical: %w", err)
+		}
+		if _, err := definition.Parse(canon); err != nil { // re-validate before it becomes the truth
+			return fmt.Errorf("invalid definition: %w", err)
+		}
+		if _, err := s.defStore.SaveCanonical(ctx, def, note); err != nil {
+			return fmt.Errorf("save canonical: %w", err)
+		}
+	}
+	if err := s.applyRoutes(ctx, project, def); err != nil {
+		return err
+	}
+	return s.applyScaling(ctx, project, def)
+}
+
+// defDriftedFromRepo reports whether the canonical was last written by the dashboard
+// (so it's ahead of the repo's helmsman.yaml). The next repo deploy writes a
+// "git deploy" version and clears it. Only meaningful for repo-connected apps.
+func (s *Server) defDriftedFromRepo(project string) bool {
+	if s.defStore == nil {
+		return false
+	}
+	vers, err := s.defStore.List(project)
+	if err != nil || len(vers) == 0 {
+		return false
+	}
+	return strings.HasPrefix(vers[0].Note, "dashboard:")
+}
 
 // applyRoutes makes a deployed app's helmsman.yaml the source of truth for its edge
 // routes: it persists the def's L7 edge.routes and L4 l4_routes (replace-by-project)
@@ -119,12 +190,27 @@ func scalingPolicyRow(sc definition.Scaling) scale.PolicyRow {
 	if max < min {
 		max = min
 	}
+	breach := int64(sc.BreachForSecs)
+	if breach <= 0 {
+		breach = 60
+	}
+	cdUp := int64(sc.CooldownUpSecs)
+	if cdUp <= 0 {
+		cdUp = 60
+	}
+	cdDown := int64(sc.CooldownDownSecs)
+	if cdDown < cdUp {
+		cdDown = 300
+		if cdDown < cdUp {
+			cdDown = cdUp
+		}
+	}
 	return scale.PolicyRow{
 		Policy: scale.Policy{
 			Min: min, Max: max,
 			UpCPUPct: upCPU, DownCPUPct: downCPU,
 			UpMemPct: upMem, DownMemPct: downMem,
-			BreachForSecs: 60, CooldownUpSecs: 60, CooldownDownSecs: 300,
+			BreachForSecs: breach, CooldownUpSecs: cdUp, CooldownDownSecs: cdDown,
 		},
 		Enabled:       sc.Enabled,
 		PerReplicaMem: uint64(sc.PerReplicaMemMiB) << 20,

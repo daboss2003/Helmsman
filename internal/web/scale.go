@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/dockerexec"
 	"github.com/daboss2003/Helmsman/internal/monitor"
 	"github.com/daboss2003/Helmsman/internal/scale"
@@ -90,24 +91,61 @@ func (s *Server) handleScalingSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pr := scale.PolicyRow{
-		Policy: scale.Policy{
-			Min: atoiDefault(r.PostFormValue("min"), 1), Max: atoiDefault(r.PostFormValue("max"), 1),
-			UpCPUPct: atofDefault(r.PostFormValue("up_cpu"), 80), DownCPUPct: atofDefault(r.PostFormValue("down_cpu"), 40),
-			UpMemPct: atofDefault(r.PostFormValue("up_mem"), 80), DownMemPct: atofDefault(r.PostFormValue("down_mem"), 40),
-			BreachForSecs:  int64(atoiDefault(r.PostFormValue("breach_for"), 60)),
-			CooldownUpSecs: int64(atoiDefault(r.PostFormValue("cooldown_up"), 60)), CooldownDownSecs: int64(atoiDefault(r.PostFormValue("cooldown_down"), 300)),
-		},
-		Enabled:       enabled,
-		PerReplicaMem: uint64(atoiDefault(r.PostFormValue("per_replica_mem_mib"), 0)) << 20, // MiB → bytes
-		PerReplicaCPU: uint64(atoiDefault(r.PostFormValue("per_replica_cpu_milli"), 0)),
+	// Write-back: a dashboard edit updates the CANONICAL helmsman.yaml (the source of
+	// truth) and reconciles the scale store FROM it — so editing here is the same as
+	// editing the file. If the app has no canonical yet (never deployed under the
+	// canonical store), fall back to writing the projection directly.
+	if s.defStore != nil {
+		if def, derr := s.defStore.Current(project); derr == nil && def != nil {
+			def.Spec.Scaling = upsertScaling(def.Spec.Scaling, scalingFromForm(service, enabled, r))
+			if err := s.applyDefinition(r.Context(), project, def, "dashboard: scaling "+service); err != nil {
+				http.Error(w, "scaling policy rejected: "+err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
+			_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "scaling_policy_save", Target: project + "/" + service, Outcome: audit.OK, Level: audit.Security})
+			http.Redirect(w, r, "/apps/"+project, http.StatusSeeOther)
+			return
+		}
 	}
+
+	pr := scalingPolicyRow(scalingFromForm(service, enabled, r))
 	if err := s.scaling.SavePolicy(r.Context(), scale.Key{App: project, Service: service}, pr); err != nil {
 		http.Error(w, "scaling policy rejected: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "scaling_policy_save", Target: project + "/" + service, Outcome: audit.OK, Level: audit.Security})
 	http.Redirect(w, r, "/apps/"+project, http.StatusSeeOther)
+}
+
+// scalingFromForm builds a definition scaling entry from the dashboard form.
+func scalingFromForm(service string, enabled bool, r *http.Request) definition.Scaling {
+	return definition.Scaling{
+		Service:            service,
+		Enabled:            enabled,
+		Min:                atoiDefault(r.PostFormValue("min"), 1),
+		Max:                atoiDefault(r.PostFormValue("max"), 1),
+		UpCPUPct:           atofDefault(r.PostFormValue("up_cpu"), 80),
+		DownCPUPct:         atofDefault(r.PostFormValue("down_cpu"), 40),
+		UpMemPct:           atofDefault(r.PostFormValue("up_mem"), 80),
+		DownMemPct:         atofDefault(r.PostFormValue("down_mem"), 40),
+		PerReplicaMemMiB:   atoiDefault(r.PostFormValue("per_replica_mem_mib"), 0),
+		PerReplicaCPUMilli: atoiDefault(r.PostFormValue("per_replica_cpu_milli"), 0),
+		BreachForSecs:      atoiDefault(r.PostFormValue("breach_for"), 60),
+		CooldownUpSecs:     atoiDefault(r.PostFormValue("cooldown_up"), 60),
+		CooldownDownSecs:   atoiDefault(r.PostFormValue("cooldown_down"), 300),
+	}
+}
+
+// upsertScaling replaces the entry for e.Service (or appends it), so the canonical
+// holds exactly one policy per service.
+func upsertScaling(list []definition.Scaling, e definition.Scaling) []definition.Scaling {
+	for i := range list {
+		if list[i].Service == e.Service {
+			list[i] = e
+			return list
+		}
+	}
+	return append(list, e)
 }
 
 // scalingDesired returns the per-service desired replica count for a project (the

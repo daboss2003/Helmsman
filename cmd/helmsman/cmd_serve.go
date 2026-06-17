@@ -19,6 +19,7 @@ import (
 	"github.com/daboss2003/Helmsman/internal/backupstore"
 	"github.com/daboss2003/Helmsman/internal/cfgstore"
 	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/docker"
 	"github.com/daboss2003/Helmsman/internal/dockerexec"
 	"github.com/daboss2003/Helmsman/internal/edge"
@@ -88,6 +89,13 @@ func cmdServe(args []string) error {
 	cfgStore := cfgstore.New(db, cipher)
 	gitStore := gitstore.New(db, cipher)
 	provStore := provstore.New(db)
+	// Canonical definition store (the single source of truth: helmsman.yaml). Both
+	// the deploy (file edit) and the dashboard editors write to it; the runtime
+	// stores (scale, edge routes) are reconciled FROM it. HMAC-keyed off the master key.
+	var defStore *definition.Store
+	if dk, derr := config.DecodeKey(cfg.EncryptionKey); derr == nil {
+		defStore = definition.NewStore(db, dk)
+	}
 	// Clear any stale staging/aside dirs from an interrupted provision commit
 	// (plan §7 boot-time sweep). The apps root is a sibling of DataDir.
 	provision.SweepStaging(cfg.DataDir + "-apps")
@@ -287,6 +295,7 @@ func cmdServe(args []string) error {
 		EdgeReason:  edgeReason,
 		L4Routes:    l4Routes,
 		L4Reconcile: l4Reconcile,
+		DefStore:    defStore,
 		SelfHeal:    selfHealStore,
 		Scaling:     scalingStore,
 		DockerSem:   dockerSem,

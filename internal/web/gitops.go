@@ -733,14 +733,12 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 	// Apply this app's helmsman.yaml routes (L7 + L4) as the source of truth and
 	// reconcile the live edge / L4 LB. A persist failure (bad route or a cross-app
 	// hostname/listener collision) blocks — the operator must resolve it.
-	if err := s.applyRoutes(ctx, slug, def); err != nil {
+	// The repo's helmsman.yaml is the source of truth: record it as the canonical and
+	// reconcile every projection (edge/L4 routes, scaling) from it. This also clears
+	// any prior dashboard drift, since the canonical is now the freshly-deployed file.
+	if err := s.applyDefinition(ctx, slug, def, "git deploy: "+shortSha(sha)); err != nil {
 		s.gitStore.SetState(bg, slug, "update_blocked")
-		return fmt.Errorf("apply routes: %w", err)
-	}
-	// Apply per-service auto-scaling policies from helmsman.yaml (a bad policy blocks).
-	if err := s.applyScaling(ctx, slug, def); err != nil {
-		s.gitStore.SetState(bg, slug, "update_blocked")
-		return fmt.Errorf("apply scaling: %w", err)
+		return fmt.Errorf("apply definition: %w", err)
 	}
 
 	// (6) pin the deployed commit (ref keeps gc from pruning it; DB drives the FSM).

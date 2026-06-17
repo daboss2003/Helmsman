@@ -402,7 +402,9 @@ scaling:
     per_replica_mem_mib: 96
 ```
 
-A deploy persists each policy (unset thresholds default to 80/40, with a positive breach window + down-lazy cooldowns); a policy that violates the controller contract (e.g. a <20-pt dead band) blocks the deploy. Omitted services are left as-is (you can also manage policies in the dashboard). Scaling a **non-HTTP** service additionally needs an [`l4_route`](#specedgel4_routes-tcpudp-load-balancing) + nginx (see that section).
+A deploy persists each policy (unset thresholds default to 80/40, with a positive breach window + down-lazy cooldowns); a policy that violates the controller contract (e.g. a <20-pt dead band) blocks the deploy. Omitted services are left as-is. Scaling a **non-HTTP** service additionally needs an [`l4_route`](#specedgel4_routes-tcpudp-load-balancing) + nginx (see that section).
+
+> **Dashboard ↔ file are the same source.** Editing a service's scaling in the dashboard **writes back into this `helmsman.yaml`** (the canonical definition) — so whether you edit the file or the dashboard, the policy lives in the one definition. For a repo-connected app a dashboard edit shows as drift vs the repo; download the updated file from the app page (or `GET /apps/<slug>/definition.yaml`) and commit it. (Edge/L4 routes round-trip the same way as that write-back lands.)
 
 | Field (per list entry) | Type | Default | Notes |
 |---|---|---|---|
@@ -757,6 +759,8 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.scaling[].up_mem_pct` / `.down_mem_pct` | float | no | `80` / `40` |
 | `spec.scaling[].per_replica_mem_mib` | int | no | — |
 | `spec.scaling[].per_replica_cpu_milli` | int | no | — |
+| `spec.scaling[].breach_for_secs` | int | no | `60` |
+| `spec.scaling[].cooldown_up_secs` / `.cooldown_down_secs` | int | no | `60` / `300` |
 | `spec.git.ref` | string (fully-qualified) | no | — |
 | `spec.git.auto_deploy` | bool | no | **`false`** |
 

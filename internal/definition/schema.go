@@ -231,6 +231,9 @@ type Scaling struct {
 	DownMemPct         float64 `yaml:"down_mem_pct"`
 	PerReplicaMemMiB   int     `yaml:"per_replica_mem_mib"`
 	PerReplicaCPUMilli int     `yaml:"per_replica_cpu_milli"`
+	BreachForSecs      int     `yaml:"breach_for_secs,omitempty"`    // sustain window before acting (default 60)
+	CooldownUpSecs     int     `yaml:"cooldown_up_secs,omitempty"`   // min seconds between scale-ups (default 60)
+	CooldownDownSecs   int     `yaml:"cooldown_down_secs,omitempty"` // min seconds between scale-downs (default 300; >= up)
 }
 
 // Git is the repo-path / auto-pull config (§7.6). AutoDeploy defaults false.

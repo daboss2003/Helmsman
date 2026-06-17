@@ -23,6 +23,7 @@ import (
 	"github.com/daboss2003/Helmsman/internal/cfgstore"
 	"github.com/daboss2003/Helmsman/internal/config"
 	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/docker"
 	"github.com/daboss2003/Helmsman/internal/dockerexec"
 	"github.com/daboss2003/Helmsman/internal/edge"
@@ -102,6 +103,7 @@ type Deps struct {
 	EdgeReason  string                      // why the edge isn't owned (banner), "" when owned
 	L4Routes    *l4.RouteStore              // managed L4 (TCP/UDP) routes (nil when L4 LB disabled)
 	L4Reconcile func(context.Context) error // push the L4 route set to the nginx-stream LB (nil when disabled)
+	DefStore    *definition.Store           // canonical helmsman.yaml store (source of truth; may be nil)
 	SelfHeal    *selfheal.Store             // supervisor FSM + expected_down leases (may be nil)
 	Scaling     *scale.Store                // auto-scaling policies + state (may be nil)
 	DockerSem   *dockerexec.Semaphore       // global one-docker-child semaphore (shared with Runner)
@@ -138,6 +140,7 @@ type Server struct {
 	edgeReason     string                        // why the edge isn't owned (banner)
 	l4Routes       *l4.RouteStore                // managed L4 (TCP/UDP) routes (nil when L4 LB disabled)
 	l4Reconcile    func(context.Context) error   // push the L4 route set to the LB (nil when disabled)
+	defStore       *definition.Store             // canonical helmsman.yaml (source of truth; may be nil)
 	selfHeal       *selfheal.Store               // supervisor FSM + expected_down leases (may be nil)
 	scaling        *scale.Store                  // auto-scaling policies + state (may be nil)
 	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
@@ -192,6 +195,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		edgeRecon:     d.EdgeRecon,
 		l4Routes:      d.L4Routes,
 		l4Reconcile:   d.L4Reconcile,
+		defStore:      d.DefStore,
 		edgeReason:    d.EdgeReason,
 		selfHeal:      d.SelfHeal,
 		scaling:       d.Scaling,
@@ -323,6 +327,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /partials/metrics.json", s.requireAuth(s.handleMetricsHistory))
 	// Focused-dashboard heartbeat — gates the git poller (only fetch while someone's looking).
 	mux.HandleFunc("GET /dash/ping", s.requireAuth(s.handleDashPing))
+	// The app's canonical helmsman.yaml (export dashboard edits back to your repo).
+	mux.HandleFunc("GET /apps/{project}/definition.yaml", s.requireAuth(s.handleDefinitionYAML))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))
 	mux.HandleFunc("GET /partials/app/{project}", s.requireAuth(s.withCSRFToken(s.handleAppPartial)))
 	// App Ops Interface (M3): config form + server-side-proxied queue actions.
