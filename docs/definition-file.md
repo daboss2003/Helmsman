@@ -24,6 +24,8 @@ Both are thin front-ends onto the **one validator** that judges every generated 
   - [`cert_bindings`](#speccert_bindings)
   - [`edge.routes`](#specedgeroutes)
   - [`scaling`](#specscaling)
+  - [`self_healing`](#specself_healing)
+  - [`ops_interface`](#specops_interface)
   - [`git`](#specgit)
 - [The `{{hm.KEY}}` binding delimiter](#the-hmkey-binding-delimiter)
 - [Secrets are by reference only](#secrets-are-by-reference-only)
@@ -260,24 +262,30 @@ services:
         mount: /etc/app/app.conf
 ```
 
-The file is re-rendered on every deploy (written `0600` if it used a secret, else `0640`). To inject a
-Helmsman secret, add a `bindings` allowlist and reference it with `{{hm.KEY}}`; your app's own `${…}`
-survive byte-identical:
+The file is re-rendered on every deploy (written `0600` if it resolved a secret, else `0640`). To inject
+a value, add a `bindings` allowlist and reference it with `{{hm.KEY}}`; your app's own `${…}` survive
+byte-identical:
 
 ```yaml
 config_files:
   - template: |
-      api_key = {{hm.API_KEY}}
-    mount: /opt/emqx/etc/api_keys.bootstrap
+      api_key       = {{hm.API_KEY}}
+      upstream      = {{hm.UP}}
+      server_name   = {{hm.HOST}}
+      ssl_cert      = {{hm.CRT}}
+    mount: /opt/emqx/etc/app.conf
     bindings:
-      API_KEY: { secret: emqx_api_password }   # a declared secret, or a literal
+      API_KEY: { secret: emqx_api_password }    # a declared secret (value never in this file)
+      UP:      { env: UPSTREAM }                 # this service's env value
+      HOST:    { app: slug }                     # a safe app field
+      CRT:     { cert: mqtt.example.com.crt }    # a same-service cert_binding's tls.crt path
 ```
 
 | Field | Notes |
 |---|---|
 | `repo` **XOR** `template` | content from a repo path (read at the pinned commit) or an inline body |
 | `mount` | absolute container path; bind-mounted **read-only** |
-| `bindings` | allowlist of `{{hm.KEY}}` tokens → a literal or `{secret: NAME}` (a declared secret). Unknown tokens fail closed. |
+| `bindings` | allowlist of `{{hm.KEY}}` tokens. Each is a scalar **literal**, or exactly one of `{secret: NAME}` (a declared secret — marks the file secret-bearing), `{env: NAME}` (this service's env value), `{app: slug}`, or `{cert: HOSTNAME.crt\|key\|ca}` (the container path of a `cert_binding` **on the same service**). Unknown tokens fail closed. |
 
 ### `secret_files` (per service)
 
@@ -419,7 +427,57 @@ A deploy persists each policy (unset thresholds default to 80/40, with a positiv
 
 > Authoring `scaling` for a stateful service is not a knob you can force — it is rejected at candidacy. Brokers/DBs are precisely the `config_files` / `cert_binding` apps of §7.4, not scaling candidates. See [Auto-scaling](./scaling-and-self-healing.md).
 
-> **Self-healing and the App Ops Interface are configured in the dashboard, not in `helmsman.yaml`.** They are real features with their own per-app controls — see [Scaling & self-healing](./scaling-and-self-healing.md) — but `spec.self_healing` / `spec.ops_interface` are not keys this file accepts.
+### `spec.self_healing`
+
+Per-app tuning of the self-healing supervisor (§8.5). Every service is supervised with a conservative built-in default; this block overrides the ladder tunables for **this app**. **Every field is optional** — an omitted field keeps the built-in default, and an omitted block leaves the app entirely on the default. All durations are seconds.
+
+```yaml
+self_healing:
+  sustain_ticks: 3          # failing ticks before the first remediation (anti-flap)
+  attempt_cap: 5            # remediations per window before the circuit opens
+  window_seconds: 1800      # attempt-window length; attempts reset after it elapses
+  backoff_base_secs: 30     # exponential backoff base between attempts
+  backoff_max_secs: 600     # backoff ceiling (>= base)
+  redeploy_enabled: false   # allow rung-3 redeploy (>=1 GB host AND this opt-in)
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `sustain_ticks` | int | Failing ticks before the first remediation. |
+| `attempt_cap` | int | Remediations per window before the circuit latches open. |
+| `stabilize_ticks` | int | Healthy ticks required to declare RECOVERED. |
+| `oom_strike_cap` | int | OOM-classified failures before short-circuiting the ladder. |
+| `window_seconds` | int | Attempt-window length (attempts reset after it). |
+| `backoff_base_secs` / `backoff_max_secs` | int | Exponential backoff base/ceiling between attempts (`max >= base`). |
+| `redeploy_enabled` | bool | Opt in to the rung-3 redeploy (still gated on host headroom). |
+
+> Self-healing has no separate dashboard editor — `helmsman.yaml` is the source of truth. The supervisor reads the policy each tick, so a redeploy re-tunes it without a restart. See [Self-healing](./scaling-and-self-healing.md).
+
+### `spec.ops_interface`
+
+The app's optional **ops endpoint** (§4): Helmsman probes it for RICH health and queue stats. Everything here is operator config **except the shared-secret value** — set the value in the dashboard, or declare a secret and point `secret` at it; the value **never** lives in this file.
+
+```yaml
+ops_interface:
+  enabled: true
+  base_url: http://web:8080          # the in-cluster endpoint (origin only; never loopback)
+  base_path: /ops                    # relative prefix under base_url
+  secret_header: X-Ops-Secret        # header the probe sends the shared secret in
+  secret: OPS_SECRET                 # reference to a declared secret (value resolved at deploy)
+  mode: rich                         # auto | rich | basic
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `enabled` | bool | Turn probing on. When on, `base_url` must be a valid pinned origin. |
+| `base_url` | string | `scheme://host[:port]` only — **no path**, never loopback (the §4.1 SSRF pin). |
+| `base_path` | string | Relative prefix (e.g. `/ops`). |
+| `secret_header` | string | The header name the probe sends the secret in (e.g. `X-Ops-Secret`). |
+| `secret` | string | A **reference** to a declared `spec.secrets` name; its value is resolved at deploy and never stored here. Omit to keep a dashboard-set value. |
+| `mode` | enum | `auto` (default) \| `rich` \| `basic`. |
+| `adapter` | string | Response adapter (default `ops.v1`). |
+
+> **Dashboard ↔ file are the same source.** Editing the ops config in the dashboard **writes back into this `helmsman.yaml`** (the non-secret fields); the secret value stays in the encrypted store.
 
 ### `spec.git`
 
@@ -452,14 +510,17 @@ There are **no conditionals, loops, functions, shell, or exec**. A `{{hm.KEY}}` 
 
 ### Binding values
 
-Each entry in a config file's `bindings` maps a `KEY` to its value, with the same grammar as `env`:
+Each entry in a config file's `bindings` maps a `KEY` to a value. It is a scalar literal, or exactly one single-key source mapping:
 
 | Binding value | Resolves to | Notes |
 |---|---|---|
 | a literal scalar | itself | a plain config value. |
-| `{ secret: NAME }` | the named secret from the encrypted store | **Marks the whole file secret-bearing** → encrypted at rest, rendered `0600`. |
+| `{ secret: NAME }` | the named secret from the encrypted store | **Marks the file secret-bearing** → rendered `0600`. |
+| `{ env: NAME }` | this service's `env` value for `NAME` | If that env value is itself a `{secret: …}`, the file is secret-bearing. |
+| `{ app: slug }` | the app's slug | The only app field exposed today. |
+| `{ cert: HOSTNAME.crt\|key\|ca }` | the **container path** of a same-service `cert_binding`'s file | e.g. `cert: mqtt.example.com.crt` → `<that binding's mount>/tls.crt`. The hostname must be a `cert_binding` on the **same service**; the deploy already blocks until the edge issues it. |
 
-Edge-issued TLS certificates reach a container through [`cert_bindings`](#speccert_bindings) (mounted as `tls.crt`/`tls.key` at a path), **not** through a template token.
+So a TLS cert reaches a config file as a **path token** (`{cert: …}`) pointing at the read-only mount from [`cert_bindings`](#speccert_bindings) — the key/crt bytes themselves are never templated into the file.
 
 ### Rendered-value hygiene
 
