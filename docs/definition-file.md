@@ -335,6 +335,7 @@ edge:
 | `hostname` | string | required | The public vhost. Subject to the §6.2 conflict gate: it may not shadow a managed hostname, the admin vhost, a cert-only hostname, or an auto-scaled pool. |
 | `service` | string | required (proxy routes) | The service **in this app's compose** to route to — resolved against this app's discovered containers, never a literal host:port. Cross-project names are rejected; the pinned-dialer + egress-firewall refuse any resolution to a control-plane port (`9000/2019/2375`), loopback, or metadata. |
 | `port` | int | required (proxy routes) | The service's internal container port to forward to. |
+| `upstream_scheme` | `http` \| `https` | `http` | How the edge dials the upstream (use `https` only if the container itself terminates TLS). |
 | `path_prefix` | string | `/` | Combined with hostname for `UNIQUE(hostname, path_prefix)`. |
 | `redirect_http` | bool | `true` | HTTP→HTTPS redirect. |
 | `hsts` | bool | per-edge | HSTS is only emitted **after** a cert exists. |
@@ -743,6 +744,7 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.edge.routes[].hostname` | string | yes | — |
 | `spec.edge.routes[].service` | string | for proxy routes | — |
 | `spec.edge.routes[].port` | int | for proxy routes | — |
+| `spec.edge.routes[].upstream_scheme` | `http` \| `https` | no | `http` |
 | `spec.edge.routes[].path_prefix` | string | no | `/` |
 | `spec.edge.routes[].redirect_http` | bool | no | `true` |
 | `spec.edge.routes[].hsts` | bool | no | per-edge |

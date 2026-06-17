@@ -107,10 +107,14 @@ func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []st
 		if port == 0 {
 			port = 80
 		}
+		scheme := r.UpstreamScheme
+		if scheme == "" {
+			scheme = "http"
+		}
 		er := edge.Route{
 			Hostname:        r.Hostname,
 			Upstream:        r.Service + ":" + strconv.Itoa(port), // selector, resolved to the container at apply
-			UpstreamScheme:  "http",
+			UpstreamScheme:  scheme,
 			PathPrefix:      r.PathPrefix,
 			HSTS:            r.HSTS,
 			SecurityHeaders: r.SecurityHeaders,

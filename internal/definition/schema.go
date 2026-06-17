@@ -217,6 +217,7 @@ type Route struct {
 	HSTS            bool   `yaml:"hsts"`
 	SecurityHeaders bool   `yaml:"security_headers"`
 	RedirectHTTP    bool   `yaml:"redirect_http"`
+	UpstreamScheme  string `yaml:"upstream_scheme,omitempty"` // "" (=http) | http | https — how the edge dials the upstream
 }
 
 // Scaling is the opt-in auto-scaling policy (§8A) for one service.
@@ -644,6 +645,9 @@ func (s *Spec) validateEdge() error {
 		}
 		if r.Port != 0 && controlPort(r.Port) {
 			return fmt.Errorf("edge route %q port %d is a reserved control-plane port", h, r.Port)
+		}
+		if r.UpstreamScheme != "" && r.UpstreamScheme != "http" && r.UpstreamScheme != "https" {
+			return fmt.Errorf("edge route %q upstream_scheme %q must be http or https", h, r.UpstreamScheme)
 		}
 	}
 	// L4 (TCP/UDP) routes: the LB owns each listen port, replicas stay internal.
