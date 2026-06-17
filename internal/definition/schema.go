@@ -190,7 +190,22 @@ type Secret struct {
 
 // Edge is the Layer-1 route input (§6).
 type Edge struct {
-	Routes []Route `yaml:"routes,omitempty"`
+	Routes   []Route   `yaml:"routes,omitempty"`
+	L4Routes []L4Route `yaml:"l4_routes,omitempty"`
+}
+
+// L4Route is one managed Layer-4 (TCP/UDP) listener: a fixed public port the L4 load
+// balancer owns, forwarded to a service's INTERNAL replica pool. Service/Port are
+// selectors (never a literal dial target). Use it for non-HTTP stream services
+// (DNS 53, DoT 853, MQTTS 8883). TLS is passthrough only for now (the app terminates
+// with a cert_binding); `terminate` is reserved for a later phase.
+type L4Route struct {
+	Listen   int    `yaml:"listen"`        // the host port the L4 LB binds
+	Protocol string `yaml:"protocol"`      // tcp | udp
+	Service  string `yaml:"service"`       // selector → the service whose replicas receive traffic
+	Port     int    `yaml:"port"`          // the service's internal container port
+	TLS      string `yaml:"tls,omitempty"` // "" | passthrough (terminate not yet supported)
+	LB       string `yaml:"lb,omitempty"`  // "" (round_robin) | least_conn | hash_client_ip
 }
 
 // Route is one managed edge vhost. Upstream is a SELECTOR — "service:port".
@@ -584,6 +599,66 @@ func (s *Spec) validateEdge() error {
 		}
 		if r.Port != 0 && controlPort(r.Port) {
 			return fmt.Errorf("edge route %q port %d is a reserved control-plane port", h, r.Port)
+		}
+	}
+	// L4 (TCP/UDP) routes: the LB owns each listen port, replicas stay internal.
+	l4Listen := map[string]bool{} // "proto:port" dedupe
+	listenPorts := map[int]bool{}
+	for _, r := range s.Edge.L4Routes {
+		if r.Protocol != "tcp" && r.Protocol != "udp" {
+			return fmt.Errorf("edge l4_route protocol %q must be tcp or udp", r.Protocol)
+		}
+		if r.Listen < 1 || r.Listen > 65535 {
+			return fmt.Errorf("edge l4_route listen port %d is out of range", r.Listen)
+		}
+		if r.Listen == 80 || r.Listen == 443 {
+			return fmt.Errorf("edge l4_route listen port %d is reserved for the HTTP edge", r.Listen)
+		}
+		if controlPort(r.Listen) {
+			return fmt.Errorf("edge l4_route listen port %d is a reserved control-plane port", r.Listen)
+		}
+		key := fmt.Sprintf("%s:%d", r.Protocol, r.Listen)
+		if l4Listen[key] {
+			return fmt.Errorf("edge l4_route listen %d/%s is declared twice", r.Listen, r.Protocol)
+		}
+		l4Listen[key] = true
+		listenPorts[r.Listen] = true
+		if !svcRe.MatchString(r.Service) {
+			return fmt.Errorf("edge l4_route on %d must name a valid service", r.Listen)
+		}
+		if !declared[r.Service] {
+			return fmt.Errorf("edge l4_route on %d targets unknown service %q", r.Listen, r.Service)
+		}
+		if r.Port < 1 || r.Port > 65535 || controlPort(r.Port) {
+			return fmt.Errorf("edge l4_route on %d has an invalid or reserved upstream port %d", r.Listen, r.Port)
+		}
+		switch r.TLS {
+		case "", "passthrough":
+		case "terminate":
+			return fmt.Errorf("edge l4_route on %d: tls: terminate is not yet supported (use passthrough)", r.Listen)
+		default:
+			return fmt.Errorf("edge l4_route on %d: tls %q must be passthrough", r.Listen, r.TLS)
+		}
+		switch r.LB {
+		case "", "round_robin", "least_conn", "hash_client_ip":
+		default:
+			return fmt.Errorf("edge l4_route on %d: lb %q must be round_robin, least_conn, or hash_client_ip", r.Listen, r.LB)
+		}
+	}
+	// A service may not publish a host port the L4 LB already owns (collision): the
+	// LB binds it and fans to internal replicas.
+	for name, svc := range s.Compose.Services {
+		for _, p := range svc.Ports {
+			if !p.Publish {
+				continue
+			}
+			host := p.Internal
+			if p.Published != 0 {
+				host = p.Published
+			}
+			if listenPorts[host] {
+				return fmt.Errorf("service %q publishes host port %d, which is owned by an edge l4_route", name, host)
+			}
 		}
 	}
 	return nil

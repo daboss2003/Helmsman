@@ -17,7 +17,8 @@ package scale
 type ServiceSpec struct {
 	Name                string
 	EdgeUpstream        bool // C1: an edge HTTP upstream with a known internal port
-	FixedHostPort       bool // C2 (disqualifies): publishes a fixed host port
+	L4Upstream          bool // C1 (alt): a managed L4 (TCP/UDP) upstream — fronted by an edge l4_route, replicas internal-only
+	FixedHostPort       bool // C2 (disqualifies): publishes a fixed host port the LB does NOT own
 	RWVolume            bool // C3 (disqualifies): has an exclusive read-write volume
 	Stateful            bool // C4 (disqualifies): a DB/broker/coordination store
 	IdentityPlaceholder bool // C5 (disqualifies): a deploy-time identity (node cookie/name/seed/host-bound port)
@@ -33,10 +34,10 @@ func Candidacy(s ServiceSpec) (ok bool, reason string) {
 	switch {
 	case !s.OptedIn:
 		return false, "scaling not enabled for this service (opt-in required)"
-	case !s.EdgeUpstream:
-		return false, "not an edge HTTP upstream with a known internal port (C1)"
+	case !s.EdgeUpstream && !s.L4Upstream:
+		return false, "not an edge HTTP upstream or a managed L4 upstream with a known internal port (C1)"
 	case s.FixedHostPort:
-		return false, "publishes a fixed host port — replicas would collide (C2)"
+		return false, "publishes a fixed host port the LB doesn't own — replicas would collide (C2)"
 	case s.RWVolume:
 		return false, "has an exclusive read-write volume — not safely replicable (C3)"
 	case s.Stateful:

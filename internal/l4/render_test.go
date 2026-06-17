@@ -1,0 +1,89 @@
+package l4
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestRenderTCPandUDP(t *testing.T) {
+	out, err := Render([]Route{
+		{Listen: 53, Protocol: "udp", Service: "coredns", Port: 5353, LB: "hash_client_ip"},
+		{Listen: 853, Protocol: "tcp", Service: "coredns", Port: 8853, LB: "least_conn",
+			Pool: []string{"10.0.0.5:8853", "10.0.0.6:8853"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// UDP listener + udp directive; DNS-fallback upstream (no pool → service:port).
+	for _, want := range []string{
+		"stream {",
+		"upstream l4_53_udp {",
+		"hash $remote_addr consistent;",
+		"server coredns:5353;",
+		"listen 53 udp;",
+		"proxy_pass l4_53_udp;",
+		// TCP listener + explicit pool + least_conn.
+		"upstream l4_853_tcp {",
+		"least_conn;",
+		"server 10.0.0.5:8853;",
+		"server 10.0.0.6:8853;",
+		"listen 853;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered config missing %q\n---\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "listen 853 udp") {
+		t.Errorf("tcp route must not get a udp listener:\n%s", out)
+	}
+}
+
+func TestRenderRejectsDuplicateListener(t *testing.T) {
+	_, err := Render([]Route{
+		{Listen: 53, Protocol: "udp", Service: "a", Port: 5353},
+		{Listen: 53, Protocol: "udp", Service: "b", Port: 5353},
+	})
+	if err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("duplicate listen+proto must be rejected, got %v", err)
+	}
+	// Same port, different protocol is fine (DNS commonly uses both).
+	if _, err := Render([]Route{
+		{Listen: 53, Protocol: "udp", Service: "a", Port: 5353},
+		{Listen: 53, Protocol: "tcp", Service: "a", Port: 5353},
+	}); err != nil {
+		t.Fatalf("same port different protocol should be allowed: %v", err)
+	}
+}
+
+func TestValidateRouteRejects(t *testing.T) {
+	cases := map[string]Route{
+		"bad protocol":     {Listen: 53, Protocol: "sctp", Service: "a", Port: 5353},
+		"edge port 443":    {Listen: 443, Protocol: "tcp", Service: "a", Port: 5353},
+		"edge port 80":     {Listen: 80, Protocol: "tcp", Service: "a", Port: 5353},
+		"control listen":   {Listen: 9000, Protocol: "tcp", Service: "a", Port: 5353},
+		"control upstream": {Listen: 53, Protocol: "tcp", Service: "a", Port: 2375},
+		"bad lb":           {Listen: 53, Protocol: "tcp", Service: "a", Port: 5353, LB: "magic"},
+		"loopback member":  {Listen: 53, Protocol: "tcp", Service: "a", Port: 5353, Pool: []string{"127.0.0.1:5353"}},
+		"member no port":   {Listen: 53, Protocol: "tcp", Service: "a", Port: 5353, Pool: []string{"host"}},
+	}
+	for name, r := range cases {
+		if err := ValidateRoute(r); err == nil {
+			t.Errorf("%s: expected rejection, got nil", name)
+		}
+	}
+}
+
+// Injection safety: a service name or pool member carrying nginx-config metacharacters
+// (newline, space, brace, semicolon) must be rejected, never emitted into the config.
+func TestRenderRejectsInjection(t *testing.T) {
+	bad := []Route{
+		{Listen: 53, Protocol: "tcp", Service: "a;\nlisten 9000", Port: 5353},
+		{Listen: 53, Protocol: "tcp", Service: "ok", Port: 5353, Pool: []string{"evil:1;}\nserver 127.0.0.1:9000"}},
+		{Listen: 53, Protocol: "tcp", Service: "has space", Port: 5353},
+	}
+	for i, r := range bad {
+		if _, err := Render([]Route{r}); err == nil {
+			t.Errorf("case %d: injection route must be rejected", i)
+		}
+	}
+}

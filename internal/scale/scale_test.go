@@ -40,6 +40,20 @@ func TestCandidacyDisqualifiers(t *testing.T) {
 	}
 }
 
+// An L4 upstream (e.g. a DNS resolver fronted by an edge l4_route, replicas
+// internal-only) satisfies C1 without being an HTTP edge upstream.
+func TestCandidacyL4Upstream(t *testing.T) {
+	s := ServiceSpec{Name: "coredns", L4Upstream: true, StatelessContract: true, OptedIn: true}
+	if ok, why := Candidacy(s); !ok {
+		t.Errorf("an opted-in, stateless L4 upstream should be a candidate, got %q", why)
+	}
+	// Still disqualified if it ALSO grabs a fixed host port the LB doesn't own.
+	s.FixedHostPort = true
+	if ok, _ := Candidacy(s); ok {
+		t.Error("an L4 upstream that still publishes a fixed host port must be disqualified (C2)")
+	}
+}
+
 // --- capacity guard (the OOM-safety math) ---
 
 const GiB = 1 << 30
