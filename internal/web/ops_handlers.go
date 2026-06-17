@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/ops"
 )
 
@@ -59,11 +60,58 @@ func (s *Server) handleOpsConfigPost(w http.ResponseWriter, r *http.Request) {
 		s.renderOpsConfig(w, r, project, &cfg, err.Error())
 		return
 	}
+	s.opsWriteBack(r, project)
 	_ = s.audit.Log(r.Context(), audit.Event{
 		Actor: sessionUser(r), IP: ClientIP(r.Context()).String(),
 		Action: "ops_config_set", Target: project, Outcome: audit.OK, Level: audit.Security,
 	})
 	http.Redirect(w, r, "/apps/"+project, http.StatusSeeOther)
+}
+
+// opsWriteBack persists the just-applied ops config (everything but the secret VALUE)
+// into the canonical helmsman.yaml, so "the file, dashboard-updated last" stays true
+// and an export/redeploy reflects the edit. It reads the NORMALIZED config back from
+// the ops store (so the canonical matches exactly what was applied) and preserves any
+// existing secret reference — the value lives only in the encrypted ops store. It is
+// best-effort: the ops config is already applied, so a missing canonical (app never
+// deployed from yaml) or a re-validation hiccup is logged, never fatal.
+func (s *Server) opsWriteBack(r *http.Request, project string) {
+	if s.defStore == nil {
+		return
+	}
+	def, err := s.defStore.Current(project)
+	if err != nil || def == nil {
+		return // no canonical yet → nothing to keep in sync (the ops store is the record)
+	}
+	cfg, ok, gerr := s.opsStore.Get(project)
+	if gerr != nil || !ok {
+		return
+	}
+	ref := ""
+	if def.Spec.OpsInterface != nil {
+		ref = def.Spec.OpsInterface.Secret // the value is excepted; keep the reference, if any
+	}
+	def.Spec.OpsInterface = &definition.OpsInterface{
+		Enabled:      cfg.Enabled,
+		BaseURL:      cfg.BaseURL,
+		SecretHeader: cfg.SecretHeader,
+		Secret:       ref,
+		Mode:         cfg.OpsMode,
+		BasePath:     cfg.BasePath,
+		Adapter:      cfg.Adapter,
+	}
+	canon, cerr := definition.Canonical(def)
+	if cerr != nil {
+		s.log.Warn("ops write-back: could not render canonical (ops config applied)", "project", project, "err", cerr)
+		return
+	}
+	if _, perr := definition.Parse(canon); perr != nil {
+		s.log.Warn("ops write-back: canonical re-validation failed (ops config applied)", "project", project, "err", perr)
+		return
+	}
+	if _, serr := s.defStore.SaveCanonical(r.Context(), def, "dashboard: ops_interface"); serr != nil {
+		s.log.Warn("ops write-back: could not save canonical (ops config applied)", "project", project, "err", serr)
+	}
 }
 
 // handleQueueAction performs a server-side, secret-bearing queue action (the

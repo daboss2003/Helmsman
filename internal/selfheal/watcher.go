@@ -27,7 +27,8 @@ type Config struct {
 	Snap         func() *monitor.Snapshot
 	Sem          *dockerexec.Semaphore
 	Act          Actioner
-	Policy       Policy
+	Policy       Policy                  // the built-in/global default
+	PolicyFor    func(app string) Policy // per-app override (nil → always Policy); see spec.self_healing
 	Log          *slog.Logger
 	Interval     time.Duration
 	FloorBytes   uint64          // memory-headroom floor (0 = gate disabled, e.g. no host metrics)
@@ -148,13 +149,24 @@ func (w *Watcher) Tick(ctx context.Context) {
 	w.prune(ctx, seen, leases, now)
 }
 
+// policy returns the effective policy for an app: its tuned spec.self_healing if one
+// is configured, else the built-in default. The lookup is per tick so a redeploy that
+// changes the policy takes effect without a restart.
+func (w *Watcher) policy(app string) Policy {
+	if w.cfg.PolicyFor != nil {
+		return w.cfg.PolicyFor(app)
+	}
+	return w.cfg.Policy
+}
+
 // stepService decides and acts for one service.
 func (w *Watcher) stepService(ctx context.Context, app monitor.App, service string, key Key, obs Observation, now int64, headroom, floor uint64) {
 	prev, ok := w.fsms[key]
 	if !ok {
 		prev = FSM{Phase: Healthy}
 	}
-	d := Decide(prev, obs, w.cfg.Policy, now)
+	pol := w.policy(app.Project)
+	d := Decide(prev, obs, pol, now)
 
 	switch d.Act {
 	case ActNone:
@@ -166,16 +178,17 @@ func (w *Watcher) stepService(ctx context.Context, app monitor.App, service stri
 		w.emitInfra(ctx, app, service, d.Kind, "firing")
 		w.commit(ctx, key, d.Next, now)
 	case ActRemediate:
-		w.remediate(ctx, app, service, key, d, now, headroom, floor)
+		w.remediate(ctx, app, service, key, d, pol, now, headroom, floor)
 	}
 }
 
 // remediate applies the four safety gates to a proposed rung and acts accordingly.
-func (w *Watcher) remediate(ctx context.Context, app monitor.App, service string, key Key, d Decision, now int64, headroom, floor uint64) {
+// pol is the effective (per-app) policy for this service.
+func (w *Watcher) remediate(ctx context.Context, app monitor.App, service string, key Key, d Decision, pol Policy, now int64, headroom, floor uint64) {
 	gi := GateInput{
 		Rung:                 d.Rung,
 		WritePlaneOK:         w.cfg.WritePlaneOK,
-		RedeployEnabled:      w.cfg.Policy.RedeployEnabled,
+		RedeployEnabled:      pol.RedeployEnabled,
 		AcquireSemaphore:     w.cfg.Sem.TryAcquire,
 		HeadroomBytes:        headroom,
 		FloorBytes:           floor,
@@ -189,7 +202,7 @@ func (w *Watcher) remediate(ctx context.Context, app monitor.App, service string
 		err := w.cfg.Act.Remediate(ctx, app, service, d.Rung)
 		// The attempt is consumed whether or not the action succeeded (a failed
 		// rung still counts toward the cap → the circuit eventually opens).
-		w.commit(ctx, key, CommitRemediation(d.Next, d.Rung, w.cfg.Policy, now), now)
+		w.commit(ctx, key, CommitRemediation(d.Next, d.Rung, pol, now), now)
 		if err != nil {
 			w.cfg.Log.Warn("selfheal: remediation failed", "app", app.Project, "service", service, "rung", d.Rung, "err", err)
 		} else {

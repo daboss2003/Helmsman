@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/daboss2003/Helmsman/internal/ops"
+	"github.com/daboss2003/Helmsman/internal/opsclient"
 	"github.com/daboss2003/Helmsman/internal/sandbox"
 	"github.com/daboss2003/Helmsman/internal/secretgen"
 	"gopkg.in/yaml.v3"
@@ -61,12 +63,14 @@ type Metadata struct {
 
 // Spec is the managed surface. Each field projects onto an existing artifact.
 type Spec struct {
-	Compose Compose   `yaml:"compose"`
-	Secrets []Secret  `yaml:"secrets,omitempty"`
-	Edge    Edge      `yaml:"edge"`
-	Scaling []Scaling `yaml:"scaling,omitempty"` // one policy per service (auto-scale several services in one app)
-	Git     *Git      `yaml:"git,omitempty"`
-	Setup   *Setup    `yaml:"setup,omitempty"`
+	Compose      Compose       `yaml:"compose"`
+	Secrets      []Secret      `yaml:"secrets,omitempty"`
+	Edge         Edge          `yaml:"edge"`
+	Scaling      []Scaling     `yaml:"scaling,omitempty"` // one policy per service (auto-scale several services in one app)
+	SelfHealing  *SelfHealing  `yaml:"self_healing,omitempty"`
+	OpsInterface *OpsInterface `yaml:"ops_interface,omitempty"`
+	Git          *Git          `yaml:"git,omitempty"`
+	Setup        *Setup        `yaml:"setup,omitempty"`
 }
 
 // Compose is GENERATED-ONLY: Helmsman owns the compose. `source` defaults to and may
@@ -237,6 +241,36 @@ type Scaling struct {
 	CooldownDownSecs   int     `yaml:"cooldown_down_secs,omitempty"` // min seconds between scale-downs (default 300; >= up)
 }
 
+// SelfHealing tunes this app's self-healing supervisor (§8.5). Helmsman supervises
+// every service with a conservative built-in default; this block overrides the ladder
+// tunables for ONE app. Omitted fields keep the built-in default; an omitted block
+// leaves the app on the default entirely. All durations are in seconds.
+type SelfHealing struct {
+	SustainTicks    int  `yaml:"sustain_ticks,omitempty"`     // failing ticks before the first remediation (anti-flap)
+	AttemptCap      int  `yaml:"attempt_cap,omitempty"`       // remediations per window before the circuit opens
+	StabilizeTicks  int  `yaml:"stabilize_ticks,omitempty"`   // healthy ticks required to declare RECOVERED
+	OOMStrikeCap    int  `yaml:"oom_strike_cap,omitempty"`    // OOM-classified failures before short-circuiting the ladder
+	WindowSeconds   int  `yaml:"window_seconds,omitempty"`    // attempt-window length; attempts reset after it elapses
+	BackoffBaseSecs int  `yaml:"backoff_base_secs,omitempty"` // exponential backoff base between attempts
+	BackoffMaxSecs  int  `yaml:"backoff_max_secs,omitempty"`  // backoff ceiling
+	RedeployEnabled bool `yaml:"redeploy_enabled,omitempty"`  // rung-3 redeploy (≥1 GB host AND opt-in here)
+}
+
+// OpsInterface is the app's optional ops endpoint (§4): Helmsman probes it for RICH
+// health/queues. Everything here is operator config EXCEPT the shared-secret VALUE —
+// that stays encrypted (set the value in the dashboard, or declare a secret and point
+// `secret` at it; the value never lives in this file). base_url is the in-cluster
+// endpoint (origin only, never loopback); base_path is the relative prefix.
+type OpsInterface struct {
+	Enabled      bool   `yaml:"enabled"`
+	BaseURL      string `yaml:"base_url,omitempty"`
+	SecretHeader string `yaml:"secret_header,omitempty"`
+	Secret       string `yaml:"secret,omitempty"` // reference to a declared secret NAME (value resolved at deploy); never the value
+	Mode         string `yaml:"mode,omitempty"`   // auto | rich | basic
+	BasePath     string `yaml:"base_path,omitempty"`
+	Adapter      string `yaml:"adapter,omitempty"`
+}
+
 // Git is the repo-path / auto-pull config (§7.6). AutoDeploy defaults false.
 type Git struct {
 	Repo       string `yaml:"repo"`
@@ -315,7 +349,83 @@ func (s *Spec) validate() error {
 	if err := s.validateScaling(); err != nil {
 		return err
 	}
+	if err := s.validateSelfHealing(); err != nil {
+		return err
+	}
+	if err := s.validateOpsInterface(); err != nil {
+		return err
+	}
 	return s.validateSetup()
+}
+
+// validateSelfHealing checks the per-app self-healing tunables are structurally sane.
+// Every field is optional (0 = "keep the built-in default"); the controller contract
+// (e.g. backoff_max >= backoff_base) is re-applied with defaults filled when the
+// policy is persisted at deploy.
+func (s *Spec) validateSelfHealing() error {
+	sh := s.SelfHealing
+	if sh == nil {
+		return nil
+	}
+	for _, f := range []struct {
+		name string
+		v    int
+	}{
+		{"sustain_ticks", sh.SustainTicks}, {"attempt_cap", sh.AttemptCap},
+		{"stabilize_ticks", sh.StabilizeTicks}, {"oom_strike_cap", sh.OOMStrikeCap},
+		{"window_seconds", sh.WindowSeconds}, {"backoff_base_secs", sh.BackoffBaseSecs},
+		{"backoff_max_secs", sh.BackoffMaxSecs},
+	} {
+		if f.v < 0 {
+			return fmt.Errorf("self_healing.%s must be >= 0", f.name)
+		}
+	}
+	if sh.BackoffBaseSecs > 0 && sh.BackoffMaxSecs > 0 && sh.BackoffMaxSecs < sh.BackoffBaseSecs {
+		return fmt.Errorf("self_healing.backoff_max_secs (%d) cannot be less than backoff_base_secs (%d)", sh.BackoffMaxSecs, sh.BackoffBaseSecs)
+	}
+	return nil
+}
+
+// validateOpsInterface checks the ops endpoint config: when enabled, base_url is a
+// valid pinned origin (§4.1 — never loopback); mode is auto|rich|basic; base_path is
+// relative; the secret header (if set) is a valid header name; and the `secret`
+// reference (if set) names a DECLARED secret (the value is resolved at deploy — never
+// stored here). The same predicates run again in ops.ConfigStore.Set at apply.
+func (s *Spec) validateOpsInterface() error {
+	oi := s.OpsInterface
+	if oi == nil {
+		return nil
+	}
+	if oi.Mode != "" && oi.Mode != "auto" && oi.Mode != "rich" && oi.Mode != "basic" {
+		return fmt.Errorf("ops_interface.mode %q must be auto, rich, or basic", oi.Mode)
+	}
+	if oi.Enabled {
+		if err := ops.ValidateBaseURL(oi.BaseURL); err != nil {
+			return fmt.Errorf("ops_interface.base_url: %w", err)
+		}
+	}
+	if bp := strings.TrimRight(strings.TrimSpace(oi.BasePath), "/"); bp != "" && !opsclient.ValidateRelPath(bp) {
+		return fmt.Errorf("ops_interface.base_path %q must be a relative path like /ops", oi.BasePath)
+	}
+	if h := strings.TrimSpace(oi.SecretHeader); h != "" && !opsclient.ValidHeaderName(h) {
+		return fmt.Errorf("ops_interface.secret_header %q is invalid (e.g. X-Ops-Secret)", oi.SecretHeader)
+	}
+	if oi.Secret != "" {
+		if !secretRe.MatchString(oi.Secret) {
+			return fmt.Errorf("ops_interface.secret references an invalid secret name %q", oi.Secret)
+		}
+		declared := false
+		for _, sec := range s.Secrets {
+			if sec.Name == oi.Secret {
+				declared = true
+				break
+			}
+		}
+		if !declared {
+			return fmt.Errorf("ops_interface.secret references undeclared secret %q (add it under spec.secrets)", oi.Secret)
+		}
+	}
+	return nil
 }
 
 // validateScaling checks each per-service scaling policy: the service exists, no

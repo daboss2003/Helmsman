@@ -321,12 +321,20 @@ func cmdServe(args []string) error {
 		shAlerts = alertStore
 	}
 	watcher := selfheal.New(selfheal.Config{
-		Store:        selfHealStore,
-		Alerts:       shAlerts,
-		Snap:         mon.Snapshot,
-		Sem:          dockerSem,
-		Act:          srv,
-		Policy:       shPolicy,
+		Store:  selfHealStore,
+		Alerts: shAlerts,
+		Snap:   mon.Snapshot,
+		Sem:    dockerSem,
+		Act:    srv,
+		Policy: shPolicy,
+		// Per-app override from helmsman.yaml spec.self_healing (falls back to the
+		// built-in default for an app with no tuned policy / on a read error).
+		PolicyFor: func(app string) selfheal.Policy {
+			if p, ok, err := selfHealStore.PolicyFor(app); err == nil && ok {
+				return p
+			}
+			return shPolicy
+		},
 		Log:          log,
 		Interval:     cfg.Monitor.PollInterval.D(),
 		FloorBytes:   256 << 20, // memory-headroom floor for a momentary old+new during a restart

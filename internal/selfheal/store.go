@@ -2,6 +2,8 @@ package selfheal
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/daboss2003/Helmsman/internal/store"
 )
@@ -109,6 +111,53 @@ func (s *Store) ActiveExpectedDown(now int64) (map[string]bool, error) {
 // that crashed without releasing its lease can't suppress a crash-loop alert forever.
 func (s *Store) ClearAllExpectedDown(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM expected_down`)
+	return err
+}
+
+// --- per-app self-healing policy (helmsman.yaml spec.self_healing) ---
+
+// SavePolicy upserts one app's tuned self-healing policy. The whole-app policy is
+// the helmsman.yaml source of truth; the supervisor reads it per tick via PolicyFor
+// and falls back to the built-in default for an app with no row.
+func (s *Store) SavePolicy(ctx context.Context, project string, p Policy, now int64) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO app_selfheal
+		(project, sustain_ticks, attempt_cap, stabilize_ticks, oom_strike_cap,
+		 window_seconds, backoff_base_secs, backoff_max_secs, redeploy_enabled, updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(project) DO UPDATE SET
+			sustain_ticks=excluded.sustain_ticks, attempt_cap=excluded.attempt_cap,
+			stabilize_ticks=excluded.stabilize_ticks, oom_strike_cap=excluded.oom_strike_cap,
+			window_seconds=excluded.window_seconds, backoff_base_secs=excluded.backoff_base_secs,
+			backoff_max_secs=excluded.backoff_max_secs, redeploy_enabled=excluded.redeploy_enabled,
+			updated_at=excluded.updated_at`,
+		project, p.SustainTicks, p.AttemptCap, p.StabilizeTicks, p.OOMStrikeCap,
+		p.WindowSeconds, p.BackoffBaseSecs, p.BackoffMaxSecs, b2i(p.RedeployEnabled), now)
+	return err
+}
+
+// PolicyFor returns an app's tuned policy. ok=false (and the built-in default should
+// be used) when the app has no row.
+func (s *Store) PolicyFor(project string) (Policy, bool, error) {
+	var p Policy
+	var redeploy int
+	err := s.db.QueryRow(`SELECT sustain_ticks, attempt_cap, stabilize_ticks, oom_strike_cap,
+		window_seconds, backoff_base_secs, backoff_max_secs, redeploy_enabled
+		FROM app_selfheal WHERE project = ?`, project).Scan(
+		&p.SustainTicks, &p.AttemptCap, &p.StabilizeTicks, &p.OOMStrikeCap,
+		&p.WindowSeconds, &p.BackoffBaseSecs, &p.BackoffMaxSecs, &redeploy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Policy{}, false, nil
+	}
+	if err != nil {
+		return Policy{}, false, err
+	}
+	p.RedeployEnabled = redeploy == 1
+	return p, true, nil
+}
+
+// DeletePolicy drops an app's tuned policy (reverting it to the built-in default).
+func (s *Store) DeletePolicy(ctx context.Context, project string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM app_selfheal WHERE project=?`, project)
 	return err
 }
 

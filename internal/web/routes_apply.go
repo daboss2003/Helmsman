@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/edge"
 	"github.com/daboss2003/Helmsman/internal/l4"
+	"github.com/daboss2003/Helmsman/internal/ops"
 	"github.com/daboss2003/Helmsman/internal/scale"
+	"github.com/daboss2003/Helmsman/internal/selfheal"
 )
 
 // handleDefinitionYAML serves the app's canonical helmsman.yaml — "the file,
@@ -65,7 +68,91 @@ func (s *Server) applyDefinition(ctx context.Context, project string, def *defin
 	if err := s.applyRoutes(ctx, project, def); err != nil {
 		return err
 	}
-	return s.applyScaling(ctx, project, def)
+	if err := s.applyScaling(ctx, project, def); err != nil {
+		return err
+	}
+	if err := s.applySelfHealing(ctx, project, def); err != nil {
+		return err
+	}
+	return s.applyOps(ctx, project, def)
+}
+
+// applyOps reconciles this app's helmsman.yaml ops_interface into the ops config store
+// (the prober reads it for RICH health). Gated + additive: it only runs when ops is
+// owned and the def declares the block; an omitted block leaves any dashboard-set ops
+// config untouched. The shared-secret VALUE never lives in the YAML — if the block
+// names a `secret` reference, its value is resolved from the encrypted secret store at
+// deploy; with no reference, ops.Set keeps the stored secret (NewSecret left nil), so
+// a dashboard-managed secret survives a yaml deploy.
+func (s *Server) applyOps(ctx context.Context, project string, def *definition.Definition) error {
+	if s.opsStore == nil || def.Spec.OpsInterface == nil {
+		return nil
+	}
+	oi := def.Spec.OpsInterface
+	in := ops.SetInput{
+		Enabled:      oi.Enabled,
+		BaseURL:      oi.BaseURL,
+		SecretHeader: oi.SecretHeader,
+		OpsMode:      oi.Mode,
+		BasePath:     oi.BasePath,
+		Adapter:      oi.Adapter,
+	}
+	if oi.Secret != "" && s.envStore != nil {
+		if v, ok, err := s.envStore.Reveal(project, oi.Secret); err == nil && ok {
+			in.NewSecret = &v
+		}
+	}
+	if err := s.opsStore.Set(project, in); err != nil {
+		return fmt.Errorf("apply ops_interface: %w", err)
+	}
+	return nil
+}
+
+// applySelfHealing persists this app's helmsman.yaml self-healing tunables into the
+// supervisor's per-app policy store (the watcher reads it per tick, so a redeploy
+// re-tunes without a restart). Gated + additive: it only runs when the supervisor is
+// owned and the def declares the block; omitted fields keep the built-in default. An
+// omitted block leaves any existing policy untouched (matching applyScaling), so a
+// dashboard-managed default is never silently reset.
+func (s *Server) applySelfHealing(ctx context.Context, project string, def *definition.Definition) error {
+	if s.selfHeal == nil || def.Spec.SelfHealing == nil {
+		return nil
+	}
+	if err := s.selfHeal.SavePolicy(ctx, project, selfHealPolicy(def.Spec.SelfHealing), time.Now().Unix()); err != nil {
+		return fmt.Errorf("apply self_healing: %w", err)
+	}
+	return nil
+}
+
+// selfHealPolicy maps a definition self-healing block onto a controller policy: it
+// starts from the conservative built-in default and overrides only the fields the
+// YAML sets (0 = keep the default). redeploy_enabled is a bool, so it's always taken
+// from the YAML (default off).
+func selfHealPolicy(sh *definition.SelfHealing) selfheal.Policy {
+	p := selfheal.DefaultPolicy()
+	if sh.SustainTicks > 0 {
+		p.SustainTicks = sh.SustainTicks
+	}
+	if sh.AttemptCap > 0 {
+		p.AttemptCap = sh.AttemptCap
+	}
+	if sh.StabilizeTicks > 0 {
+		p.StabilizeTicks = sh.StabilizeTicks
+	}
+	if sh.OOMStrikeCap > 0 {
+		p.OOMStrikeCap = sh.OOMStrikeCap
+	}
+	if sh.WindowSeconds > 0 {
+		p.WindowSeconds = int64(sh.WindowSeconds)
+	}
+	if sh.BackoffBaseSecs > 0 {
+		p.BackoffBaseSecs = int64(sh.BackoffBaseSecs)
+	}
+	if sh.BackoffMaxSecs > 0 {
+		p.BackoffMaxSecs = int64(sh.BackoffMaxSecs)
+	}
+	p.RedeployEnabled = sh.RedeployEnabled
+	return p
 }
 
 // defDriftedFromRepo reports whether the canonical was last written by the dashboard

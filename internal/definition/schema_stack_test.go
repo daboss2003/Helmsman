@@ -207,3 +207,69 @@ func TestScalingValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfHealingValidation(t *testing.T) {
+	base := "  compose:\n    services:\n      web: {image: nginx:1}\n"
+	good := base + "  self_healing:\n    sustain_ticks: 3\n    attempt_cap: 5\n    window_seconds: 3600\n    backoff_base_secs: 60\n    backoff_max_secs: 900\n    redeploy_enabled: true\n"
+	if _, err := Parse([]byte(docWith(good))); err != nil {
+		t.Fatalf("self_healing should be valid: %v", err)
+	}
+	bad := map[string]string{
+		"negative field": base + "  self_healing:\n    sustain_ticks: -1\n",
+		"max below base": base + "  self_healing:\n    backoff_base_secs: 600\n    backoff_max_secs: 60\n",
+		"unknown field":  base + "  self_healing:\n    bogus: 1\n",
+	}
+	for name, spec := range bad {
+		if _, err := Parse([]byte(docWith(spec))); err == nil {
+			t.Errorf("%s: expected rejection", name)
+		}
+	}
+}
+
+func TestOpsInterfaceValidation(t *testing.T) {
+	base := "  compose:\n    services:\n      web: {image: nginx:1}\n  secrets:\n    - {name: OPS_SECRET, generate: 'password:32'}\n"
+	good := base + "  ops_interface:\n    enabled: true\n    base_url: http://web:8080\n    secret_header: X-Ops-Secret\n    secret: OPS_SECRET\n    mode: rich\n    base_path: /ops\n"
+	if _, err := Parse([]byte(docWith(good))); err != nil {
+		t.Fatalf("ops_interface should be valid: %v", err)
+	}
+	bad := map[string]string{
+		"bad mode":          base + "  ops_interface:\n    mode: turbo\n",
+		"enabled loopback":  base + "  ops_interface:\n    enabled: true\n    base_url: http://localhost:8080\n",
+		"enabled no host":   base + "  ops_interface:\n    enabled: true\n    base_url: notaurl\n",
+		"undeclared secret": base + "  ops_interface:\n    secret: GHOST\n",
+		"bad base_path":     base + "  ops_interface:\n    base_path: 'http://x'\n",
+	}
+	for name, spec := range bad {
+		if _, err := Parse([]byte(docWith(spec))); err == nil {
+			t.Errorf("%s: expected rejection", name)
+		}
+	}
+}
+
+// TestSelfHealOpsCanonicalRoundTrip proves the new spec keys survive a Canonical →
+// Parse round-trip (the write-back path: dashboard/deploy renders the canonical, then
+// re-validates it). A field that didn't round-trip would silently drop on every save.
+func TestSelfHealOpsCanonicalRoundTrip(t *testing.T) {
+	src := docWith("  compose:\n    services:\n      web: {image: nginx:1}\n" +
+		"  secrets:\n    - {name: OPS_SECRET, generate: 'password:32'}\n" +
+		"  self_healing:\n    attempt_cap: 5\n    redeploy_enabled: true\n" +
+		"  ops_interface:\n    enabled: true\n    base_url: http://web:8080\n    secret: OPS_SECRET\n    mode: rich\n")
+	d, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	canon, err := Canonical(d)
+	if err != nil {
+		t.Fatalf("canonical: %v", err)
+	}
+	d2, err := Parse(canon)
+	if err != nil {
+		t.Fatalf("re-parse canonical: %v\n%s", err, canon)
+	}
+	if d2.Spec.SelfHealing == nil || d2.Spec.SelfHealing.AttemptCap != 5 || !d2.Spec.SelfHealing.RedeployEnabled {
+		t.Errorf("self_healing did not round-trip: %+v", d2.Spec.SelfHealing)
+	}
+	if d2.Spec.OpsInterface == nil || !d2.Spec.OpsInterface.Enabled || d2.Spec.OpsInterface.Secret != "OPS_SECRET" || d2.Spec.OpsInterface.Mode != "rich" {
+		t.Errorf("ops_interface did not round-trip: %+v", d2.Spec.OpsInterface)
+	}
+}
