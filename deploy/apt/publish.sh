@@ -45,10 +45,19 @@ echo ">> adding packages"
 aptly repo add helmsman "$workdir"/*.deb
 
 echo ">> publishing (signed)"
+# sign always has >=1 element, so "${sign[@]}" is safe even on bash 3.2. In CI set
+# GPG_PASSPHRASE to sign non-interactively (-batch + a 0600 passphrase-file under the
+# workdir, removed with it); locally, omit it and gpg-agent/pinentry prompts.
+sign=(-gpg-key="$GPG_KEY_ID")
+if [ -n "${GPG_PASSPHRASE:-}" ]; then
+    pf="$workdir/passphrase"
+    (umask 077; printf '%s' "$GPG_PASSPHRASE" > "$pf")
+    sign+=(-batch "-passphrase-file=$pf")
+fi
 if aptly publish list | grep -q "$DIST"; then
-    aptly publish update -gpg-key="$GPG_KEY_ID" "$DIST"
+    aptly publish update "${sign[@]}" "$DIST"
 else
-    aptly publish repo -gpg-key="$GPG_KEY_ID" -distribution="$DIST" helmsman
+    aptly publish repo "${sign[@]}" -distribution="$DIST" helmsman
 fi
 
 # Export the rendered repo + the public signing key for static hosting.
@@ -58,6 +67,7 @@ rootdir="${rootdir/#\~/$HOME}"            # aptly prints "~/.aptly" — expand t
 [ -d "$rootdir/public" ] || rootdir="$HOME/.aptly"   # fallback to the default location
 rsync -a --delete "$rootdir/public/" "$OUT/"
 gpg --armor --export "$GPG_KEY_ID" > "$OUT/gpg.key"
+touch "$OUT/.nojekyll" # serve dists/ + pool/ raw (no GitHub Pages Jekyll processing)
 
 # A small landing page so the Pages root isn't a bare 404 (apt only fetches sub-paths,
 # but a human visiting the URL should see install instructions).

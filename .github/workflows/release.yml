@@ -2,16 +2,26 @@ name: release
 
 # Cut a release on every semver tag: build all arches, package .deb/.rpm, sign the
 # checksums, and publish a GitHub release. Tag with: git tag v1.2.3 && git push --tags
+# Then the `apt` job refreshes the signed APT repo on gh-pages so `apt upgrade` users
+# get the new version too. Use the manual "Run workflow" (workflow_dispatch) with a
+# version to (re)publish the APT repo for an EXISTING release without re-tagging.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing release tag to (re)publish to the APT repo, e.g. v0.2.1"
+        required: true
 
 permissions:
-  contents: write # create the GitHub release + upload assets
+  contents: write # create the GitHub release + upload assets + push gh-pages
 
 jobs:
   goreleaser:
+    # Tag pushes cut the release; a manual dispatch only (re)publishes the APT repo.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,3 +48,38 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.gpg.outputs.fingerprint }}
+
+  # Refresh the signed APT repo (gh-pages) from the release's .deb assets, so
+  # `apt update && apt upgrade` serves the new version. Runs after goreleaser on a
+  # tag push, or standalone via workflow_dispatch for an existing release.
+  apt:
+    needs: goreleaser
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.goreleaser.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # for deploy/apt/publish.sh
+
+      - name: Install aptly
+        run: sudo apt-get update -y && sudo apt-get install -y aptly
+
+      - id: gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Build the signed APT repo into ./public
+        env:
+          GPG_KEY_ID: ${{ steps.gpg.outputs.fingerprint }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }} # → aptly -batch -passphrase-file
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
+        run: deploy/apt/publish.sh "$VERSION"
+
+      - name: Publish ./public to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages
+          force_orphan: true # keep gh-pages a single clean commit (no history bloat)
+          commit_message: "apt repo ${{ github.event.inputs.version || github.ref_name }}"
