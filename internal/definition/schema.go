@@ -171,13 +171,81 @@ type Volume struct {
 
 // ConfigFile is an app config file Helmsman renders + bind-mounts read-only into a
 // service. Content is a repo path (git cat-file @ pinned commit) XOR inline template.
-// Bindings is the explicit allowlist of {{hm.KEY}} tokens the file may resolve (a
-// literal or a {secret: NAME}); the app's own ${…} survive byte-identical.
+// Bindings is the explicit allowlist of {{hm.KEY}} tokens the file may resolve; the
+// app's own ${…} survive byte-identical.
 type ConfigFile struct {
-	Repo     string              `yaml:"repo,omitempty"`
-	Template string              `yaml:"template,omitempty"`
-	Mount    string              `yaml:"mount"`
-	Bindings map[string]EnvValue `yaml:"bindings,omitempty"`
+	Repo     string             `yaml:"repo,omitempty"`
+	Template string             `yaml:"template,omitempty"`
+	Mount    string             `yaml:"mount"`
+	Bindings map[string]Binding `yaml:"bindings,omitempty"`
+}
+
+// Binding resolves one {{hm.KEY}} token in a config-file template. Exactly one form:
+// a scalar literal, or a single-key mapping selecting a source —
+//   - { secret: NAME }        the encrypted secret value (marks the file secret-bearing)
+//   - { env: NAME }           the SAME service's env value (literal or secret-backed)
+//   - { app: FIELD }          a safe app field (currently only `slug`)
+//   - { cert: HOSTNAME.field } a path to a SAME-service cert binding's tls.crt|key|ca
+//
+// This is the superset of the legacy dashboard binding sources, so the dashboard can
+// author the full capability into the canonical helmsman.yaml with nothing lost.
+type Binding struct {
+	Value  string
+	Secret string
+	Env    string
+	App    string
+	Cert   string
+}
+
+var validAppFields = map[string]bool{"slug": true}
+
+// MarshalYAML renders the canonical form: the single source mapping for a reference,
+// else the scalar literal — so Canonical round-trips back through UnmarshalYAML.
+func (b Binding) MarshalYAML() (any, error) {
+	switch {
+	case b.Secret != "":
+		return map[string]string{"secret": b.Secret}, nil
+	case b.Env != "":
+		return map[string]string{"env": b.Env}, nil
+	case b.App != "":
+		return map[string]string{"app": b.App}, nil
+	case b.Cert != "":
+		return map[string]string{"cert": b.Cert}, nil
+	default:
+		return b.Value, nil
+	}
+}
+
+// UnmarshalYAML accepts a scalar literal or a single-key { SOURCE: ARG } mapping.
+func (b *Binding) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		b.Value = n.Value
+		return nil
+	case yaml.MappingNode:
+		if len(n.Content) != 2 {
+			return fmt.Errorf("config-file binding mapping must be exactly one of { secret|env|app|cert: ARG }")
+		}
+		key, val := n.Content[0].Value, n.Content[1].Value
+		if val == "" {
+			return fmt.Errorf("config-file binding { %s: } requires an argument", key)
+		}
+		switch key {
+		case "secret":
+			b.Secret = val
+		case "env":
+			b.Env = val
+		case "app":
+			b.App = val
+		case "cert":
+			b.Cert = val
+		default:
+			return fmt.Errorf("config-file binding source %q must be one of secret, env, app, cert", key)
+		}
+		return nil
+	default:
+		return fmt.Errorf("config-file binding must be a literal or a { secret|env|app|cert: ARG } mapping")
+	}
 }
 
 // CertBinding syncs a managed cert to a service (renew + reload handled by Helmsman).
@@ -543,13 +611,18 @@ func (s *Spec) validateServices() error {
 				return fmt.Errorf("service %q secret_files references undeclared secret %q", name, sf)
 			}
 		}
-		for _, cf := range svc.ConfigFiles {
-			if err := validateConfigFile(name, cf, declaredSecrets); err != nil {
-				return err
-			}
-		}
+		// Cert bindings first: a config-file `{ cert: HOSTNAME.field }` may only
+		// reference a cert bound on the SAME service, so collect this service's cert
+		// hostnames before validating its config files.
+		certHosts := map[string]bool{}
 		for _, cb := range svc.CertBindings {
 			if err := validateCertBinding(name, cb); err != nil {
+				return err
+			}
+			certHosts[cb.Hostname] = true
+		}
+		for _, cf := range svc.ConfigFiles {
+			if err := validateConfigFile(name, cf, declaredSecrets, certHosts); err != nil {
 				return err
 			}
 		}
@@ -652,7 +725,10 @@ func validateBuild(svc string, b *Build) error {
 	return nil
 }
 
-func validateConfigFile(svc string, cf ConfigFile, declaredSecrets map[string]bool) error {
+// certFields are the cert files a { cert: HOSTNAME.field } binding may reference.
+var certFields = map[string]bool{"crt": true, "key": true, "ca": true}
+
+func validateConfigFile(svc string, cf ConfigFile, declaredSecrets, certHosts map[string]bool) error {
 	if err := mountPath(cf.Mount); err != nil {
 		return fmt.Errorf("service %q config_files mount: %w", svc, err)
 	}
@@ -670,13 +746,52 @@ func validateConfigFile(svc string, cf ConfigFile, declaredSecrets map[string]bo
 		if !tokenKeyRe.MatchString(k) {
 			return fmt.Errorf("service %q config_files binding key %q is invalid", svc, k)
 		}
-		if b.Secret != "" {
-			if !secretRe.MatchString(b.Secret) {
-				return fmt.Errorf("service %q config_files binding %q references an invalid secret name %q", svc, k, b.Secret)
-			}
-			if !declaredSecrets[b.Secret] {
-				return fmt.Errorf("service %q config_files binding %q references undeclared secret %q", svc, k, b.Secret)
-			}
+		if err := validateBindingSource(svc, k, b, declaredSecrets, certHosts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateBindingSource checks one config-file binding: at most one source is set
+// (UnmarshalYAML already enforces single-key mappings; this guards programmatic
+// construction), and the referenced secret/env/app/cert is valid. A cert source may
+// only name a cert bound on the SAME service.
+func validateBindingSource(svc, key string, b Binding, declaredSecrets, certHosts map[string]bool) error {
+	set := 0
+	for _, v := range []string{b.Secret, b.Env, b.App, b.Cert} {
+		if v != "" {
+			set++
+		}
+	}
+	if set > 1 {
+		return fmt.Errorf("service %q config_files binding %q must set exactly one source", svc, key)
+	}
+	switch {
+	case b.Secret != "":
+		if !secretRe.MatchString(b.Secret) {
+			return fmt.Errorf("service %q config_files binding %q references an invalid secret name %q", svc, key, b.Secret)
+		}
+		if !declaredSecrets[b.Secret] {
+			return fmt.Errorf("service %q config_files binding %q references undeclared secret %q", svc, key, b.Secret)
+		}
+	case b.Env != "":
+		if !envKeyRe.MatchString(b.Env) {
+			return fmt.Errorf("service %q config_files binding %q references an invalid env key %q", svc, key, b.Env)
+		}
+	case b.App != "":
+		if !validAppFields[b.App] {
+			return fmt.Errorf("service %q config_files binding %q references unknown app field %q (only: slug)", svc, key, b.App)
+		}
+	case b.Cert != "":
+		// The field is the last dot-segment (crt|key|ca); the hostname (which itself
+		// contains dots) is everything before it.
+		i := strings.LastIndexByte(b.Cert, '.')
+		if i <= 0 || i == len(b.Cert)-1 || !certFields[b.Cert[i+1:]] {
+			return fmt.Errorf("service %q config_files binding %q cert source %q must be HOSTNAME.crt|key|ca", svc, key, b.Cert)
+		}
+		if host := b.Cert[:i]; !certHosts[host] {
+			return fmt.Errorf("service %q config_files binding %q references cert for %q, which is not a cert_binding on this service", svc, key, host)
 		}
 	}
 	return nil

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,29 +22,74 @@ import (
 	"github.com/daboss2003/Helmsman/internal/secretgen"
 )
 
-// configBindingResolver resolves {{hm.KEY}} tokens in a config file against its
-// explicit bindings: a literal value, or a secret value from the encrypted store.
-// Unknown keys fail closed (cfgfile.ErrUnknownBinding).
-func (s *Server) configBindingResolver(project string, bindings map[string]definition.EnvValue) cfgfile.Resolver {
+// configBindingResolver resolves {{hm.KEY}} tokens in one config file against its
+// explicit bindings (the superset model). A binding is a literal, or a reference to:
+//   - secret: an encrypted secret value (marks the file secret-bearing)
+//   - env:    the SAME service's env value (literal, or secret-backed → secret-bearing)
+//   - app:    a safe app field (currently `slug`)
+//   - cert:   the CONTAINER path to a same-service cert binding's tls.crt|key|ca
+//
+// Unknown keys fail closed (cfgfile.ErrUnknownBinding). The cert path is the mount the
+// cert dir is bind-mounted at (what the container sees), never a host path.
+func (s *Server) configBindingResolver(project, service string, svc definition.Service, bindings map[string]definition.Binding) cfgfile.Resolver {
+	certMount := map[string]string{}
+	for _, cb := range svc.CertBindings {
+		certMount[cb.Hostname] = cb.Mount
+	}
+	revealSecret := func(name, via string) (string, bool, error) {
+		if s.envStore == nil {
+			return "", false, fmt.Errorf("secret store unavailable")
+		}
+		v, ok, err := s.envStore.Reveal(project, name)
+		if err != nil {
+			return "", false, err
+		}
+		if !ok {
+			return "", false, fmt.Errorf("secret %q%s has no value — set it before deploying", name, via)
+		}
+		return v, true, nil
+	}
 	return func(key string) (string, bool, error) {
 		b, ok := bindings[key]
 		if !ok {
 			return "", false, cfgfile.ErrUnknownBinding
 		}
-		if b.Secret != "" {
-			if s.envStore == nil {
-				return "", false, fmt.Errorf("secret store unavailable")
-			}
-			v, ok, err := s.envStore.Reveal(project, b.Secret)
-			if err != nil {
-				return "", false, err
-			}
+		switch {
+		case b.Secret != "":
+			return revealSecret(b.Secret, "")
+		case b.Env != "":
+			ev, ok := svc.Env[b.Env]
 			if !ok {
-				return "", false, fmt.Errorf("secret %q has no value — set it before deploying", b.Secret)
+				return "", false, fmt.Errorf("env key %q is not set on service %q", b.Env, service)
 			}
-			return v, true, nil
+			if ev.Secret != "" {
+				return revealSecret(ev.Secret, fmt.Sprintf(" (via env %q)", b.Env))
+			}
+			return ev.Value, false, nil // an empty literal is a legitimate value
+		case b.App != "":
+			if b.App == "slug" {
+				return project, false, nil
+			}
+			return "", false, fmt.Errorf("app field %q is not available", b.App)
+		case b.Cert != "":
+			// Field is the last dot-segment (crt|key|ca); the hostname is the rest.
+			i := strings.LastIndexByte(b.Cert, '.')
+			if i <= 0 || i == len(b.Cert)-1 {
+				return "", false, fmt.Errorf("cert source %q must be HOSTNAME.crt|key|ca", b.Cert)
+			}
+			host, field := b.Cert[:i], b.Cert[i+1:]
+			mount, ok := certMount[host]
+			if !ok {
+				return "", false, fmt.Errorf("cert binding %q not defined on service %q", host, service)
+			}
+			fn := map[string]string{"crt": "tls.crt", "key": "tls.key", "ca": "tls.ca"}[field]
+			if fn == "" {
+				return "", false, fmt.Errorf("cert field %q must be crt|key|ca", field)
+			}
+			return path.Join(mount, fn), false, nil // container-visible path (read-only bind)
+		default:
+			return b.Value, false, nil
 		}
-		return b.Value, false, nil
 	}
 }
 
@@ -242,9 +288,9 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 			} else {
 				content = []byte(cf.Template)
 			}
-			// Render {{hm.KEY}} tokens against the file's explicit bindings (a literal
-			// or a secret value from the store); the app's own ${…} survive untouched.
-			rendered, secretBearing, rerr := cfgfile.Render(content, s.configBindingResolver(project, cf.Bindings))
+			// Render {{hm.KEY}} tokens against the file's explicit bindings (literal /
+			// secret / env / app / cert); the app's own ${…} survive untouched.
+			rendered, secretBearing, rerr := cfgfile.Render(content, s.configBindingResolver(project, name, svc, cf.Bindings))
 			if rerr != nil {
 				return fmt.Errorf("service %q config file: %w", name, rerr)
 			}

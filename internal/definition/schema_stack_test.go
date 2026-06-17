@@ -246,6 +246,46 @@ func TestOpsInterfaceValidation(t *testing.T) {
 	}
 }
 
+func TestConfigFileBindingSuperset(t *testing.T) {
+	base := "  secrets:\n    - {name: DB_PASS, generate: 'password:24'}\n  compose:\n    services:\n      web:\n        image: nginx:1\n        env: {UP: api:8080}\n        cert_bindings: [{hostname: shop.example.com, mount: /etc/ssl/shop}]\n"
+	good := base + "        config_files:\n          - mount: /etc/app.conf\n            template: \"{{hm.A}}{{hm.E}}{{hm.C}}{{hm.S}}{{hm.L}}\"\n            bindings:\n              A: {app: slug}\n              E: {env: UP}\n              C: {cert: shop.example.com.crt}\n              S: {secret: DB_PASS}\n              L: a-literal\n"
+	if _, err := Parse([]byte(docWith(good))); err != nil {
+		t.Fatalf("all binding kinds should be valid: %v", err)
+	}
+	bad := map[string]string{
+		"cert host not on service": base + "        config_files: [{mount: /a, template: '{{hm.C}}', bindings: {C: {cert: other.example.com.crt}}}]\n",
+		"cert bad field":           base + "        config_files: [{mount: /a, template: '{{hm.C}}', bindings: {C: {cert: shop.example.com.pem}}}]\n",
+		"unknown app field":        base + "        config_files: [{mount: /a, template: '{{hm.A}}', bindings: {A: {app: secret_key}}}]\n",
+		"two sources":              base + "        config_files: [{mount: /a, template: '{{hm.X}}', bindings: {X: {secret: DB_PASS, env: UP}}}]\n",
+		"undeclared secret":        base + "        config_files: [{mount: /a, template: '{{hm.X}}', bindings: {X: {secret: GHOST}}}]\n",
+	}
+	for name, spec := range bad {
+		if _, err := Parse([]byte(docWith(spec))); err == nil {
+			t.Errorf("%s: expected rejection", name)
+		}
+	}
+}
+
+func TestConfigFileBindingRoundTrip(t *testing.T) {
+	src := docWith("  secrets:\n    - {name: DB_PASS, generate: 'password:24'}\n  compose:\n    services:\n      web:\n        image: nginx:1\n        env: {UP: api:8080}\n        cert_bindings: [{hostname: shop.example.com, mount: /etc/ssl/shop}]\n        config_files:\n          - mount: /etc/app.conf\n            template: \"x\"\n            bindings:\n              A: {app: slug}\n              E: {env: UP}\n              C: {cert: shop.example.com.crt}\n              S: {secret: DB_PASS}\n              L: a-literal\n  edge: {}\n")
+	d, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	canon, err := Canonical(d)
+	if err != nil {
+		t.Fatalf("canonical: %v", err)
+	}
+	d2, err := Parse(canon)
+	if err != nil {
+		t.Fatalf("re-parse canonical: %v\n%s", err, canon)
+	}
+	bs := d2.Spec.Compose.Services["web"].ConfigFiles[0].Bindings
+	if bs["A"].App != "slug" || bs["E"].Env != "UP" || bs["C"].Cert != "shop.example.com.crt" || bs["S"].Secret != "DB_PASS" || bs["L"].Value != "a-literal" {
+		t.Errorf("config-file bindings did not round-trip: %+v", bs)
+	}
+}
+
 // TestSelfHealOpsCanonicalRoundTrip proves the new spec keys survive a Canonical →
 // Parse round-trip (the write-back path: dashboard/deploy renders the canonical, then
 // re-validates it). A field that didn't round-trip would silently drop on every save.
