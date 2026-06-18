@@ -18,10 +18,16 @@ This is the one part you do over SSH. It takes about five minutes: put the progr
 **Quickest — install the `.deb` directly.** Download the `.deb` for your architecture from the [latest release](https://github.com/daboss2003/Helmsman/releases/latest), then:
 
 ```bash
-sudo apt install ./helmsman_<version>_amd64.deb
+sudo apt install ./helmsman_<version>_linux_amd64.deb
 ```
 
 `apt` pulls in any dependencies, creates the `helmsman` service user, and installs the systemd unit — so you can **skip Step 4**. To update later, download the newer `.deb` and run the same command.
+
+> **Seeing `N: Download is performed unsandboxed as root … couldn't be accessed by user '_apt' … Permission denied`?** That's a harmless *note*, not a failure. `apt`'s unprivileged sandbox user can't read files in your home directory (it's mode `0750`), so `apt` copies the `.deb` as root and the install completes anyway — confirm with `dpkg -l helmsman`. To avoid the note, install from a path `_apt` can read (download into `/tmp`), or skip the sandbox with `dpkg`:
+>
+> ```bash
+> sudo dpkg -i helmsman_<version>_linux_amd64.deb && sudo apt-get install -f
+> ```
 
 **Best for updates — add the signed APT repo (once).** Then `sudo apt upgrade` keeps Helmsman current automatically, and every download is signature-checked:
 
