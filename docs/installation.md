@@ -37,7 +37,7 @@ echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github
 sudo apt update && sudo apt install helmsman
 ```
 
-(Fedora/RHEL: a matching `.rpm` is on each release — `sudo dnf install ./helmsman_<version>.x86_64.rpm`.)
+(Fedora/RHEL: a matching `.rpm` is on each release — `sudo dnf install ./helmsman_<version>_linux_amd64.rpm` (or `_linux_arm64.rpm`).)
 
 **Any other Linux — the raw binary.** Grab the binary for your architecture from the [releases page](https://github.com/daboss2003/Helmsman/releases) and put it in place (update by replacing the file). With this option you also do Step 4 to create the service:
 
@@ -57,7 +57,8 @@ helmsman gen-key
 # Your dashboard password (you'll be prompted to type it; it's never shown or logged).
 helmsman hash-password
 
-# Optional: turn on two-factor sign-in.
+# Optional: turn on two-factor sign-in. Prints a QR code to scan with your
+# authenticator app, plus the secret to paste into your config below.
 helmsman gen-totp
 ```
 

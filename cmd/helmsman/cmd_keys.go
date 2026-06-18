@@ -87,7 +87,14 @@ func cmdGenTOTP(args []string) error {
 	fmt.Printf("totp_secret: %q\n", sec)
 	otpauth := fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
 		url.PathEscape(*issuer), url.PathEscape(*account), sec, url.QueryEscape(*issuer))
-	fmt.Fprintf(os.Stderr, "Add to an authenticator app:\n%s\n", otpauth)
+	// Scan-to-add: render the otpauth URL as a terminal QR so the operator just points
+	// their authenticator at it instead of hand-typing a URL. The URL + secret are still
+	// printed below as a fallback (manual entry, or a render failure on a dumb terminal).
+	fmt.Fprintln(os.Stderr, "Scan this with your authenticator app:")
+	if err := printQR(os.Stderr, otpauth); err != nil {
+		fmt.Fprintf(os.Stderr, "(could not render the QR code: %v)\n", err)
+	}
+	fmt.Fprintf(os.Stderr, "\nOr add it manually:\n%s\n", otpauth)
 	return nil
 }
 

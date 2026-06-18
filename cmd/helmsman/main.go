@@ -35,7 +35,7 @@ Scoped machine API tokens (§17.1 — minted ONLY here, never from the web):
 Root of trust (run over SSH; secrets read from /dev/tty, never argv):
   gen-key          Generate the AES-256-GCM master key (base64).
   hash-password    Produce an argon2id hash for auth.password_hash.
-  gen-totp         Generate a TOTP secret (+ otpauth URL).
+  gen-totp         Generate a TOTP secret (+ a scannable QR code).
   verify-key       Confirm the configured key matches the DB before it corrupts.
 
 Other:
