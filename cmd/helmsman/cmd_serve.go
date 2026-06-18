@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -54,6 +55,14 @@ func cmdServe(args []string) error {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		return err // fail-closed: refuse to boot
+	}
+
+	// Fail-closed: probe that the sandbox actually lets us write the dirs we need,
+	// BEFORE the first deploy/edge-start EROFS's lazily. A missing ReadWritePaths
+	// entry (e.g. a changed data_dir, or no RuntimeDirectory) becomes a clear boot
+	// error naming the path, not a mysterious "deploy hangs / edge crash-loops".
+	if err := checkWritablePaths(cfg, log); err != nil {
+		return err
 	}
 
 	db, err := store.Open(filepath.Join(cfg.DataDir, "helmsman.db"))
@@ -450,6 +459,47 @@ func protectManagedProxy(cfg *config.Config) {
 		}
 	}
 	cfg.ProtectedProjects = append(cfg.ProtectedProjects, socketproxy.Project)
+}
+
+// checkWritablePaths fail-closes the boot if a required writable dir is missing or
+// read-only under the hardened sandbox — turning a lazy EROFS on the first deploy /
+// edge start into a clear startup error that names the path. The data dirs are fatal
+// (DB, deploys, certs depend on them); a missing/unwritable admin-socket dir is a loud
+// warning only (the dashboard still runs without the edge).
+func checkWritablePaths(cfg *config.Config, log *slog.Logger) error {
+	dirs := []string{cfg.DataDir, cfg.DataDir + "-apps"}
+	managed := cfg.Edge.Mode == config.EdgeManaged
+	if managed {
+		dirs = append(dirs, "/var/lib/caddy")
+	}
+	for _, d := range dirs {
+		if err := probeWritable(d); err != nil {
+			return fmt.Errorf("required directory %q is not writable — check the unit's ReadWritePaths and that it is provisioned helmsman-owned (a non-default data_dir must be added to ReadWritePaths): %w", d, err)
+		}
+	}
+	if managed {
+		if listen := edgeAdminListen(cfg); strings.HasPrefix(listen, "unix/") {
+			dir := filepath.Dir(strings.TrimPrefix(listen, "unix/"))
+			if err := probeWritable(dir); err != nil {
+				log.Warn("edge admin socket dir is not writable — the managed edge will fail to start",
+					"dir", dir, "err", err,
+					"hint", "add RuntimeDirectory=helmsman to the unit (daemon-reload + restart), or point admin.listen at a writable dir")
+			}
+		}
+	}
+	return nil
+}
+
+// probeWritable confirms dir exists and is writable by creating + removing a temp file
+// (which surfaces both "missing" and "read-only under ProtectSystem=strict").
+func probeWritable(dir string) error {
+	f, err := os.CreateTemp(dir, ".hm-probe-")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	f.Close()
+	return os.Remove(name)
 }
 
 // edgeAdminListen returns the Caddy admin listen address — the operator's

@@ -222,7 +222,7 @@ func readLineTruncated(r *bufio.Reader) (string, error) {
 // (which could leak GOMEMLIMIT et al. or, later, secrets) to the child.
 func minimalEnv() []string {
 	var env []string
-	for _, k := range []string{"PATH", "HOME", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "XDG_RUNTIME_DIR"} {
+	for _, k := range []string{"PATH", "HOME", "TMPDIR", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "XDG_RUNTIME_DIR"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env = append(env, k+"="+v)
 		}
