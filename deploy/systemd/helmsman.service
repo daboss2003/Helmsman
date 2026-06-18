@@ -8,7 +8,8 @@
 #   usermod -aG docker helmsman
 #   install -m0755 helmsman /usr/local/bin/helmsman
 #   install -d -o helmsman -g helmsman -m0700 /var/lib/helmsman
-#   install -d -o helmsman -g helmsman -m0700 /var/lib/caddy   # edge data/cert store (ReadWritePaths)
+#   install -d -o helmsman -g helmsman -m0700 /var/lib/helmsman-apps  # app run dirs
+#   install -d -o helmsman -g helmsman -m0700 /var/lib/caddy          # edge data/cert store
 #   # Config is root-OWNED and group-readable by the service group so the
 #   # non-root service can read it; the master key is never group-WRITABLE:
 #   install -o root -g helmsman -m0640 config.yaml /etc/helmsman/config.yaml
@@ -67,11 +68,17 @@ SystemCallFilter=~@privileged @obsolete
 # probes a denied call degrades gracefully rather than core-dumping the edge.
 SystemCallErrorNumber=EPERM
 
-# Only the state dirs are writable. The admin UI binds loopback only; Helmsman
-# never binds a public port itself (the managed edge child does — its own unit).
-# /var/lib/caddy is the supervised edge's data/cert store (HOME/XDG_DATA_HOME); under
-# ProtectSystem=strict it MUST be listed here or Caddy can't write its certs (exit 1).
-ReadWritePaths=/var/lib/helmsman /var/lib/caddy
+# Only these state dirs are writable (ProtectSystem=strict makes everything else
+# read-only). The admin UI binds loopback only; Helmsman never binds a public port
+# itself (the managed edge child does). The three paths, for the DEFAULT data_dir
+# (/var/lib/helmsman) — if you change data_dir, update the first two to match:
+#   /var/lib/helmsman        DB, keys, git object store
+#   /var/lib/helmsman-apps   per-app run dirs (a sibling of data_dir by design — see
+#                            appsRoot: keeps app binds from reaching the DB/keys)
+#   /var/lib/caddy           the supervised edge's data/cert store (HOME/XDG_DATA_HOME)
+# Omit any of them and the corresponding writes fail (Caddy/nginx exit, deploys can't
+# materialize) — the failure mode that looks like "edge won't start / deploy hangs".
+ReadWritePaths=/var/lib/helmsman /var/lib/helmsman-apps /var/lib/caddy
 # CAP_NET_BIND_SERVICE is intentionally ABSENT here — only the edge child gets it.
 CapabilityBoundingSet=
 AmbientCapabilities=

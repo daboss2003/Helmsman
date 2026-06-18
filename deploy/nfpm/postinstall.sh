@@ -19,8 +19,10 @@ fi
 # Config dir (root-owned, group-readable by the service) and state dir (private).
 install -d -o root -g helmsman -m 0750 /etc/helmsman
 install -d -o helmsman -g helmsman -m 0700 /var/lib/helmsman
-# The supervised edge (Caddy) data/cert store. Must exist + be helmsman-writable, and
-# be in the unit's ReadWritePaths, or Caddy can't write its certs under the sandbox.
+# App run dirs (a sibling of the state dir by design) and the supervised edge's
+# data/cert store. Both must exist + be helmsman-writable + be in the unit's
+# ReadWritePaths, or deploys can't materialize and Caddy can't write its certs.
+install -d -o helmsman -g helmsman -m 0700 /var/lib/helmsman-apps
 install -d -o helmsman -g helmsman -m 0700 /var/lib/caddy
 
 # Pick up the shipped unit.
