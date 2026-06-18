@@ -95,13 +95,16 @@ ReadWritePaths=/var/lib/helmsman /var/lib/helmsman-apps /var/lib/caddy
 RuntimeDirectory=helmsman
 RuntimeDirectoryMode=0700
 
-# CAP_NET_BIND_SERVICE is added by the helmsman-privileged-ports.conf drop-in (run
-# `helmsman setup --yes`, or copy it from /usr/share/helmsman/systemd/) — the managed
-# edge/L4 children need it to bind :80/:443/:53. NOTE: the children run in THIS unit,
-# so the cap is granted to the whole control-plane process (the "edge child only"
-# separation is not yet implemented — see docs/architecture.md).
-CapabilityBoundingSet=
-AmbientCapabilities=
+# CAP_NET_BIND_SERVICE lets the managed edge/L4 children (Caddy :80/:443, nginx :53)
+# bind privileged ports while staying NON-ROOT. Granted by DEFAULT so a managed edge
+# works out of the box — no drop-in, no setup step. It is the ONLY allowed capability
+# (bounding set), and ambient so the forked children inherit it. The children are
+# co-resident in this unit, so the control-plane process holds it too (a child-only
+# grant via a separate edge unit is a planned hardening — docs/architecture.md). In
+# `external` mode the edge isn't started and this cap is simply unused (override with
+# a drop-in `AmbientCapabilities=` / `CapabilityBoundingSet=` if you want zero caps).
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 # --- Egress allow-listing (OPT-IN hardening, OFF by default). The primary SSRF/
 # call-home defense is in-process: pinned dialers reject loopback/link-local/metadata

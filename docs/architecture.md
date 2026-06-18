@@ -56,7 +56,7 @@ The child Caddy is a separate process supervised by the core. **Today it is co-r
 1. **Crash isolation (now)** — Helmsman supervises the child with backoff. If the child dies, the admin UI stays up to show *why*. If Helmsman dies, the child keeps serving.
 2. **OOM isolation (planned)** — a dedicated edge slice with its own `MemoryMax`, so a public-plane traffic spike can't pressure the control-plane cgroup, is a planned hardening; today they share one cap.
 
-`CAP_NET_BIND_SERVICE` is granted to the **control-plane unit** via the opt-in `helmsman-privileged-ports.conf` drop-in (so the co-resident Caddy/nginx children inherit it). It is absent entirely in `external` mode (no managed edge). Granting it to the child **alone** — not the core — is the planned per-process split; today it is on the unit.
+`CAP_NET_BIND_SERVICE` is granted by the **base unit, by default** (the only allowed capability, ambient so the co-resident Caddy/nginx children inherit it) — so a managed edge binds privileged ports non-root out of the box. It is unused in `external` mode. Granting it to the child **alone** — not the core — is the planned per-process split; today it is on the unit.
 
 ### Two OOM mechanisms (do not conflate them)
 
@@ -279,7 +279,7 @@ Core fans the same App Ops Interface out to agents. The v1 boundaries that make 
         ┌──────────────────────────────────────────────┐
         │  CADDY EDGE  (child process; co-resident in    │   pinned dialer (live):
         │  the core unit today — own user/slice planned) │   :9000/:2019/:2375 +
-        │  CAP_NET_BIND_SERVICE (on the unit, opt-in)    │   metadata UNREACHABLE.
+        │  CAP_NET_BIND_SERVICE (on the unit, default)   │   metadata UNREACHABLE.
         │  owns ACME · terminates TLS · pinned dialer    │   cgroup egress filter =
         │                                                │   opt-in (off by default)
         └───────┬───────────────────────────┬───────────┘

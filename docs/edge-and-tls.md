@@ -72,8 +72,9 @@ deliberate, narrow escape hatch — not an off-switch and not a casual setting.
 
 - **Config-file-only, NOT UI-reachable.** You cannot click your way into `external`; you fall
   into `managed` by doing nothing. Setting `external` is always a deliberate operator act.
-- In `external` mode Helmsman **binds loopback only**, never opens `:80`/`:443`, never constructs
-  the edge subsystem, and **never grants `CAP_NET_BIND_SERVICE`**.
+- In `external` mode Helmsman **binds loopback only**, never opens `:80`/`:443`, and never constructs
+  the edge subsystem (the unit's `CAP_NET_BIND_SERVICE` goes **unused** — drop it with a drop-in if
+  you want zero caps in external mode).
 - The per-app TLS controls are **hidden** — there is no managed edge to drive.
 - Helmsman emits paste-ready proxy snippets for your front proxy but **applies nothing**.
 
@@ -121,11 +122,11 @@ on-disk config file the proxy auto-loads — **the admin API is the single sourc
 > **Current isolation (be precise):** the edge is a separate **process**, but today it is **co-resident** in the control-plane systemd unit — it runs as the **same** low-privilege user and shares the unit's cgroup + `MemoryMax` (384 MB, sized to cover Helmsman + Caddy + nginx + forked compose). A *dedicated edge user, slice, and per-edge `MemoryMax`* — so a public-plane traffic spike can't pressure the control plane, and the cap is held by the child alone — is a **planned hardening, not yet implemented**.
 
 - The child runs as the **control plane's** low-privilege user (a dedicated edge user/slice is planned).
-- **`CAP_NET_BIND_SERVICE` is granted to the whole control-plane unit** via the opt-in
-  `helmsman-privileged-ports.conf` drop-in (run `helmsman setup --yes`), so the Caddy/nginx
-  children inherit it. It is **absent in `external` mode** (no managed edge). Because the children
-  are co-resident, the control-plane process also holds the cap today — granting it to the child
-  **alone** is part of the planned per-process split.
+- **`CAP_NET_BIND_SERVICE` is granted by the base unit, by default** (it is the *only* allowed
+  capability, and ambient so the Caddy/nginx children inherit it) — so the managed edge binds
+  `:80`/`:443`/`:53` non-root out of the box, no drop-in or setup step. In `external` mode the edge
+  isn't started and the cap is simply unused. Because the children are co-resident, the control-plane
+  process also holds it today — granting it to the child **alone** is part of the planned per-process split.
 - Helmsman talks to the child over loopback `:2019` (or, preferably, a unix socket) **only**.
 - A liveness poll plus crash-loop detection raises a `level=security` audit event.
 

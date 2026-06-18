@@ -83,9 +83,9 @@ helmsman serving bind=127.0.0.1:9000 edge_mode=managed db=/var/lib/helmsman/helm
 
 - **Purpose:** check and install the host **prerequisites** the managed planes need. The running service is deliberately unprivileged (it can't install packages, edit host DNS, or grant capabilities — a compromised dashboard mustn't either), so these are run by *you* over SSH, as root, once. Linux-only.
 - **Usage:**
-  - `helmsman doctor [--l4]` — **read-only.** Reports each prerequisite (Caddy, Docker, DNS, the `CAP_NET_BIND_SERVICE` drop-in, and Docker log rotation; `--l4` adds nginx + the stream module + a `systemd-resolved :53` conflict) and prints the exact fix for anything missing. Changes nothing.
+  - `helmsman doctor [--l4]` — **read-only.** Reports each prerequisite (Caddy, Docker, DNS, the state dirs + run dir, that `CAP_NET_BIND_SERVICE` is active, egress reachability, socket-proxy liveness, Docker log rotation; `--l4` adds nginx + the stream module + a `systemd-resolved :53` conflict) and prints the exact fix for anything off. Changes nothing.
   - `helmsman setup [--l4] [--restart] [--yes]` — prints a **fix plan** (a dry run); `--yes` applies it (needs root, uses apt). `--l4` includes the L4 prerequisites; `--restart` restarts the helmsman service at the end.
-- **What `setup --yes` does:** adds the Caddy apt repo (key fetched over HTTPS) + installs `caddy`; with `--l4` installs `nginx` + `libnginx-mod-stream`; installs the `CAP_NET_BIND_SERVICE` systemd drop-in; disables the **distro** caddy/nginx units (Helmsman supervises its own children); and **caps Docker's container logs** — it merges `log-opts.max-size` into `/etc/docker/daemon.json` (preserving your other keys, backing up the original) and restarts Docker.
+- **What `setup --yes` does:** adds the Caddy apt repo (key fetched over HTTPS) + installs `caddy`; with `--l4` installs `nginx` + `libnginx-mod-stream`; disables the **distro** caddy/nginx units (Helmsman supervises its own children); and **caps Docker's container logs** — it merges `log-opts.max-size` into `/etc/docker/daemon.json` (preserving your other keys, backing up the original) and restarts Docker. (The bind capability + runtime/state dirs are already provided by the unit + postinstall — no drop-in step.)
 - **What it will NOT do automatically:** rewrite host DNS / free `:53` (it prints the steps — too easy to lock yourself out). The Docker restart **bounces running containers**, so it's a labelled step in the dry-run plan you review first — run `setup` *before* deploying apps and it disrupts nothing.
 
 ```console
@@ -96,8 +96,9 @@ $ sudo helmsman doctor --l4
   ! docker logs      json-file driver has no size cap — container logs can fill the disk
       → sudo helmsman setup --yes (caps it), or set log-opts.max-size by hand (snippet below)
   ✓ dns              host name resolution works
-  ! net-bind cap     no CAP_NET_BIND_SERVICE drop-in — the edge/L4 can't bind <1024
-      → sudo helmsman setup --yes (installs the drop-in)
+  ✓ net-bind cap     CAP_NET_BIND_SERVICE is active in the unit
+  ✗ state dirs       writable-dir problem: /var/lib/caddy (missing)
+      → sudo install -d -o helmsman -g helmsman -m0700 <dir> (and add it to ReadWritePaths)
 
 $ sudo helmsman setup --yes          # applies the plan above
 ```

@@ -57,7 +57,7 @@ privileged-ports capability), and let Helmsman install what's missing:
 ```bash
 helmsman doctor              # read-only: reports what's missing + the exact fix
 sudo helmsman setup          # prints a fix plan (a dry run — changes nothing)
-sudo helmsman setup --yes    # applies it: installs Caddy, the caps drop-in, etc.
+sudo helmsman setup --yes    # applies it: installs Caddy (the bind capability + runtime dirs are already in the unit)
 ```
 
 Add `--l4` to also set up the L4 (TCP/UDP) load balancer's nginx + stream module if

@@ -31,15 +31,17 @@ import (
 //	helmsman setup    — print a fix PLAN (dry run); `--yes` applies it (root, apt).
 //
 // `setup` only performs SAFE, idempotent, well-understood mutations (install Caddy /
-// nginx+stream, apply the caps drop-in). It NEVER auto-rewrites host DNS or frees
-// :53 — that broke a box once already — it prints those steps for you to run.
+// nginx+stream, cap Docker's logs). It NEVER auto-rewrites host DNS or frees :53 —
+// that broke a box once already — it prints those steps for you to run. The bind
+// capability + runtime/state dirs are provided by the unit + postinstall, not setup.
 const (
 	caddyKeyURL   = "https://dl.cloudsmith.io/public/caddy/stable/gpg.key"
 	caddyKeyPath  = "/usr/share/keyrings/caddy-stable-archive-keyring.asc"
 	caddyListPath = "/etc/apt/sources.list.d/caddy-stable.list"
 	caddySources  = "deb [signed-by=" + caddyKeyPath + "] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main\n"
-	capsSrc       = "/usr/share/helmsman/systemd/helmsman-privileged-ports.conf"
-	capsDst       = "/etc/systemd/system/helmsman.service.d/helmsman-privileged-ports.conf"
+	// Legacy drop-in path: the base unit now grants CAP_NET_BIND_SERVICE by default, so
+	// setup no longer installs this. checkCapsActive still reads it as a fallback signal.
+	capsDst = "/etc/systemd/system/helmsman.service.d/helmsman-privileged-ports.conf"
 )
 
 func cmdDoctor(args []string) error {
@@ -154,12 +156,7 @@ func plan(apply, l4, restart bool) []step {
 			step{"disable the distro nginx.service (Helmsman supervises its own child)", func() error { return run(apply, "systemctl", "disable", "--now", "nginx") }},
 		)
 	}
-	if !fileExists(capsDst) {
-		steps = append(steps,
-			step{"grant the edge/L4 children CAP_NET_BIND_SERVICE (systemd drop-in)", func() error { return installCapsDropin(apply) }},
-			step{"systemctl daemon-reload", func() error { return run(apply, "systemctl", "daemon-reload") }},
-		)
-	}
+	// CAP_NET_BIND_SERVICE is granted by the base unit now (no drop-in step needed).
 	if dockerLogsNeedCap() {
 		steps = append(steps,
 			step{"cap Docker container logs (json-file max-size=10m) in /etc/docker/daemon.json", func() error { return applyDockerLogCap(apply) }},
@@ -306,19 +303,14 @@ func checkCapsActive(need bool) result {
 		if strings.Contains(strings.ToLower(amb), "cap_net_bind_service") {
 			return result{"net-bind cap", "ok", "CAP_NET_BIND_SERVICE is active in the unit", ""}
 		}
-		fix := "sudo helmsman setup --yes (installs the drop-in)"
-		if fileExists(capsDst) {
-			fix = "drop-in on disk but not active — sudo systemctl daemon-reload && sudo systemctl restart helmsman"
-		}
-		return result{"net-bind cap", miss, "CAP_NET_BIND_SERVICE not active — the edge/L4 can't bind :80/:443/:53", fix}
+		// The base unit grants it by default; if it's not active the installed unit is
+		// stale (pre-upgrade) or overridden — reload + restart, don't reinstall.
+		return result{"net-bind cap", miss, "CAP_NET_BIND_SERVICE not active — the edge/L4 can't bind :80/:443/:53",
+			"sudo systemctl daemon-reload && sudo systemctl restart helmsman (the base unit grants it)"}
 	}
-	// systemctl unavailable → fall back to the file check (can't confirm it's loaded).
-	if fileExists(capsDst) {
-		return result{"net-bind cap", "warn", "drop-in file present (could not confirm it is active)",
-			"verify: systemctl show helmsman -p AmbientCapabilities"}
-	}
-	return result{"net-bind cap", miss, "no CAP_NET_BIND_SERVICE drop-in — the edge/L4 can't bind <1024",
-		"sudo helmsman setup --yes (installs the drop-in)"}
+	// systemctl unavailable → can't confirm; the base unit grants it by default.
+	return result{"net-bind cap", "warn", "could not confirm CAP_NET_BIND_SERVICE is active",
+		"verify: systemctl show helmsman -p AmbientCapabilities"}
 }
 
 func checkStreamModule() result {
@@ -602,18 +594,6 @@ func writeCaddyRepo(apply bool) error {
 	return writeRootFile(caddyListPath, []byte(caddySources))
 }
 
-func installCapsDropin(apply bool) error {
-	fmt.Printf("       install %s → %s\n", capsSrc, capsDst)
-	if !apply {
-		return nil
-	}
-	b, err := os.ReadFile(capsSrc)
-	if err != nil {
-		return fmt.Errorf("read %s (is the helmsman package installed?): %w", capsSrc, err)
-	}
-	return writeRootFile(capsDst, b)
-}
-
 func writeRootFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -645,5 +625,4 @@ func printDNSGuidance(l4 bool) {
 	fmt.Println("  sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf   # NOT stub-resolv.conf")
 }
 
-func have(bin string) bool     { _, err := exec.LookPath(bin); return err == nil }
-func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+func have(bin string) bool { _, err := exec.LookPath(bin); return err == nil }
