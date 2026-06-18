@@ -20,6 +20,7 @@ See also: [README](../README.md) · [Configuration / root of trust](./architectu
 - [How secret values enter Helmsman](#how-secret-values-enter-helmsman)
 - [Command reference](#command-reference)
   - [`serve`](#helmsman-serve)
+  - [`doctor` / `setup`](#helmsman-doctor--setup)
   - [`validate`](#helmsman-validate)
   - [`init`](#helmsman-init)
   - [`secret import`](#helmsman-secret-import)
@@ -74,6 +75,31 @@ For each command: **purpose**, **usage**, **flags**, and an **example**.
 ```console
 $ helmsman serve --config /etc/helmsman/config.yaml
 helmsman serving bind=127.0.0.1:9000 edge_mode=managed db=/var/lib/helmsman/helmsman.db
+```
+
+---
+
+### `helmsman doctor` / `setup`
+
+- **Purpose:** check and install the host **prerequisites** the managed planes need. The running service is deliberately unprivileged (it can't install packages, edit host DNS, or grant capabilities — a compromised dashboard mustn't either), so these are run by *you* over SSH, as root, once. Linux-only.
+- **Usage:**
+  - `helmsman doctor [--l4]` — **read-only.** Reports each prerequisite (Caddy, Docker, DNS, the `CAP_NET_BIND_SERVICE` drop-in, and Docker log rotation; `--l4` adds nginx + the stream module + a `systemd-resolved :53` conflict) and prints the exact fix for anything missing. Changes nothing.
+  - `helmsman setup [--l4] [--restart] [--yes]` — prints a **fix plan** (a dry run); `--yes` applies it (needs root, uses apt). `--l4` includes the L4 prerequisites; `--restart` restarts the helmsman service at the end.
+- **What `setup --yes` does:** adds the Caddy apt repo (key fetched over HTTPS) + installs `caddy`; with `--l4` installs `nginx` + `libnginx-mod-stream`; installs the `CAP_NET_BIND_SERVICE` systemd drop-in; disables the **distro** caddy/nginx units (Helmsman supervises its own children); and **caps Docker's container logs** — it merges `log-opts.max-size` into `/etc/docker/daemon.json` (preserving your other keys, backing up the original) and restarts Docker.
+- **What it will NOT do automatically:** rewrite host DNS / free `:53` (it prints the steps — too easy to lock yourself out). The Docker restart **bounces running containers**, so it's a labelled step in the dry-run plan you review first — run `setup` *before* deploying apps and it disrupts nothing.
+
+```console
+$ sudo helmsman doctor --l4
+  ✗ caddy            MISSING — managed HTTPS edge (:80/:443 + ACME)
+      → sudo helmsman setup --yes
+  ✓ docker           found at /usr/bin/docker — container read/write plane
+  ! docker logs      json-file driver has no size cap — container logs can fill the disk
+      → sudo helmsman setup --yes (caps it), or set log-opts.max-size by hand (snippet below)
+  ✓ dns              host name resolution works
+  ! net-bind cap     no CAP_NET_BIND_SERVICE drop-in — the edge/L4 can't bind <1024
+      → sudo helmsman setup --yes (installs the drop-in)
+
+$ sudo helmsman setup --yes          # applies the plan above
 ```
 
 ---
@@ -235,14 +261,17 @@ password_hash: "$argon2id$v=19$m=8192,t=2,p=1$..."
 
 #### `helmsman gen-totp`
 
-- **Purpose:** generate a TOTP secret for `auth.totp_secret` (the admin's second factor on login), plus an `otpauth://` URL to scan into an authenticator app.
+- **Purpose:** generate a TOTP secret for `auth.totp_secret` (the admin's second factor on login). It prints a **scannable QR code** to the terminal — point your authenticator app at it — plus the `otpauth://` URL and raw secret as a manual fallback.
 - **Usage:** `helmsman gen-totp [--account operator] [--issuer Helmsman]`
 - **Flags:** `--account <label>` (default `operator`) and `--issuer <label>` (default `Helmsman`) — labels for the `otpauth://` URL.
 
 ```console
 $ helmsman gen-totp
 totp_secret: "JBSWY3DPEHPK3PXP"
-Add to an authenticator app:
+Scan this with your authenticator app:
+  <a QR code is drawn here>
+
+Or add it manually:
 otpauth://totp/Helmsman:operator?secret=JBSWY3DPEHPK3PXP&issuer=Helmsman&algorithm=SHA1&digits=6&period=30
 ```
 
