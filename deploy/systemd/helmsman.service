@@ -57,7 +57,14 @@ MemoryDenyWriteExecute=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources @obsolete
+# NOTE: @resources is intentionally NOT denied. The supervised edge/L4 children
+# (Caddy, nginx) raise their file-descriptor limit at startup (setrlimit/prlimit64,
+# which live in @resources) and inherit this filter via NoNewPrivileges — denying it
+# kills them with SIGSYS ("bad system call"). @privileged/@obsolete stay denied.
+SystemCallFilter=~@privileged @obsolete
+# A blocked syscall returns EPERM instead of killing the process, so a child that
+# probes a denied call degrades gracefully rather than core-dumping the edge.
+SystemCallErrorNumber=EPERM
 
 # Only the state dir is writable. The admin UI binds loopback only; Helmsman
 # never binds a public port itself (the managed edge child does — its own unit).
