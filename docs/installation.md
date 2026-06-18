@@ -64,6 +64,21 @@ Add `--l4` to also set up the L4 (TCP/UDP) load balancer's nginx + stream module
 you plan to run a non-HTTP service like a DNS resolver. `setup` never touches host DNS
 itself — if you bind `:53` it prints the steps to free it from `systemd-resolved`.
 
+> **Cap Docker's container logs.** Helmsman *streams* logs (it never buffers them in
+> memory or its DB), but Docker's default `json-file` driver keeps every container's
+> stdout on disk **forever** — on a small VPS that fills the disk. `helmsman setup`
+> caps it for you: it merges a `max-size` into `/etc/docker/daemon.json` (preserving
+> your other settings) and restarts Docker to apply. Because that restart **bounces
+> running containers**, it's a step in the reviewable plan — run `setup` *before* you
+> deploy apps and it's a no-op disruption. (`helmsman doctor` just warns; it changes
+> nothing.) The equivalent by hand:
+>
+> ```json
+> { "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }
+> ```
+>
+> then `sudo systemctl restart docker`. (Or use the self-rotating `local`/`journald` driver.)
+
 ## 2. Create your login and encryption key
 
 These commands create the secrets Helmsman needs. You run them over SSH — never in a browser — so your master key and password never travel anywhere they shouldn't. They print what to paste into your config in the next step.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,66 @@ func TestReportPrint(t *testing.T) {
 	// An ok check must not print a fix arrow.
 	if strings.Count(out, "→") != 1 {
 		t.Errorf("expected exactly one fix arrow:\n%s", out)
+	}
+}
+
+func TestDockerLogRotated(t *testing.T) {
+	cases := map[string]struct {
+		json string
+		want bool
+	}{
+		"absent (default uncapped json-file)": {"", false},
+		"json-file no cap":                    {`{"log-driver":"json-file"}`, false},
+		"json-file with cap":                  {`{"log-driver":"json-file","log-opts":{"max-size":"10m"}}`, true},
+		"implicit json-file with cap":         {`{"log-opts":{"max-size":"10m"}}`, true},
+		"journald":                            {`{"log-driver":"journald"}`, true},
+		"local (self-rotating)":               {`{"log-driver":"local"}`, true},
+		"garbage":                             {`not json`, false},
+	}
+	for name, c := range cases {
+		if got := dockerLogRotated([]byte(c.json)); got != c.want {
+			t.Errorf("%s: dockerLogRotated=%v, want %v", name, got, c.want)
+		}
+	}
+}
+
+func TestWithDockerLogCap(t *testing.T) {
+	// fresh box (no daemon.json) → cap is added and parses back capped.
+	out, changed, err := withDockerLogCap(nil)
+	if err != nil || !changed {
+		t.Fatalf("empty: changed=%v err=%v", changed, err)
+	}
+	if !dockerLogRotated(out) {
+		t.Errorf("result is still uncapped:\n%s", out)
+	}
+
+	// existing unrelated keys are preserved; existing log-opts are merged, not clobbered.
+	in := []byte(`{"live-restore":true,"log-opts":{"labels":"app"}}`)
+	out, changed, err = withDockerLogCap(in)
+	if err != nil || !changed {
+		t.Fatalf("merge: changed=%v err=%v", changed, err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if got["live-restore"] != true {
+		t.Errorf("dropped live-restore: %v", got)
+	}
+	opts := got["log-opts"].(map[string]any)
+	if opts["labels"] != "app" || opts["max-size"] != "10m" {
+		t.Errorf("log-opts not merged correctly: %v", opts)
+	}
+
+	// already capped, a non-json-file driver, and garbage → no change / clear error.
+	if _, changed, _ := withDockerLogCap([]byte(`{"log-opts":{"max-size":"5m"}}`)); changed {
+		t.Error("already-capped should not change")
+	}
+	if _, changed, _ := withDockerLogCap([]byte(`{"log-driver":"journald"}`)); changed {
+		t.Error("non-json-file driver should be left alone")
+	}
+	if _, _, err := withDockerLogCap([]byte(`not json`)); err == nil {
+		t.Error("invalid daemon.json should error (so we never clobber it)")
 	}
 }
 

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -51,8 +53,9 @@ func cmdDoctor(args []string) error {
 	if rep.hasFail() {
 		fmt.Println("\nRun `sudo helmsman setup` to review a fix plan, then `sudo helmsman setup --yes` to apply it.")
 	} else {
-		fmt.Println("\nAll required prerequisites are present.")
+		fmt.Println("\nRequired prerequisites are present.")
 	}
+	printGuidance(rep, *l4)
 	return nil
 }
 
@@ -76,7 +79,8 @@ func cmdSetup(args []string) error {
 		return fmt.Errorf("applying changes needs root — run: sudo helmsman setup --yes")
 	}
 
-	preflight(*l4).print(os.Stdout)
+	rep := preflight(*l4)
+	rep.print(os.Stdout)
 
 	steps := plan(*yes, *l4, *restart)
 	if len(steps) == 0 {
@@ -135,6 +139,12 @@ func plan(apply, l4, restart bool) []step {
 			step{"systemctl daemon-reload", func() error { return run(apply, "systemctl", "daemon-reload") }},
 		)
 	}
+	if dockerLogsNeedCap() {
+		steps = append(steps,
+			step{"cap Docker container logs (json-file max-size=10m) in /etc/docker/daemon.json", func() error { return applyDockerLogCap(apply) }},
+			step{"restart docker to apply the log cap — BOUNCES running containers (run setup before deploying apps)", func() error { return run(apply, "systemctl", "restart", "docker") }},
+		)
+	}
 	if restart {
 		steps = append(steps, step{"restart the helmsman service", func() error { return run(apply, "systemctl", "restart", "helmsman") }})
 	}
@@ -157,6 +167,25 @@ func (r report) hasFail() bool {
 	return false
 }
 
+func (r report) state(name string) string {
+	for _, x := range r.results {
+		if x.name == name {
+			return x.state
+		}
+	}
+	return ""
+}
+
+// printGuidance prints the copy-paste steps for the host changes Helmsman won't make
+// automatically (they're global/disruptive): Docker log rotation when uncapped, and
+// freeing :53 from systemd-resolved when L4 is in play.
+func printGuidance(rep report, l4 bool) {
+	if rep.state("docker logs") == "warn" {
+		printDockerLogGuidance()
+	}
+	printDNSGuidance(l4) // no-op unless l4
+}
+
 func (r report) print(w io.Writer) {
 	icon := map[string]string{"ok": "✓", "warn": "!", "fail": "✗"}
 	for _, x := range r.results {
@@ -171,6 +200,7 @@ func preflight(l4 bool) report {
 	var r report
 	r.add(checkBinary("caddy", "managed HTTPS edge (:80/:443 + ACME)", "sudo helmsman setup --yes"))
 	r.add(checkBinary("docker", "container read/write plane", "install Docker + the compose plugin"))
+	r.add(checkDockerLogRotation())
 	r.add(checkDNS())
 	r.add(checkCaps())
 	if l4 {
@@ -220,6 +250,121 @@ func checkResolvedStub() result {
 			"free :53 before deploying a :53 resolver (printed below / see L4 docs)"}
 	}
 	return result{"port 53", "ok", "no systemd-resolved stub on 127.0.0.53", ""}
+}
+
+// checkDockerLogRotation flags the one place container logs CAN grow unbounded:
+// Docker's default json-file driver keeps every container's stdout on disk forever
+// unless log-opts.max-size is set. Helmsman streams logs (it never stores them), so
+// this is a host/disk concern, not a Helmsman-memory one — but it's the gap worth
+// catching on a small VPS.
+func checkDockerLogRotation() result {
+	b, _ := os.ReadFile("/etc/docker/daemon.json") // absent → Docker's uncapped json-file default
+	if dockerLogRotated(b) {
+		return result{"docker logs", "ok", "container log rotation is configured", ""}
+	}
+	return result{"docker logs", "warn", "json-file driver has no size cap — container logs can fill the disk",
+		"sudo helmsman setup --yes (caps it), or set log-opts.max-size by hand (snippet below)"}
+}
+
+// dockerLogRotated reports whether Docker's container-log driver bounds on-disk size.
+// The default json-file driver does NOT unless log-opts.max-size is set; journald and
+// the local driver self-rotate, and any other explicit driver is assumed
+// operator-managed. Absent/invalid JSON → the uncapped json-file default.
+func dockerLogRotated(daemonJSON []byte) bool {
+	var cfg struct {
+		LogDriver string            `json:"log-driver"`
+		LogOpts   map[string]string `json:"log-opts"`
+	}
+	_ = json.Unmarshal(daemonJSON, &cfg)
+	switch cfg.LogDriver {
+	case "", "json-file":
+		return cfg.LogOpts["max-size"] != ""
+	default:
+		return true // journald/local/syslog/none/… — self-rotating or externally managed
+	}
+}
+
+// printDockerLogGuidance prints a copy-paste fix for the json-file size cap — used by
+// the read-only `doctor`. (`setup` applies it as a reviewable plan step instead.)
+func printDockerLogGuidance() {
+	fmt.Println("\nDocker log rotation — the default json-file driver never caps container logs,")
+	fmt.Println("so on a small VPS they can fill the disk. `sudo helmsman setup --yes` caps it, or add")
+	fmt.Println("to /etc/docker/daemon.json by hand:")
+	fmt.Println(`  { "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }`)
+	fmt.Println("  sudo systemctl restart docker   # applies to newly created containers")
+}
+
+const dockerDaemonJSON = "/etc/docker/daemon.json"
+
+// dockerLogsNeedCap reports whether setup should add a json-file size cap (the file's
+// driver is json-file/unset with no max-size).
+func dockerLogsNeedCap() bool {
+	b, _ := os.ReadFile(dockerDaemonJSON)
+	return !dockerLogRotated(b)
+}
+
+// applyDockerLogCap merges a json-file size cap into /etc/docker/daemon.json, keeping
+// every other key intact and backing up the original. A daemon RESTART (a separate
+// plan step) is needed to apply it. A daemon.json that can't be parsed is left alone
+// (warn, don't fail the run — Docker config is the operator's, we won't clobber it).
+func applyDockerLogCap(apply bool) error {
+	cur, _ := os.ReadFile(dockerDaemonJSON)
+	out, changed, err := withDockerLogCap(cur)
+	if err != nil {
+		fmt.Printf("       skipping: %v — set log-opts.max-size by hand\n", err)
+		return nil
+	}
+	if !changed {
+		fmt.Println("       already capped (or a non-json-file driver) — nothing to do")
+		return nil
+	}
+	fmt.Printf("       write %s (+ %s.helmsman.bak)\n", dockerDaemonJSON, dockerDaemonJSON)
+	if !apply {
+		return nil
+	}
+	if len(cur) > 0 {
+		if err := writeRootFile(dockerDaemonJSON+".helmsman.bak", cur); err != nil {
+			return err
+		}
+	}
+	tmp := dockerDaemonJSON + ".helmsman.tmp"
+	if err := writeRootFile(tmp, out); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dockerDaemonJSON) // atomic swap
+}
+
+// withDockerLogCap returns daemon.json with a json-file max-size/max-file cap merged
+// in, preserving all other keys. changed=false when it's already capped or uses a
+// non-json-file (self-rotating/managed) driver. Pure — unit-tested.
+func withDockerLogCap(daemonJSON []byte) (out []byte, changed bool, err error) {
+	cfg := map[string]any{}
+	if len(bytes.TrimSpace(daemonJSON)) > 0 {
+		if err := json.Unmarshal(daemonJSON, &cfg); err != nil {
+			return nil, false, fmt.Errorf("daemon.json is not valid JSON")
+		}
+	}
+	if d, _ := cfg["log-driver"].(string); d != "" && d != "json-file" {
+		return daemonJSON, false, nil // operator chose another driver — leave it
+	}
+	opts, _ := cfg["log-opts"].(map[string]any)
+	if opts == nil {
+		opts = map[string]any{}
+	}
+	if _, ok := opts["max-size"]; ok {
+		return daemonJSON, false, nil // already capped
+	}
+	cfg["log-driver"] = "json-file"
+	opts["max-size"] = "10m"
+	if _, ok := opts["max-file"]; !ok {
+		opts["max-file"] = "3"
+	}
+	cfg["log-opts"] = opts
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, false, err
+	}
+	return append(b, '\n'), true, nil
 }
 
 // --- actions ---
