@@ -16,6 +16,8 @@ func TestRenderTCPandUDP(t *testing.T) {
 	}
 	// UDP listener + udp directive; DNS-fallback upstream (no pool → service:port).
 	for _, want := range []string{
+		// loads the dynamic stream module on Debian/Ubuntu (else "unknown directive stream")
+		"include /etc/nginx/modules-enabled/*.conf;",
 		"stream {",
 		"upstream l4_53_udp {",
 		"hash $remote_addr consistent;",

@@ -383,7 +383,7 @@ spec:
 | `tls` | enum | `passthrough` | `passthrough` only for now — the LB forwards raw bytes and the **app** terminates TLS (issue its cert with a [`cert_binding`](#speccert_bindings)). `terminate` is not yet supported. |
 
 > **Prerequisites (the L4 LB is opt-in and not bundled):**
-> 1. Install **nginx** on the host yourself (`apt install nginx` — it carries the `stream` module). Helmsman does **not** ship or pull nginx; it's only needed if you use L4 routes.
+> 1. Install **nginx + its stream module** on the host yourself — on Debian/Ubuntu `sudo apt install nginx libnginx-mod-stream` (the `stream` module is a *separate* package there). Helmsman's generated config already `include`s `/etc/nginx/modules-enabled/*.conf` so the module loads, but the package must be present or nginx rejects the config with `unknown directive "stream"`. Helmsman does **not** ship or pull nginx; it's only needed for L4 routes.
 > 2. Set `edge.l4_enabled: true` in `config.yaml`.
 > 3. To bind privileged ports (53/853) the supervised nginx needs `CAP_NET_BIND_SERVICE` — apply the `helmsman-privileged-ports` systemd drop-in (shipped under `/usr/share/helmsman/systemd/`). Or map a privileged host port to a high container port and keep nginx unprivileged.
 > 4. **If you bind `:53` (DNS): free it from `systemd-resolved` first.** On a default systemd host the `systemd-resolved` stub listener already holds `127.0.0.53:53` (and `127.0.0.54:53` on systemd ≥ 249). The supervised nginx binds the wildcard `0.0.0.0:53`, which collides with that bind → nginx fails to start (`address already in use`) and the L4 reconcile fails closed. Disable the stub listener, then keep host DNS working by pointing `resolv.conf` at the real upstreams (not the now-dead stub):
