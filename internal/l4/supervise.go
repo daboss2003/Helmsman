@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -128,6 +129,51 @@ func (s *Supervisor) doSighup(p *os.Process) error {
 	return p.Signal(syscall.SIGHUP)
 }
 
+// ensureModuleDir points <Prefix>/modules at nginx's real module directory. Because
+// nginx runs with `-p <Prefix>`, the relative `load_module modules/ngx_stream_module.so`
+// that Debian/Ubuntu's /etc/nginx/modules-enabled emits resolves under <Prefix> — so
+// without this it dlopens <Prefix>/modules/… and the stream module is "not found".
+// Best-effort: if nginx's module dir can't be determined (stream built into nginx, or
+// no nginx) it's a no-op, and `nginx -t` surfaces any genuine problem.
+func (s *Supervisor) ensureModuleDir() {
+	dir := nginxModulesDir()
+	if dir == "" {
+		return
+	}
+	link := filepath.Join(s.Prefix, "modules")
+	if cur, err := os.Readlink(link); err == nil && cur == dir {
+		return // already correct
+	}
+	if err := os.MkdirAll(s.Prefix, 0o755); err != nil {
+		s.Log.Warn("l4: could not create prefix dir for the module link", "err", err)
+		return
+	}
+	_ = os.Remove(link) // replace a stale/wrong link (no-op if absent)
+	if err := os.Symlink(dir, link); err != nil {
+		s.Log.Warn("l4: could not link nginx module dir", "link", link, "target", dir, "err", err)
+	}
+}
+
+// nginxModulesDir returns nginx's compiled --modules-path (from `nginx -V`), or "" if
+// nginx is absent or the path can't be parsed.
+func nginxModulesDir() string {
+	out, err := exec.Command(nginxBin, "-V").CombinedOutput() // nginx -V prints config to stderr; literal binary (SEC-1)
+	if err != nil {
+		return ""
+	}
+	return parseModulesPath(string(out))
+}
+
+// parseModulesPath extracts --modules-path=<dir> from `nginx -V` output.
+func parseModulesPath(nginxV string) string {
+	for _, tok := range strings.Fields(nginxV) {
+		if v, ok := strings.CutPrefix(tok, "--modules-path="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
 // Run supervises the child nginx with capped backoff until ctx is cancelled. It is
 // fail-closed: if the host can't own the L4 LB (non-Linux, no binary, digest
 // mismatch) it logs and returns without starting anything. The systemd slice / user
@@ -149,6 +195,9 @@ func (s *Supervisor) Run(ctx context.Context) {
 			return
 		}
 	}
+	// Make the prefix-relative `load_module modules/…` (from /etc/nginx/modules-enabled
+	// on Debian/Ubuntu) resolve, since we run nginx with `-p <Prefix>`.
+	s.ensureModuleDir()
 	// Ensure a valid config exists before the first launch (an empty stream block
 	// is a valid floor; routes are pushed via Reconcile).
 	if _, err := os.Stat(s.ConfigPath); err != nil {

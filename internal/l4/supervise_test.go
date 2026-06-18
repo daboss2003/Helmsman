@@ -123,3 +123,19 @@ func TestReconcileRejectsBadRoute(t *testing.T) {
 		t.Errorf("live config must be untouched on a render error: %q", got)
 	}
 }
+
+func TestParseModulesPath(t *testing.T) {
+	// real `nginx -V` shape (Ubuntu): config args on one line, space-separated.
+	const v = `nginx version: nginx/1.24.0 (Ubuntu)
+built with OpenSSL 3.0.13
+TLS SNI support enabled
+configure arguments: --prefix=/usr/share/nginx --modules-path=/usr/lib/nginx/modules --conf-path=/etc/nginx/nginx.conf`
+	if got := parseModulesPath(v); got != "/usr/lib/nginx/modules" {
+		t.Errorf("got %q, want /usr/lib/nginx/modules", got)
+	}
+	// stream built into nginx (no separate module dir advertised) → empty, so the
+	// caller skips the symlink and the bare stream{} block just works.
+	if got := parseModulesPath("configure arguments: --prefix=/etc/nginx --with-stream"); got != "" {
+		t.Errorf("got %q, want empty when no --modules-path", got)
+	}
+}
