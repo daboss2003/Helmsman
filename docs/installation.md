@@ -49,35 +49,49 @@ install -m0755 helmsman /usr/local/bin/helmsman
 helmsman version
 ```
 
-### Check + install host prerequisites
+### Host prerequisites — what's automatic, and the few things you do once
 
-Confirm the box has everything the edge needs (Caddy, Docker, working DNS, the
-privileged-ports capability), and let Helmsman install what's missing:
+**Most host prep is automatic.** The package's systemd unit + postinstall already create the
+runtime dir (`/run/helmsman`) and the writable state dirs, grant the one capability the edge needs
+(`CAP_NET_BIND_SERVICE`, so Caddy/nginx bind `:80`/`:443`/`:53` non-root), set a writable `HOME`
+and a sane `MemoryMax`, and leave the egress filter off by default. You don't apply drop-ins or
+tune the unit.
+
+There are only a **few one-time steps you do by hand** — `helmsman doctor` tells you if any are
+missing (it's read-only; run it any time to verify the box):
 
 ```bash
-helmsman doctor              # read-only: reports what's missing + the exact fix
-sudo helmsman setup          # prints a fix plan (a dry run — changes nothing)
-sudo helmsman setup --yes    # applies it: installs Caddy (the bind capability + runtime dirs are already in the unit)
+helmsman doctor              # read-only: reports anything off + the exact fix
+sudo helmsman setup --yes    # installs the Caddy binary — the managed edge needs it
 ```
 
-Add `--l4` to also set up the L4 (TCP/UDP) load balancer's nginx + stream module if
-you plan to run a non-HTTP service like a DNS resolver. `setup` never touches host DNS
-itself — if you bind `:53` it prints the steps to free it from `systemd-resolved`.
+That's everything for a normal HTTPS app. Two extras apply **only in specific cases**:
 
-> **Cap Docker's container logs.** Helmsman *streams* logs (it never buffers them in
-> memory or its DB), but Docker's default `json-file` driver keeps every container's
-> stdout on disk **forever** — on a small VPS that fills the disk. `helmsman setup`
-> caps it for you: it merges a `max-size` into `/etc/docker/daemon.json` (preserving
-> your other settings) and restarts Docker to apply. Because that restart **bounces
-> running containers**, it's a step in the reviewable plan — run `setup` *before* you
-> deploy apps and it's a no-op disruption. (`helmsman doctor` just warns; it changes
-> nothing.) The equivalent by hand:
->
-> ```json
-> { "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }
-> ```
->
-> then `sudo systemctl restart docker`. (Or use the self-rotating `local`/`journald` driver.)
+- **A non-HTTP service on a privileged port (a DNS resolver on `:53`, MQTT, …)?** Install the L4
+  load balancer's nginx + stream module, and — only if you bind `:53` — free it from
+  `systemd-resolved` (Helmsman never rewrites host DNS for you, because getting it wrong takes the
+  box's own DNS down):
+  ```bash
+  sudo helmsman setup --l4 --yes      # nginx + the stream module
+  # then, ONLY for a :53 resolver, free the port from systemd-resolved:
+  printf '[Resolve]\nDNSStubListener=no\n' | sudo tee /etc/systemd/resolved.conf.d/no-stub.conf
+  sudo systemctl restart systemd-resolved
+  sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf   # the real upstreams — NOT stub-resolv.conf
+  getent hosts github.com             # confirm host DNS still resolves
+  ```
+
+- **(Recommended) Cap Docker's container logs.** Helmsman *streams* logs (it never buffers them in
+  memory or its DB), but Docker's default `json-file` driver keeps every container's stdout on disk
+  **forever** — on a small VPS that fills the disk. `helmsman setup` caps it for you (merges a
+  `max-size` into `/etc/docker/daemon.json`, preserving your other settings, then restarts Docker).
+  That restart **bounces running containers**, so it's a reviewable step in the plan — run `setup`
+  *before* you deploy apps and it's a no-op disruption. The equivalent by hand:
+  ```json
+  { "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }
+  ```
+  then `sudo systemctl restart docker` (or use the self-rotating `local`/`journald` driver).
+
+When `helmsman doctor` is all-green, the host is ready — there's nothing else to tune.
 
 ## 2. Create your login and encryption key
 
