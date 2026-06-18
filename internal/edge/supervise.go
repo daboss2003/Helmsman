@@ -103,6 +103,7 @@ func (s *Supervisor) launch(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, s.CaddyBin, "run", "--config", "-", "--adapter", "")
 	cmd.Stdin = bytes.NewReader(s.InitialCfg)
 	cmd.Env = []string{"HOME=/var/lib/caddy", "XDG_DATA_HOME=/var/lib/caddy"}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr // surface Caddy's startup/cert errors in journald (not /dev/null)
 	cmd.WaitDelay = 5 * time.Second
 	return cmd.Run()
 }

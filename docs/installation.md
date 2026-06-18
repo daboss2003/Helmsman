@@ -139,6 +139,7 @@ Helmsman runs as a normal background service. The repo ships a ready-made servic
 useradd --system --no-create-home --shell /usr/sbin/nologin helmsman
 usermod -aG docker helmsman
 install -d -o helmsman -g helmsman -m0700 /var/lib/helmsman
+install -d -o helmsman -g helmsman -m0700 /var/lib/caddy   # edge data/cert store (in the unit's ReadWritePaths)
 install -o root -g helmsman -m0640 config.yaml /etc/helmsman/config.yaml
 install -m0644 deploy/systemd/helmsman.service /etc/systemd/system/helmsman.service
 

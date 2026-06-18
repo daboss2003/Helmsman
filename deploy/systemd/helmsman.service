@@ -8,6 +8,7 @@
 #   usermod -aG docker helmsman
 #   install -m0755 helmsman /usr/local/bin/helmsman
 #   install -d -o helmsman -g helmsman -m0700 /var/lib/helmsman
+#   install -d -o helmsman -g helmsman -m0700 /var/lib/caddy   # edge data/cert store (ReadWritePaths)
 #   # Config is root-OWNED and group-readable by the service group so the
 #   # non-root service can read it; the master key is never group-WRITABLE:
 #   install -o root -g helmsman -m0640 config.yaml /etc/helmsman/config.yaml
@@ -66,9 +67,11 @@ SystemCallFilter=~@privileged @obsolete
 # probes a denied call degrades gracefully rather than core-dumping the edge.
 SystemCallErrorNumber=EPERM
 
-# Only the state dir is writable. The admin UI binds loopback only; Helmsman
+# Only the state dirs are writable. The admin UI binds loopback only; Helmsman
 # never binds a public port itself (the managed edge child does — its own unit).
-ReadWritePaths=/var/lib/helmsman
+# /var/lib/caddy is the supervised edge's data/cert store (HOME/XDG_DATA_HOME); under
+# ProtectSystem=strict it MUST be listed here or Caddy can't write its certs (exit 1).
+ReadWritePaths=/var/lib/helmsman /var/lib/caddy
 # CAP_NET_BIND_SERVICE is intentionally ABSENT here — only the edge child gets it.
 CapabilityBoundingSet=
 AmbientCapabilities=
