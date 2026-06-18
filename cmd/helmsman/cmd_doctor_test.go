@@ -116,3 +116,16 @@ func TestCaddyRepoConstants(t *testing.T) {
 		t.Errorf("armored key path should end .asc for apt signed-by: %q", caddyKeyPath)
 	}
 }
+
+func TestOnlyLoopback(t *testing.T) {
+	for _, s := range []string{"", "localhost", "127.0.0.0/8", "127.0.0.1 ::1", "localhost ::1/128"} {
+		if !onlyLoopback(s) {
+			t.Errorf("%q should be loopback-only", s)
+		}
+	}
+	for _, s := range []string{"localhost 172.16.0.0/12", "10.0.0.0/8", "0.0.0.0/0"} {
+		if onlyLoopback(s) {
+			t.Errorf("%q has a non-loopback range", s)
+		}
+	}
+}

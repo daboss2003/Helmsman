@@ -11,10 +11,14 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/daboss2003/Helmsman/internal/config"
 )
 
 // cmd_doctor.go is the host-prerequisites helper. Helmsman's RUNTIME service is
@@ -41,6 +45,7 @@ const (
 func cmdDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	l4 := fs.Bool("l4", false, "also check the L4 (nginx stream) prerequisites")
+	configPath := fs.String("config", config.DefaultPath, "config.yaml to drive the runtime checks")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -48,7 +53,11 @@ func cmdDoctor(args []string) error {
 		fmt.Println("helmsman doctor: host checks run on Linux only.")
 		return nil
 	}
-	rep := preflight(*l4)
+	cfg, cfgWarn := loadDoctorConfig(*configPath)
+	rep := preflight(*l4, cfg, true)
+	if cfgWarn != "" {
+		rep.add(result{"config", "warn", cfgWarn, "pass --config, or run where /etc/helmsman/config.yaml is readable (runtime checks fall back to defaults)"})
+	}
 	rep.print(os.Stdout)
 	if rep.hasFail() {
 		fmt.Println("\nRun `sudo helmsman setup` to review a fix plan, then `sudo helmsman setup --yes` to apply it.")
@@ -57,6 +66,16 @@ func cmdDoctor(args []string) error {
 	}
 	printGuidance(rep, *l4)
 	return nil
+}
+
+// loadDoctorConfig best-effort loads the config for the runtime checks. A failure is
+// non-fatal: the checks fall back to documented defaults and the caller surfaces a warn.
+func loadDoctorConfig(path string) (*config.Config, string) {
+	cfg, err := config.Load(path)
+	if err != nil {
+		return nil, "could not load " + path + " (" + err.Error() + ")"
+	}
+	return cfg, ""
 }
 
 func cmdSetup(args []string) error {
@@ -79,7 +98,9 @@ func cmdSetup(args []string) error {
 		return fmt.Errorf("applying changes needs root — run: sudo helmsman setup --yes")
 	}
 
-	rep := preflight(*l4)
+	// setup runs at onboarding (before config/service start), so skip the runtime-state
+	// checks (run dir / egress / socket-proxy) — they need a running service.
+	rep := preflight(*l4, nil, false)
 	rep.print(os.Stdout)
 
 	steps := plan(*yes, *l4, *restart)
@@ -196,19 +217,64 @@ func (r report) print(w io.Writer) {
 	}
 }
 
-func preflight(l4 bool) report {
+// preflight runs the checks. cfg may be nil (config not loaded → defaults used).
+// runtimeChecks adds the checks that need a configured + running service (run dir,
+// egress, socket-proxy); setup skips them since it runs before the service starts.
+func preflight(l4 bool, cfg *config.Config, runtimeChecks bool) report {
+	managed := cfg == nil || cfg.Edge.Mode == config.EdgeManaged // default mode is managed
 	var r report
 	r.add(checkBinary("caddy", "managed HTTPS edge (:80/:443 + ACME)", "sudo helmsman setup --yes"))
 	r.add(checkBinary("docker", "container read/write plane", "install Docker + the compose plugin"))
 	r.add(checkDockerLogRotation())
 	r.add(checkDNS())
-	r.add(checkCaps())
+	r.add(checkCapsActive(managed || l4))
+	r.add(checkStateDirs(cfg, managed))
 	if l4 {
 		r.add(checkBinary("nginx", "L4 (TCP/UDP) load balancer", "sudo helmsman setup --l4 --yes"))
 		r.add(checkStreamModule())
 		r.add(checkResolvedStub())
 	}
+	if runtimeChecks {
+		if managed {
+			r.add(checkRunDir(cfg))
+			r.add(checkEgress())
+		}
+		r.add(checkSocketProxy(cfg))
+	}
 	return r
+}
+
+// --- doctor helpers: resolve cfg-or-default + read the live unit (all read-only) ---
+
+func doctorDataDir(cfg *config.Config) string {
+	if cfg != nil && cfg.DataDir != "" {
+		return cfg.DataDir
+	}
+	return "/var/lib/helmsman"
+}
+
+func doctorAdminListen(cfg *config.Config) string {
+	if cfg != nil {
+		return edgeAdminListen(cfg)
+	}
+	return "unix//run/helmsman/caddy-admin.sock"
+}
+
+func doctorProxyAddr(cfg *config.Config) string {
+	if cfg != nil && cfg.Docker.ProxyAddr != "" {
+		return cfg.Docker.ProxyAddr
+	}
+	return "127.0.0.1:2375"
+}
+
+// systemctlShow reads one property of the live helmsman unit. ok=false when systemctl
+// is unavailable (so callers degrade rather than false-alarm).
+func systemctlShow(prop string) (string, bool) {
+	out, err := exec.Command("systemctl", "show", "helmsman", "-p", prop, "--value").Output() // literal: SEC-1 safe (no -c)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
 }
 
 func checkBinary(bin, what, fix string) result {
@@ -228,11 +294,30 @@ func checkDNS() result {
 	return result{"dns", "ok", "host name resolution works", ""}
 }
 
-func checkCaps() result {
-	if fileExists(capsDst) {
-		return result{"net-bind cap", "ok", "privileged-ports drop-in is installed", ""}
+// checkCapsActive verifies CAP_NET_BIND_SERVICE is ACTIVE in the live unit (not just
+// that the drop-in file is on disk — a file present but not daemon-reloaded is a real
+// trap). need=true (managed edge / L4) makes a missing cap a fail; else a warn.
+func checkCapsActive(need bool) result {
+	miss := "warn"
+	if need {
+		miss = "fail"
 	}
-	return result{"net-bind cap", "warn", "no CAP_NET_BIND_SERVICE drop-in — the edge/L4 can't bind <1024",
+	if amb, ok := systemctlShow("AmbientCapabilities"); ok {
+		if strings.Contains(strings.ToLower(amb), "cap_net_bind_service") {
+			return result{"net-bind cap", "ok", "CAP_NET_BIND_SERVICE is active in the unit", ""}
+		}
+		fix := "sudo helmsman setup --yes (installs the drop-in)"
+		if fileExists(capsDst) {
+			fix = "drop-in on disk but not active — sudo systemctl daemon-reload && sudo systemctl restart helmsman"
+		}
+		return result{"net-bind cap", miss, "CAP_NET_BIND_SERVICE not active — the edge/L4 can't bind :80/:443/:53", fix}
+	}
+	// systemctl unavailable → fall back to the file check (can't confirm it's loaded).
+	if fileExists(capsDst) {
+		return result{"net-bind cap", "warn", "drop-in file present (could not confirm it is active)",
+			"verify: systemctl show helmsman -p AmbientCapabilities"}
+	}
+	return result{"net-bind cap", miss, "no CAP_NET_BIND_SERVICE drop-in — the edge/L4 can't bind <1024",
 		"sudo helmsman setup --yes (installs the drop-in)"}
 }
 
@@ -242,6 +327,128 @@ func checkStreamModule() result {
 	}
 	return result{"nginx stream", "warn", "stream module not found in /etc/nginx/modules-enabled/",
 		"sudo apt install libnginx-mod-stream (else nginx rejects the L4 config)"}
+}
+
+// checkStateDirs verifies the writable state dirs exist, are helmsman-owned, and are
+// in the unit's ReadWritePaths — the silent "deploy hangs / edge won't start" trap
+// when a dir is missing, root-owned, or data_dir was changed without updating the unit.
+func checkStateDirs(cfg *config.Config, managed bool) result {
+	dd := doctorDataDir(cfg)
+	dirs := []string{dd, dd + "-apps"}
+	if managed {
+		dirs = append(dirs, "/var/lib/caddy")
+	}
+	var bad []string
+	for _, d := range dirs {
+		fi, err := os.Stat(d)
+		if err != nil || !fi.IsDir() {
+			bad = append(bad, d+" (missing)")
+			continue
+		}
+		if !ownedByHelmsman(fi) {
+			bad = append(bad, d+" (not owned by helmsman)")
+		}
+	}
+	if len(bad) > 0 {
+		return result{"state dirs", "fail", "writable-dir problem: " + strings.Join(bad, ", "),
+			"sudo install -d -o helmsman -g helmsman -m0700 <dir> (and add it to the unit's ReadWritePaths)"}
+	}
+	if rwp, ok := systemctlShow("ReadWritePaths"); ok {
+		for _, d := range []string{dd, dd + "-apps"} {
+			if !strings.Contains(rwp, d) {
+				return result{"state dirs", "warn", d + " is not in the unit's ReadWritePaths — writes fail under the sandbox",
+					"add " + d + " to ReadWritePaths= in the unit (a non-default data_dir must be added by hand)"}
+			}
+		}
+	}
+	return result{"state dirs", "ok", "state dirs exist, helmsman-owned, in ReadWritePaths", ""}
+}
+
+// checkRunDir verifies the parent dir of the Caddy admin unix socket exists (the
+// /run/helmsman crash-loop), and that it is backed by RuntimeDirectory (a hand-mkdir
+// under /run vanishes on reboot).
+func checkRunDir(cfg *config.Config) result {
+	listen := doctorAdminListen(cfg)
+	if !strings.HasPrefix(listen, "unix/") {
+		return result{"run dir", "ok", "admin endpoint is loopback TCP (no runtime dir needed)", ""}
+	}
+	dir := filepath.Dir(strings.TrimPrefix(listen, "unix/")) // "unix//run/helmsman/x" → "/run/helmsman"
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return result{"run dir", "fail", dir + " is missing — the edge can't bind its admin socket (crash-loop)",
+			"add RuntimeDirectory=helmsman to the unit, then daemon-reload + restart"}
+	}
+	if rd, ok := systemctlShow("RuntimeDirectory"); ok && strings.HasPrefix(dir, "/run/") && !strings.Contains(rd, "helmsman") {
+		return result{"run dir", "warn", dir + " exists but the unit has no RuntimeDirectory= (lost on reboot)",
+			"add RuntimeDirectory=helmsman to the unit"}
+	}
+	return result{"run dir", "ok", dir + " present for the admin socket", ""}
+}
+
+// checkEgress warns when the cgroup egress filter is locked to loopback while the
+// managed edge needs to reach ACME + app upstreams (the silent "certs won't issue /
+// proxy refused" trap). Reads the LIVE unit (a doctor-process dial wouldn't exercise
+// the unit's cgroup filter, so it would mislead).
+func checkEgress() result {
+	deny, ok := systemctlShow("IPAddressDeny")
+	if !ok {
+		return result{"egress", "warn", "could not read the unit's egress filter",
+			"systemctl show helmsman -p IPAddressDeny -p IPAddressAllow"}
+	}
+	if !strings.Contains(deny, "any") && !strings.Contains(deny, "0.0.0.0/0") && !strings.Contains(deny, "::/0") {
+		return result{"egress", "ok", "no cgroup egress lockdown (in-process dialers guard SSRF)", ""}
+	}
+	allow, _ := systemctlShow("IPAddressAllow")
+	if onlyLoopback(allow) {
+		return result{"egress", "fail", "IPAddressDeny=any with only loopback allowed — blocks ACME + app proxying",
+			"add the docker subnet + an ACME-reachable path to IPAddressAllow=, or remove the lockdown (the in-process dialers still guard SSRF)"}
+	}
+	return result{"egress", "ok", "egress locked down with a non-loopback allow-set", ""}
+}
+
+// checkSocketProxy probes the read-plane loopback endpoint (liveness, not security).
+func checkSocketProxy(cfg *config.Config) result {
+	if cfg != nil && cfg.Docker.ExternalProxy {
+		return result{"socket-proxy", "ok", "external proxy (operator-managed, not checked)", ""}
+	}
+	addr := doctorProxyAddr(cfg)
+	c := &http.Client{Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := c.Get("http://" + addr + "/version")
+	if err != nil {
+		return result{"socket-proxy", "warn", "not answering on " + addr + " — the read plane (container view) is unavailable",
+			"check `docker compose -f <data_dir>/socket-proxy/docker-compose.yml ps` + the journal (often a DNS/image-pull issue)"}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return result{"socket-proxy", "warn", fmt.Sprintf("%s returned HTTP %d", addr, resp.StatusCode), "check the socket-proxy container"}
+	}
+	return result{"socket-proxy", "ok", "managed socket-proxy answering on " + addr, ""}
+}
+
+// ownedByHelmsman reports whether fi is owned by the helmsman user. If the user can't
+// be resolved (e.g. doctor run on a dev box), it returns true (don't false-alarm).
+func ownedByHelmsman(fi os.FileInfo) bool {
+	u, err := user.Lookup("helmsman")
+	if err != nil {
+		return true
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return true
+	}
+	return fmt.Sprint(st.Uid) == u.Uid
+}
+
+// onlyLoopback reports whether an IPAddressAllow set contains only loopback entries.
+func onlyLoopback(allow string) bool {
+	for _, tok := range strings.Fields(allow) {
+		switch tok {
+		case "", "localhost", "127.0.0.0/8", "127.0.0.1", "::1", "::1/128":
+			// loopback — fine
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func checkResolvedStub() result {
