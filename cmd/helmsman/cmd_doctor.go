@@ -226,6 +226,9 @@ func preflight(l4 bool, cfg *config.Config, runtimeChecks bool) report {
 	r.add(checkDNS())
 	r.add(checkCapsActive(managed || l4))
 	r.add(checkStateDirs(cfg, managed))
+	if cfg != nil {
+		r.add(checkTOTP(cfg))
+	}
 	if l4 {
 		r.add(checkBinary("nginx", "L4 (TCP/UDP) load balancer", "sudo helmsman setup --l4 --yes"))
 		r.add(checkStreamModule())
@@ -236,6 +239,7 @@ func preflight(l4 bool, cfg *config.Config, runtimeChecks bool) report {
 			r.add(checkRunDir(cfg))
 			r.add(checkEgress())
 		}
+		r.add(checkDeployEnv())
 		r.add(checkSocketProxy(cfg))
 	}
 	return r
@@ -395,6 +399,35 @@ func checkEgress() result {
 			"add the docker subnet + an ACME-reachable path to IPAddressAllow=, or remove the lockdown (the in-process dialers still guard SSRF)"}
 	}
 	return result{"egress", "ok", "egress locked down with a non-loopback allow-set", ""}
+}
+
+// checkTOTP reports the login's two-factor posture from the config (read-only). A
+// disabled state is a warn — login is password-only — with the exact enable steps.
+// This reads the config FILE; the running process reflects it after a reload (the
+// serve startup log is the runtime-authoritative signal).
+func checkTOTP(cfg *config.Config) result {
+	if cfg.Auth.TOTPSecret != "" {
+		return result{"2fa (totp)", "ok", "two-factor auth is enabled in the config", ""}
+	}
+	return result{"2fa (totp)", "warn", "two-factor auth is DISABLED — login is password-only",
+		"helmsman gen-totp → paste the printed totp_secret under `auth:` in config.yaml → sudo systemctl reload helmsman"}
+}
+
+// checkDeployEnv verifies the live unit exports a writable HOME. Deploys AND the
+// managed socket-proxy run `docker compose` through the same env path (minimalEnv),
+// and buildx/BuildKit + the docker CLI write under $HOME — a stale unit without it
+// makes `compose up --build` / the proxy fail with exit 125. Catches "installed unit
+// != shipped unit" (didn't daemon-reload after upgrade).
+func checkDeployEnv() result {
+	env, ok := systemctlShow("Environment")
+	if !ok {
+		return result{"deploy env", "warn", "could not read the unit's Environment", "systemctl show helmsman -p Environment"}
+	}
+	if strings.Contains(env, "HOME=") {
+		return result{"deploy env", "ok", "unit sets a writable HOME for compose/build children", ""}
+	}
+	return result{"deploy env", "fail", "unit has no HOME — `docker compose --build` and the socket-proxy will exit 125",
+		"upgrade, then sudo systemctl daemon-reload && sudo systemctl restart helmsman (the shipped unit sets HOME)"}
 }
 
 // checkSocketProxy probes the read-plane loopback endpoint (liveness, not security).

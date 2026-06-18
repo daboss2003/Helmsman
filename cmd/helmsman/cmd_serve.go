@@ -152,8 +152,24 @@ func cmdServe(args []string) error {
 			ec, cancel := context.WithTimeout(ctx, 90*time.Second) // allow a first-run image pull
 			defer cancel()
 			log.Info("ensuring the managed read-only docker socket-proxy is running")
-			if err := socketproxy.EnsureRunning(ec, runner, cfg.DataDir, func(line string) { log.Debug("socket-proxy", "out", line) }); err != nil {
-				log.Warn("could not start the managed socket-proxy; the read plane stays unavailable until it is up", "err", err)
+			// Capture the compose output so a FAILURE surfaces the REAL reason (e.g. an
+			// image-pull DNS error), not a bare "exit status 125". It was previously
+			// Debug-only, which is why the failure looked like a mystery.
+			var out []string
+			err := socketproxy.EnsureRunning(ec, runner, cfg.DataDir, func(line string) {
+				log.Debug("socket-proxy", "out", line)
+				if l := strings.TrimSpace(line); l != "" {
+					out = append(out, l)
+				}
+			})
+			if err != nil {
+				tail := out
+				if len(tail) > 8 {
+					tail = tail[len(tail)-8:]
+				}
+				log.Warn("could not start the managed socket-proxy; the read plane (container view) stays unavailable",
+					"err", err, "output", strings.Join(tail, " | "),
+					"hint", "usually the daemon can't PULL the proxy image — check host DNS (getent hosts ghcr.io) then `docker pull` it; it retries on a helmsman restart")
 			} else {
 				log.Info("managed read-only docker socket-proxy is up", "addr", cfg.Docker.ProxyAddr)
 			}
@@ -432,6 +448,13 @@ func cmdServe(args []string) error {
 
 	log.Info("helmsman serving",
 		"bind", cfg.BindAddr, "edge_mode", string(cfg.Edge.Mode), "db", db.Path)
+	// Authoritative, visible signal of the login posture — so "I enabled 2FA but it
+	// isn't enforced" can't go unnoticed (set auth.totp_secret + reload to enable).
+	if cfg.Auth.TOTPSecret != "" {
+		log.Info("login: two-factor auth (TOTP) is ENABLED")
+	} else {
+		log.Warn("login: two-factor auth (TOTP) is DISABLED — password only; set auth.totp_secret to enable")
+	}
 	runErr := srv.Run(ctx)
 	// Cancel ctx (idempotent if a signal already did) so the poller exits, then
 	// join it before the deferred db.Close() runs (review #8).

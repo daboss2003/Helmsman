@@ -289,7 +289,18 @@ func (s *Server) Reload(ctx context.Context) error {
 		return err
 	}
 	sec.tokenCIDRUnion = s.activeTokenUnion(ctx)
+	prev := s.security()
 	s.sec.Store(sec)
+	// If two-factor (TOTP) was just enabled or the secret rotated, revoke existing
+	// sessions so the operator must re-authenticate WITH the new factor — otherwise a
+	// session minted before 2FA would keep bypassing it (the "I enabled it but I'm
+	// still in" trap).
+	if sec.totpSecret != "" && (prev == nil || prev.totpSecret != sec.totpSecret) {
+		if n, derr := s.sessions.DeleteAllForUser(ctx, sec.username); derr == nil && n > 0 {
+			s.log.Warn("two-factor auth (TOTP) enabled/rotated — revoked existing sessions; re-login required", "revoked", n)
+		}
+	}
+	s.log.Info("config reloaded", "two_factor_totp", sec.totpSecret != "")
 	_ = s.audit.Log(ctx, audit.Event{
 		Action: "config_reload", Outcome: audit.OK, Level: audit.Security,
 		Detail: "allowlist + auth + token CIDR-union reloaded",
