@@ -15,7 +15,7 @@ A running install is not one process — it is a small set of cooperating proces
 | Component | What it is | Runs as | Why it is separate |
 |---|---|---|---|
 | **Helmsman core** | The `html/template` + htmx admin UI, the poller, the reconciler, the API. One static Go binary (~12–18 MB, ~10–15 MB idle RSS). | Dedicated low-priv user, member of the `docker` group, its own `systemd` unit. | It is the control plane. It holds the operator session and (in memory) the master key. Everything else is kept *out* of this address space. |
-| **Caddy edge** (child) | A stock, unmodified Caddy binary that owns `:80`/`:443`, runs ACME/Let's Encrypt, terminates TLS, and reverse-proxies each vhost. | A *different* low-priv user, in its **own systemd slice** with its own `MemoryMax`. Has `CAP_NET_BIND_SERVICE`; the core does **not**. | The public-facing HTTP/TLS/ACME/x509 stack parses hostile traffic. It must run in a different process, user, and cgroup than the secrets it would otherwise sit beside. |
+| **Caddy edge** (child) | A stock, unmodified Caddy binary that owns `:80`/`:443`, runs ACME/Let's Encrypt, terminates TLS, and reverse-proxies each vhost. | A **separate child process** supervised by the core. **Today co-resident** in the core's unit (same low-priv user + cgroup + `MemoryMax`); `CAP_NET_BIND_SERVICE` is granted to the **unit** (so the core holds it too). A dedicated edge user/slice + child-only cap is **planned, not yet implemented**. | The public-facing HTTP/TLS/ACME/x509 stack parses hostile traffic, so it runs as a separate process from the request handlers; full user/cgroup isolation is the next hardening step. |
 | **docker-socket-proxy** | A read-only proxy in front of the real Docker socket, with a deny-by-default verb allowlist (`CONTAINERS`/`INFO`/`VERSION` only). | Loopback-only, internal-only network, `read_only`, `cap_drop: ALL`. | The raw `docker.sock` is root-equivalent. It is mounted **only** into this proxy — **never** into Helmsman. The core reads container state *through* this proxy. |
 | **SQLite** | The embedded application database (`modernc.org/sqlite`, pure-Go, CGO-free). | A file owned by the Helmsman user, opened with `umask 0077`. | Holds app state and **ciphertext only** — never the key that decrypts it (see §3). |
 | **cert-sync helper** | A small helper that copies the edge's leaf cert + key to a per-consumer `0600` path, watches mtime, and signals the consumer. | Invoked by the core with **static argv only**. | Lets a non-HTTP service (e.g. an MQTT-over-TLS broker) reuse an ACME cert **without** broadening permissions on the proxy's key directory. |
@@ -49,14 +49,14 @@ It runs **non-root** under a dedicated low-privilege user that is a member of th
 
 Helmsman's admin UI binds `127.0.0.1:9000` and **never** binds a public port itself. In the default (`managed`) mode, it is the *child edge* that owns `:80`/`:443` and reverse-proxies the admin vhost back to `127.0.0.1:9000` (behind an injected IP-allowlist matcher).
 
-### The edge runs in its own slice
+### The edge is a supervised child process
 
-The child Caddy runs under its own low-priv user in its own systemd **slice** with its own `MemoryMax` (~96–128 MB). Two consequences:
+The child Caddy is a separate process supervised by the core. **Today it is co-resident** in the core's systemd unit — same low-priv user, same cgroup, sharing the unit's `MemoryMax` (384 MB, sized to cover Helmsman + Caddy + nginx + forked compose). One consequence holds now, one is planned:
 
-1. **OOM accounting** — a public-plane traffic spike is capped in the edge's slice and **cannot** OOM the control plane.
-2. **Crash isolation** — Helmsman supervises the child with backoff. If the child dies, the admin UI stays up to show *why*. If Helmsman dies, the child keeps serving.
+1. **Crash isolation (now)** — Helmsman supervises the child with backoff. If the child dies, the admin UI stays up to show *why*. If Helmsman dies, the child keeps serving.
+2. **OOM isolation (planned)** — a dedicated edge slice with its own `MemoryMax`, so a public-plane traffic spike can't pressure the control-plane cgroup, is a planned hardening; today they share one cap.
 
-`CAP_NET_BIND_SERVICE` is granted to the **child only** — never to the Helmsman process, and never at all in `external` mode.
+`CAP_NET_BIND_SERVICE` is granted to the **control-plane unit** via the opt-in `helmsman-privileged-ports.conf` drop-in (so the co-resident Caddy/nginx children inherit it). It is absent entirely in `external` mode (no managed edge). Granting it to the child **alone** — not the core — is the planned per-process split; today it is on the unit.
 
 ### Two OOM mechanisms (do not conflate them)
 
@@ -160,7 +160,7 @@ The self-healing supervisor and the auto-scaler **both** pass the §0 gate, the 
 | Capability | Min host | Default |
 |---|---|---|
 | Security spine + read-only health/monitoring | small VPS ok | **on** |
-| Managed edge (owns `:80`/`:443` + ACME) — **core** | any (own slice) | **on** |
+| Managed edge (owns `:80`/`:443` + ACME) — **core** | any (child of the core unit) | **on** |
 | Write plane (deploy/redeploy), on-box build | ≥ 1 GB | build **off** |
 | Git auto-fetch (pull new commits) | small VPS ok (read plane) | **on** for repo apps |
 | Git deploy/build (manual promote) | ≥ 1 GB (write plane) | **manual** |
@@ -277,10 +277,11 @@ Core fans the same App Ops Interface out to agents. The v1 boundaries that make 
                               │  :80 / :443
                               ▼
         ┌──────────────────────────────────────────────┐
-        │  CADDY EDGE  (child)   own user · own slice    │   IPAddressAllow:
-        │  MemoryMax ~96–128M · CAP_NET_BIND_SERVICE     │   ACME CA/OCSP/CRL
-        │  owns ACME · terminates TLS · pinned dialer    │   + pinned app hosts
-        │  egress firewall: :9000/:2019/:2375 UNREACHABLE │   (NOT metadata/ctrl)
+        │  CADDY EDGE  (child process; co-resident in    │   pinned dialer (live):
+        │  the core unit today — own user/slice planned) │   :9000/:2019/:2375 +
+        │  CAP_NET_BIND_SERVICE (on the unit, opt-in)    │   metadata UNREACHABLE.
+        │  owns ACME · terminates TLS · pinned dialer    │   cgroup egress filter =
+        │                                                │   opt-in (off by default)
         └───────┬───────────────────────────┬───────────┘
                 │ admin vhost (IP-allowlist  │ app vhosts → app
                 │ matcher, injected)         │ internal ports only
@@ -314,7 +315,7 @@ Core fans the same App Ops Interface out to agents. The v1 boundaries that make 
                  ── edits config.yaml directly ────────────► SIGHUP hot-reload
 ```
 
-Read this diagram as a set of trust boundaries: internet → edge → app; edge → allowlist; app → read-only proxy; operator/SSH → privileged actions. Each arrow crosses a boundary, and at every crossing the receiving side fails closed. That is the whole architecture in one sentence — **a small number of narrow, hardened processes, each isolated in its own user and cgroup, funnelling every privileged action through a single validating chokepoint, with the master key kept in a place the web plane can never reach.**
+Read this diagram as a set of trust boundaries: internet → edge → app; edge → allowlist; app → read-only proxy; operator/SSH → privileged actions. Each arrow crosses a boundary, and at every crossing the receiving side fails closed. That is the whole architecture in one sentence — **a small number of narrow, hardened processes — the most dangerous (the raw-`docker.sock` proxy, the setup sandbox) isolated in their own user and cgroup — funnelling every privileged action through a single validating chokepoint, with the master key kept in a place the web plane can never reach.**
 
 ---
 

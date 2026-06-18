@@ -259,7 +259,7 @@ The principle: **assume the binary will be exploited, and make that survivable.*
 
 - Helmsman runs as **its own systemd unit** (not a compose container — so its controls can't target itself and a stack `down` can't take it down), **non-root**, under a dedicated low-privilege user in the `docker` group.
 - The raw `docker.sock` is **never mounted into Helmsman**. Reads go through a **read-only `docker-socket-proxy`** on loopback (`read_only`, `cap_drop: ALL`, a deny-by-default verb allowlist of `CONTAINERS/INFO/VERSION` only — `EXEC/POST/IMAGES/VOLUMES/…=0`). The socket is mounted *only* into the proxy.
-- The public edge is a **separate process, user, and cgroup** — the hostile-traffic-parsing TLS/ACME/x509 stack does not share the address space holding session secrets or the master key. `CAP_NET_BIND_SERVICE` is on the **child only**, never on Helmsman.
+- The public edge is a **separate child process** — the hostile-traffic-parsing TLS/ACME/x509 stack does not share the address space holding session secrets or the master key. (Today it is **co-resident** in the control-plane unit — same user + cgroup; `CAP_NET_BIND_SERVICE` is granted to the unit via the opt-in drop-in, so the core holds it too. A dedicated edge user/slice + child-only cap is a **planned** hardening.)
 - Setup scripts run in a throwaway jail under a **distinct uid** (`helmsman-sandbox`), with no docker.sock, no network, dropped caps, a read-only rootfs, and exactly one writable mount. The sandbox is **re-verified live before every run** (see [provisioning](./gitops.md)).
 
 ### 7.2 systemd sandboxing

@@ -10,7 +10,8 @@ when a configuration mistake slips through.
 
 > **One-line summary.** From a single required field per app — a hostname — Helmsman derives a
 > complete, hardened HTTPS vhost. The admin UI stays on loopback. A supervised, sandboxed child
-> Caddy does the public-facing work in its own user, cgroup, and memory-capped slice. What Caddy
+> Caddy does the public-facing work as a separate process (co-resident in the control-plane unit
+> today; a dedicated edge user/slice is planned). What Caddy
 > actually runs is always Helmsman's typed render of a protected base plus your routes — generated
 > from `helmsman.yaml`, never a config you author by hand.
 
@@ -89,8 +90,8 @@ chose external" never absolves the allowlist / XFF safety checks.
 
 ### Resource behavior: a warning, not a silent mode-switch
 
-On an undersized box the default **stays `managed`** — the edge runs in its own memory-capped slice
-with a persistent banner: *"reduced MemoryMax — consider a larger host."* Only a box that
+On an undersized box the default **stays `managed`** — the edge runs inside the control plane's
+memory-capped cgroup with a persistent banner: *"reduced MemoryMax — consider a larger host."* Only a box that
 **genuinely cannot** host the child boots `external`, and then it shows a blocking banner:
 *"edge not owned — resource gate."* Helmsman never silently degrades you into `external`; choosing it
 is always deliberate. (The heavier *write plane* — deploy/build — is separately gated at ≥ 1 GB RAM;
@@ -111,17 +112,20 @@ on-disk config file the proxy auto-loads — **the admin API is the single sourc
 
 | Property | What it buys you |
 |---|---|
-| **Blast radius** | The public-facing HTTP/TLS/ACME/x509 stack parses hostile SNI and traffic in a *different* process, user, and cgroup — not the address space that holds your session secrets and master key. |
-| **OOM accounting** | The child gets its own systemd **slice** with its own `MemoryMax` (~96–128 MB). A public-plane traffic spike cannot OOM the control plane. |
+| **Blast radius** | The public-facing HTTP/TLS/ACME/x509 stack parses hostile SNI and traffic in a *separate child process* — not the address space that holds your session secrets and master key. |
 | **"Single binary" survives** | Helmsman stays ~12–18 MB. You patch the proxy by swapping one static file and doing a graceful reload — no rebuild of Helmsman. |
 | **Crash isolation** | Helmsman supervises with backoff. If the child dies, the admin UI stays up to show you *why*. If Helmsman dies, the child keeps serving. |
 
 ### Supervision & capabilities
 
-- The child runs under a **dedicated low-privilege user in its own slice**.
-- **`CAP_NET_BIND_SERVICE` is granted to the child only** — never to the Helmsman process, and
-  never in `external` mode. That single capability is what lets an unprivileged process bind `:80`
-  and `:443`; nothing else in the system needs to be root for the edge to work.
+> **Current isolation (be precise):** the edge is a separate **process**, but today it is **co-resident** in the control-plane systemd unit — it runs as the **same** low-privilege user and shares the unit's cgroup + `MemoryMax` (384 MB, sized to cover Helmsman + Caddy + nginx + forked compose). A *dedicated edge user, slice, and per-edge `MemoryMax`* — so a public-plane traffic spike can't pressure the control plane, and the cap is held by the child alone — is a **planned hardening, not yet implemented**.
+
+- The child runs as the **control plane's** low-privilege user (a dedicated edge user/slice is planned).
+- **`CAP_NET_BIND_SERVICE` is granted to the whole control-plane unit** via the opt-in
+  `helmsman-privileged-ports.conf` drop-in (run `helmsman setup --yes`), so the Caddy/nginx
+  children inherit it. It is **absent in `external` mode** (no managed edge). Because the children
+  are co-resident, the control-plane process also holds the cap today — granting it to the child
+  **alone** is part of the planned per-process split.
 - Helmsman talks to the child over loopback `:2019` (or, preferably, a unix socket) **only**.
 - A liveness poll plus crash-loop detection raises a `level=security` audit event.
 
@@ -192,10 +196,12 @@ safe.
 - **`upstream` is an allowlist** of discovered app container endpoints. The only loopback target the
   edge may proxy to is the admin vhost → `127.0.0.1:9000` route, which is identity-pinned and
   **never operator- or app-editable**.
-- **Egress firewall — the real backstop.** The edge slice's `IPAddressDeny`/firewall makes
-  `9000`/`2019`/`2375` and the cloud metadata endpoint **physically unreachable** from the edge. So
-  even a config the linter missed, an edge RCE, or an SSRF **cannot** reach the control plane or the
-  socket-proxy.
+- **Pinned dialer — the live backstop.** The pinned dialer above (re-resolve + refuse on every
+  connection) is the control that actually stops the edge reaching `9000`/`2019`/`2375` or cloud
+  metadata, even past a missed lint / edge RCE / SSRF. A **systemd cgroup egress filter**
+  (`IPAddressDeny`) is a deeper, defense-in-depth backstop, but it ships **opt-in / off by default**
+  (a strict deny breaks ACME — Let's Encrypt has no fixed CIDR — and proxying to app containers);
+  enable + tune it per the unit's egress block when you can pin your CA/app egress.
 - **Caddy admin on a unix socket** (preferred) so there is no TCP `:2019` to proxy to at all, with
   `enforce_origin:true` and origins pinned to loopback.
 - **Config is marshalled from typed structs.** Hostname/path/upstream are charset-validated first.
@@ -302,7 +308,7 @@ test on a fresh install.** These are **release-blocking** on the first edge-owni
 | **SBD-3** | On-demand TLS off; ACME bounded | Absent from the base; the renderer **force-rewrites any `ask` endpoint** to a fixed loopback validator that answers "yes" only for known route/allowlist hostnames, plus a rate limit. ACME issues only for configured app vhosts. |
 | **SBD-4** | Only configured app vhosts served; control-plane ports unreachable as upstreams | Exactly the route-derived vhost set (+ optional admin vhost); **no catch-all/wildcard proxy**; no upstream targets `9000`/`2019`/`2375` or any internal port (struct-validated **and** re-checked at render **and** refused at dial); default unmatched-Host = `404`/close, never proxy. |
 | **SBD-5** | Network isolation of edge from control plane | The structural backstop — pinned dialer + upstream allowlist + egress firewall + unix-socket admin (see [the backstops](#the-structural-backstops-that-keep-the-edge-out-of-the-control-plane)). |
-| **SBD-6** | Egress allow-listing unchanged by always-on | Outbound ops calls stay host-pinned; edge egress is limited to the ACME CA / OCSP / CRL + pinned app hosts. |
+| **SBD-6** | Egress stays controlled by always-on | Outbound calls are **host-pinned in-process** (ops prober, edge upstreams, alert notifiers reject loopback/link-local/metadata). The systemd cgroup egress filter is an **opt-in** deeper backstop (off by default — a strict deny blocks ACME). |
 | **SBD-7** | Config rendering safety | Proxy config is marshalled from typed structs (never string concat), generated from the typed routes in `helmsman.yaml` — there is no path by which an operator authors Caddy config. |
 | **SBD-8** | The edge can never go down irrecoverably | Every apply is validate → stage → load with a retained last-known-good and an armed health-probe watchdog; on failure, **auto-revert**. The typed base config is always loadable as the recovery floor; **SSH is the ultimate recovery floor.** |
 
