@@ -33,10 +33,14 @@ fi
 cat <<'EOF'
 
 Helmsman installed. Next steps (over SSH):
-  1. Generate secrets:   helmsman gen-key ; helmsman hash-password
-  2. Write the config:   /etc/helmsman/config.yaml
+  1. Host prereqs:       helmsman doctor   then   sudo helmsman setup --yes
+                         (installs Caddy + the CAP_NET_BIND_SERVICE drop-in the
+                          managed edge needs to bind :80/:443 — without it the edge
+                          can't start)
+  2. Generate secrets:   helmsman gen-key ; helmsman hash-password
+  3. Write the config:   /etc/helmsman/config.yaml
                          (template at /usr/share/helmsman/config.example.yaml)
-  3. Start it:           systemctl enable --now helmsman
+  4. Start it:           systemctl enable --now helmsman
 
 Docs: https://github.com/daboss2003/Helmsman/tree/main/docs
 EOF

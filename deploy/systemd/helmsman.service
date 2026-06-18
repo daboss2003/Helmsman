@@ -31,12 +31,19 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2s
 
-# --- Memory accounting: MemoryMax kills INSIDE this cgroup, incl. forked
-# docker/compose children (plan §0, §3). GOMEMLIMIT sits under the cap.
-MemoryMax=192M
+# --- Memory accounting: MemoryMax kills INSIDE this cgroup, incl. the supervised
+# Caddy + nginx children AND forked docker/compose (plan §0, §3). They are CO-RESIDENT
+# in this cgroup (not a separate slice), so the cap must cover all of them: 192M with a
+# 150M Go limit left almost nothing for Caddy+nginx and risked OOM-killing the control
+# plane itself. GOMEMLIMIT sits under the cap for the Go process.
+MemoryMax=384M
 Environment=GOMEMLIMIT=150MiB
 # OOMScoreAdjust only biases the GLOBAL killer; it is NOT a substitute for MemoryMax.
 OOMScoreAdjust=-100
+# HOME for forked children only (Helmsman itself never reads HOME): docker compose's
+# buildx/BuildKit writes its cache to $HOME/.cache and its config to $HOME/.docker, and
+# git writes $HOME/.gitconfig — all must land in a writable dir or `--build` deploys fail.
+Environment=HOME=/var/lib/helmsman
 
 # --- Sandbox (plan §15 Phase 4). The raw docker.sock is NEVER mounted here;
 # reads go through the read-only socket-proxy, writes shell out to `docker compose`.
@@ -79,17 +86,36 @@ SystemCallErrorNumber=EPERM
 # Omit any of them and the corresponding writes fail (Caddy/nginx exit, deploys can't
 # materialize) — the failure mode that looks like "edge won't start / deploy hangs".
 ReadWritePaths=/var/lib/helmsman /var/lib/helmsman-apps /var/lib/caddy
-# CAP_NET_BIND_SERVICE is intentionally ABSENT here — only the edge child gets it.
+
+# Runtime dir: systemd creates /run/helmsman (owned helmsman:helmsman, writable even
+# under ProtectSystem=strict, torn down on stop) BEFORE ExecStart. The managed edge's
+# Caddy admin socket lives at unix//run/helmsman/caddy-admin.sock — without this the
+# child can't bind it and the edge crash-loops. Do NOT mkdir /run/helmsman by hand
+# (it's tmpfs, lost on reboot); this directive is the durable creator.
+RuntimeDirectory=helmsman
+RuntimeDirectoryMode=0700
+
+# CAP_NET_BIND_SERVICE is added by the helmsman-privileged-ports.conf drop-in (run
+# `helmsman setup --yes`, or copy it from /usr/share/helmsman/systemd/) — the managed
+# edge/L4 children need it to bind :80/:443/:53. NOTE: the children run in THIS unit,
+# so the cap is granted to the whole control-plane process (the "edge child only"
+# separation is not yet implemented — see docs/architecture.md).
 CapabilityBoundingSet=
 AmbientCapabilities=
 
-# --- Egress allow-listing is the deepest backstop (plan §9 principle, §15):
-# even a perfect SSRF/RCE cannot reach cloud metadata or call home. Restrict
-# outbound to loopback (socket-proxy, edge admin) + your app/ACME networks.
-# Tune the allow ranges to your host, then remove the broad default.
-IPAddressDeny=any
-IPAddressAllow=localhost
-# IPAddressAllow=<docker-app-subnet> <acme-ca-range>
+# --- Egress allow-listing (OPT-IN hardening, OFF by default). The primary SSRF/
+# call-home defense is in-process: pinned dialers reject loopback/link-local/metadata
+# for the ops prober, edge upstreams, and alert notifiers. A systemd cgroup egress
+# filter is a deeper backstop, but it is OFF by default because it easily breaks a
+# managed edge: Let's Encrypt has NO fixed CIDR (CDN-fronted), so IPAddressDeny=any
+# would block ACME cert issuance, and localhost-only also blocks proxying to app
+# containers on the docker bridge. To enable it, uncomment + tune to YOUR host:
+#   IPAddressDeny=any
+#   IPAddressAllow=localhost
+#   IPAddressAllow=172.16.0.0/12        # docker bridge / app subnet (narrow if you can)
+#   IPAddressAllow=<resolver-ip>        # only if /etc/resolv.conf is NOT 127.0.0.53
+#   # ...plus an ACME-reachable egress path (impractical to pin to a CIDR — review
+#   #    your CA/CDN, or keep this OFF and rely on the in-process dialers).
 
 [Install]
 WantedBy=multi-user.target
