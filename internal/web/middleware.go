@@ -103,7 +103,11 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 				"object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "no-referrer")
+		// same-origin (NOT no-referrer): with no-referrer the browser sends `Origin:
+		// null` even on a same-origin POST (Fetch spec), which the CSRF origin check
+		// rejects — making login unwinnable. same-origin sends the real Origin on
+		// same-origin requests and nothing cross-origin (no off-site leak).
+		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		// HSTS is safe to assert: the admin plane is only ever reached over the
 		// TLS edge or a loopback tunnel.

@@ -74,13 +74,22 @@ func (s *Server) requireCSRF(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// originOK requires the Origin (or, fallback, Referer) to match the request
-// host AND scheme. A state-changer with neither header is rejected — modern
-// browsers always send Origin on cross-form POSTs. The scheme is checked
-// (review #17): only https is accepted, except http is allowed for loopback (the
-// documented SSH-tunnel access path) so a same-host plaintext origin cannot be
-// treated as same-origin with the HTTPS admin plane.
+// originOK confirms a state-changer is same-origin. It accepts, in order:
+//  1. Sec-Fetch-Site: same-origin — a browser-set, JS-UNforgeable Fetch-Metadata
+//     signal (additive: only ever GRANTS, never rejects on its own), so the gate
+//     holds even when referrer policy blanks the Origin (the no-referrer→`Origin:
+//     null` footgun that made login impossible).
+//  2. Origin (or, fallback, Referer) matching the request host AND scheme — only
+//     https, except http for loopback (the documented SSH-tunnel path), so a
+//     same-host plaintext origin can't be treated as same-origin with the HTTPS
+//     admin plane (review #17).
+//
+// A state-changer that satisfies none of these is rejected. The double-submit
+// token in requireCSRF is the second factor regardless of which branch passes.
 func originOK(r *http.Request) bool {
+	if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "same-origin") {
+		return true
+	}
 	host := r.Host
 	if o := r.Header.Get("Origin"); o != "" {
 		return sameOrigin(o, host)
