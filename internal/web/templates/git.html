@@ -19,6 +19,17 @@
     </form>
   </section>
   <p class="muted small">Or connect any Git repository manually below.</p>
+  {{else if not .Project}}
+  <section class="panel">
+    <h2>Connect with GitHub <span class="muted">(one-click repo picker — not set up yet)</span></h2>
+    <p class="muted">Want to authorize once and <strong>pick a repo from a list</strong> (like Netlify),
+      with the deploy key installed for you? Set up a GitHub OAuth app once: create one in GitHub
+      (Settings → Developer settings → OAuth Apps, callback <code>https://&lt;your-dashboard&gt;/github/callback</code>),
+      then add <code>github.client_id</code> + <code>github.client_secret</code> to
+      <code>/etc/helmsman/config.yaml</code> and <code>systemctl reload helmsman</code>. The
+      <strong>Connect with GitHub</strong> button then appears here. See the GitOps guide.</p>
+  </section>
+  <p class="muted small">Or connect any Git repository by URL below.</p>
   {{end}}
 
   {{if .Configured}}
