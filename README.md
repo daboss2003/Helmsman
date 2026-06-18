@@ -1,4 +1,8 @@
-# Helmsman
+<p align="center">
+  <img src="docs/assets/logo.svg" width="96" height="96" alt="Helmsman">
+</p>
+
+<h1 align="center">Helmsman</h1>
 
 **Run your apps on your own server — automatic HTTPS, live monitoring, and one clean dashboard — without the DevOps grind.**
 

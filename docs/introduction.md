@@ -1,3 +1,5 @@
+<p align="center"><img src="./assets/logo.svg" width="80" height="80" alt="Helmsman"></p>
+
 # Introduction
 
 > **Getting started, 1 of 3** · Next: [Install it →](./installation.md)
