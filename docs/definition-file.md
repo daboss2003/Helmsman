@@ -386,6 +386,13 @@ spec:
 > 1. Install **nginx** on the host yourself (`apt install nginx` — it carries the `stream` module). Helmsman does **not** ship or pull nginx; it's only needed if you use L4 routes.
 > 2. Set `edge.l4_enabled: true` in `config.yaml`.
 > 3. To bind privileged ports (53/853) the supervised nginx needs `CAP_NET_BIND_SERVICE` — apply the `helmsman-privileged-ports` systemd drop-in (shipped under `/usr/share/helmsman/systemd/`). Or map a privileged host port to a high container port and keep nginx unprivileged.
+> 4. **If you bind `:53` (DNS): free it from `systemd-resolved` first.** On a default systemd host the `systemd-resolved` stub listener already holds `127.0.0.53:53` (and `127.0.0.54:53` on systemd ≥ 249). The supervised nginx binds the wildcard `0.0.0.0:53`, which collides with that bind → nginx fails to start (`address already in use`) and the L4 reconcile fails closed. Disable the stub listener, then keep host DNS working by pointing `resolv.conf` at the real upstreams (not the now-dead stub):
+>    ```bash
+>    printf '[Resolve]\nDNSStubListener=no\n' | sudo tee /etc/systemd/resolved.conf.d/no-stub.conf
+>    sudo systemctl restart systemd-resolved
+>    sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf   # the real upstreams — NOT stub-resolv.conf
+>    ```
+>    `systemd-resolved` keeps running (it's still your resolver and still maintains that `resolv.conf`) — only its `:53` listener is gone, so **don't** stop/disable the service itself. Verify before deploying: `sudo ss -ulpnH 'sport = :53'` and `sudo ss -tlpnH 'sport = :53'` print nothing, and `getent hosts github.com` still resolves.
 >
 > With those in place, a deploy persists the routes, renders the nginx-stream config, and reloads it. Without them (`l4_enabled` off, or non-Linux/no nginx) `l4_routes` validate but the LB simply isn't started — fail-closed, no effect on the rest of the deploy.
 
