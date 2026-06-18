@@ -135,7 +135,7 @@ Helmsman syncs the edge-issued cert into that directory as two files:
 - `tls.crt` (mode `0644`) — the leaf cert (plus chain).
 - `tls.key` (mode `0600`) — the private key.
 
-The app points its config at `<mount>/tls.crt` and `<mount>/tls.key` and reads them itself. The deploy **waits automatically** until the cert is synced — the container never has to poll or wait. **Renewal is not yet autonomous:** the edge auto-renews the leaf, but the synced copy is refreshed only on a **deploy**, so **redeploy after a renewal** to pick up the new leaf (an auto-renewal watcher is planned).
+The app points its config at `<mount>/tls.crt` and `<mount>/tls.key` and reads them itself. The deploy **waits automatically** until the cert is synced — the container never has to poll or wait. **Renewal is autonomous:** a background watcher re-syncs the renewed leaf and recreates the affected service (briefly bouncing it) so it picks up the new cert — no manual redeploy.
 
 > There are no cert template tokens. A cert reaches a container only through a cert binding (files at `mount`), never through `{{hm.*}}`. There is no `name`, `required`, or `sync_dir` field — the mount directory and the automatic deploy gate are implicit.
 

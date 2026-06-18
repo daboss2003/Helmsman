@@ -422,6 +422,14 @@ func cmdServe(args []string) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); srv.RunGitPoller(ctx, cfg.Git.PollIntervalD()) }()
 
+	// Cert-renewal watcher: when the managed edge renews a leaf, re-sync each app's
+	// cert_bindings + recreate the affected TLS services so they pick it up WITHOUT a
+	// manual redeploy. Write-plane + managed-edge only (the edge is the renewer).
+	if writeAllowed && cfg.Edge.Mode == config.EdgeManaged {
+		wg.Add(1)
+		go func() { defer wg.Done(); srv.RunCertRenewWatcher(ctx, time.Hour) }()
+	}
+
 	// SIGHUP hot-reloads the allowlist + auth (plan §5.1), never keys/bind.
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)

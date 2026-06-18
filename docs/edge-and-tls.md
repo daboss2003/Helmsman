@@ -336,11 +336,11 @@ container that mounts that path, could then read live TLS keys. Instead, Helmsma
   plugin; assuming it exists caused a prior outage. Do **not** mount the proxy data dir into any
   monitored app container.
 
-> **⚠ Renewal is not yet autonomous.** The sync + recreate happens **on a deploy**, not on a
-> background mtime watch. The edge auto-renews the leaf, but a running TLS service keeps serving the
-> old leaf until you **redeploy**. An auto-renewal watcher (re-sync + recreate when the edge leaf
-> changes) is planned; until then, redeploy after a renewal. The `cert_*` inventory/alerts described
-> under *Cert lifecycle visibility* below are likewise planned, not yet built.
+> **Renewal is autonomous.** A background watcher (hourly) re-syncs each app's
+> `cert_bindings` from the edge and, when a leaf has actually changed, recreates the affected
+> service so it loads the new cert — no manual redeploy. The recreate briefly bounces only that
+> service and is suppressed from self-healing. (The richer `cert_*` inventory/alerts described under
+> *Cert lifecycle visibility* below are still planned, not yet built.)
 
 #### `cert_bindings` — wiring a cert to a service declaratively
 
@@ -356,8 +356,9 @@ cert_bindings:
 ```
 
 The deploy **waits automatically** until the cert is synced — the container never polls or waits; if
-the cert can't issue, the deploy fails fast with a reason rather than spin-looping. **Renewal is not
-yet autonomous** — redeploy the app to pick up a renewed leaf (see the warning above).
+the cert can't issue, the deploy fails fast with a reason rather than spin-looping. **Renewal is
+autonomous** — a background watcher re-syncs + recreates the affected service when the edge renews
+the leaf (see the note above).
 
 #### Example: cert-only binding for an MQTT-over-TLS broker
 
