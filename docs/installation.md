@@ -8,8 +8,11 @@ This is the one part you do over SSH. It takes about five minutes: put the progr
 
 - A **Linux server** with `systemd` (any cheap VPS works).
 - **Docker** installed, with the Compose plugin (`docker compose`).
+- **Caddy** — the managed HTTPS edge supervises a child Caddy for `:80`/`:443` + automatic certificates. It isn't bundled (it's third-party, like Docker); `helmsman setup` installs it for you (below), or the `.deb`/`.rpm` pulls it in if you've added Caddy's apt repo.
 - **SSH access** to the server.
 - **1 GB of RAM or more** if you want to deploy and build apps on the box. Monitoring and HTTPS run fine on a smaller server.
+
+> **Why doesn't Helmsman just install these itself at runtime?** Because the running service is deliberately **unprivileged** — it can't install packages, edit host DNS, or grant capabilities. That's the security model: a compromised dashboard must not be able to either. So prerequisites are a one-time, admin-run, root job — which `helmsman setup` makes a single command (it runs as *you* over SSH, not as the service).
 
 ## 1. Install the program
 
@@ -45,6 +48,21 @@ sudo apt update && sudo apt install helmsman
 install -m0755 helmsman /usr/local/bin/helmsman
 helmsman version
 ```
+
+### Check + install host prerequisites
+
+Confirm the box has everything the edge needs (Caddy, Docker, working DNS, the
+privileged-ports capability), and let Helmsman install what's missing:
+
+```bash
+helmsman doctor              # read-only: reports what's missing + the exact fix
+sudo helmsman setup          # prints a fix plan (a dry run — changes nothing)
+sudo helmsman setup --yes    # applies it: installs Caddy, the caps drop-in, etc.
+```
+
+Add `--l4` to also set up the L4 (TCP/UDP) load balancer's nginx + stream module if
+you plan to run a non-HTTP service like a DNS resolver. `setup` never touches host DNS
+itself — if you bind `:53` it prints the steps to free it from `systemd-resolved`.
 
 ## 2. Create your login and encryption key
 

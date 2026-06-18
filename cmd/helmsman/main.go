@@ -16,6 +16,11 @@ Usage:
 Server:
   serve            Load config, open the DB, and run the loopback admin server.
 
+Host setup (Linux; the runtime service is unprivileged, so these are admin-run):
+  doctor           Check host prerequisites (Caddy, Docker, DNS, caps; --l4 adds
+                   nginx+stream) and print the exact fix for anything missing.
+  setup            Print a fix plan for the above; --yes applies it (root, apt).
+
 Definition file (helmsman.yaml — same validation as the dashboard):
   validate         Parse + validate a helmsman.yaml through the §5.6/§6.2 chokepoints
                    (read-only, no DB — safe in CI).
@@ -58,6 +63,10 @@ func main() {
 	switch cmd {
 	case "serve":
 		err = cmdServe(args)
+	case "doctor":
+		err = cmdDoctor(args)
+	case "setup":
+		err = cmdSetup(args)
 	case "validate":
 		err = cmdValidate(args)
 	case "init":

@@ -49,6 +49,13 @@ nfpms:
       with automatic HTTPS, monitoring, and safe deploys — managed from one dashboard.
     license: Apache-2.0
     formats: [deb, rpm]
+    # The managed HTTPS edge supervises a child Caddy, so it's effectively required —
+    # but Caddy isn't in the distro's default repos, so a hard Depends would make
+    # `apt install helmsman` fail. Recommends pulls it in when the Caddy repo is
+    # configured and is silently skipped otherwise; `helmsman setup` adds the repo +
+    # installs it. nginx (+ stream) is only for opt-in L4, so it's a soft Suggests.
+    recommends: [caddy]
+    suggests: [nginx, libnginx-mod-stream]
     # Install the binary at /usr/local/bin so the packaged and manual installs use the
     # same path the shipped systemd unit's ExecStart expects.
     bindir: /usr/local/bin
