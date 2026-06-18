@@ -18,6 +18,9 @@ func TestRenderTCPandUDP(t *testing.T) {
 	for _, want := range []string{
 		// loads the dynamic stream module on Debian/Ubuntu (else "unknown directive stream")
 		"include /etc/nginx/modules-enabled/*.conf;",
+		// runtime paths stay inside the writable prefix (non-root, sandboxed)
+		"pid nginx.pid;",
+		"error_log stderr;",
 		"stream {",
 		"upstream l4_53_udp {",
 		"hash $remote_addr consistent;",

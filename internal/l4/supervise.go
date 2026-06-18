@@ -237,6 +237,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 func (s *Supervisor) launch(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "nginx", "-c", s.ConfigPath, "-p", s.Prefix, "-g", "daemon off;") // literal: SEC-1 requires it
 	cmd.Env = []string{"HOME=" + s.Prefix}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr // surface nginx errors in journald (not /dev/null)
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
 		return err

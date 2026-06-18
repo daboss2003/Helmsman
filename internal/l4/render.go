@@ -119,6 +119,12 @@ func Render(routes []Route) (string, error) {
 	// so on distros where `stream` is built into nginx this is a harmless no-op.
 	b.WriteString("include /etc/nginx/modules-enabled/*.conf;\n")
 	b.WriteString("worker_processes auto;\n")
+	// Keep nginx's runtime paths inside the Helmsman-owned prefix (nginx runs non-root
+	// under the sandbox): a RELATIVE pid resolves under `-p <Prefix>` (writable), and
+	// errors go to stderr (the supervisor captures it → journald) since the default
+	// /var/log/nginx and /run aren't writable by the service.
+	b.WriteString("pid nginx.pid;\n")
+	b.WriteString("error_log stderr;\n")
 	b.WriteString("events {}\n")
 	b.WriteString("stream {\n")
 	for _, r := range sorted {
