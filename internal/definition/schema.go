@@ -248,7 +248,10 @@ func (b *Binding) UnmarshalYAML(n *yaml.Node) error {
 	}
 }
 
-// CertBinding syncs a managed cert to a service (renew + reload handled by Helmsman).
+// CertBinding syncs a managed edge cert into a service. The edge issues AND renews the
+// leaf; Helmsman copies it into the service's mount + recreates the service AT DEPLOY.
+// NOTE: re-sync after a renewal is NOT yet autonomous — redeploy the app to pick up a
+// renewed leaf (an auto-renewal watcher is planned).
 type CertBinding struct {
 	Hostname string `yaml:"hostname"`
 	Mount    string `yaml:"mount"`

@@ -327,16 +327,20 @@ The proxy obtains and renews the certificate for the hostname but serves **no tr
 port. A separate service reads the same cert files and terminates TLS itself.
 
 The hard rule: **never `chmod` the cert dir or keys to broaden access.** A different-uid reader, or a
-container that mounts that path, could then read live TLS keys. Instead, Helmsman ships a built-in
-**cert-sync helper** that:
+container that mounts that path, could then read live TLS keys. Instead, Helmsman's deploy:
 
-- **Copies the leaf cert + key** to a per-consumer path that is **`0600` owned by the consumer uid**
-  (or `0640` group-owned), under the consumer's `run_dir`;
-- **Watches mtime** and, on renewal, **re-copies and signals/restarts the consumer** using a
-  **static argv** — a service name can't inject into the command;
+- **Copies the leaf cert + key** into the service's `mount` (`tls.crt` 0644, `tls.key` 0600), under
+  the consumer's `run_dir`, and **recreates the service** so it loads them (the managed-file digest
+  diff force-recreates a service whose mounted cert changed);
 - **Does not** rely on the stock proxy's cert-obtained event hook. That hook needs an unbundled
   plugin; assuming it exists caused a prior outage. Do **not** mount the proxy data dir into any
   monitored app container.
+
+> **⚠ Renewal is not yet autonomous.** The sync + recreate happens **on a deploy**, not on a
+> background mtime watch. The edge auto-renews the leaf, but a running TLS service keeps serving the
+> old leaf until you **redeploy**. An auto-renewal watcher (re-sync + recreate when the edge leaf
+> changes) is planned; until then, redeploy after a renewal. The `cert_*` inventory/alerts described
+> under *Cert lifecycle visibility* below are likewise planned, not yet built.
 
 #### `cert_bindings` — wiring a cert to a service declaratively
 
@@ -352,8 +356,8 @@ cert_bindings:
 ```
 
 The deploy **waits automatically** until the cert is synced — the container never polls or waits; if
-the cert can't issue, the deploy fails fast with a reason rather than spin-looping. Renewal re-syncs
-the files in place.
+the cert can't issue, the deploy fails fast with a reason rather than spin-looping. **Renewal is not
+yet autonomous** — redeploy the app to pick up a renewed leaf (see the warning above).
 
 #### Example: cert-only binding for an MQTT-over-TLS broker
 
@@ -408,6 +412,12 @@ The edge is designed so it can **never become irrecoverable**:
 ---
 
 ## Cert lifecycle visibility & ACME rate-limits
+
+> **Status: planned, not yet implemented.** This section describes the intended cert-lifecycle
+> design. The `cert_inventory` table, the `cert_*` alerts (`cert_expiring`, `cert_renew_stalled`,
+> `cert_sync_stale`, `cert_anomaly`), and the local ACME-rate-limit modeling are **not built yet** —
+> today the edge (Caddy) issues + renews certs, and `cert_bindings` are synced at deploy. Treat the
+> below as the roadmap, not current behavior.
 
 A single pinned CA with no fallback means anything that silently stops issuance — expiry, a stalled
 renewal, a rate-limit — leaves the edge **serving but degrading invisibly**. So Helmsman makes it

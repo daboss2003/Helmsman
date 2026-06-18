@@ -319,7 +319,9 @@ services:
 | `hostname` | the FQDN Helmsman issues/renews the cert for. |
 | `mount` | absolute container path the cert directory is mounted at. |
 
-Helmsman's edge issues and renews the certificate for `hostname`, then syncs the files into `mount` as `tls.crt` (0644) and `tls.key` (0600). The deploy **waits automatically** until they exist (it fails fast with a reason if the cert can't issue), so the container never has to poll. Your app reads the files straight from `mount` — there are no cert template tokens. On renewal the files are re-synced in place. See [Cert bindings](./edge-and-tls.md).
+Helmsman's edge issues and renews the certificate for `hostname`, then **at deploy** syncs the files into `mount` as `tls.crt` (0644) and `tls.key` (0600) and recreates the service so it loads them. The deploy **waits automatically** until they exist (it fails fast with a reason if the cert can't issue), so the container never has to poll. Your app reads the files straight from `mount` — there are no cert template tokens.
+
+> **Renewal is not yet autonomous.** The edge auto-renews the leaf (~30 days before expiry), but the synced copy in `mount` is refreshed only on a **deploy** — a running TLS service keeps serving the old leaf until you redeploy the app. Until the auto-renewal watcher lands, **redeploy after a renewal** (or before expiry). See [Cert bindings](./edge-and-tls.md).
 
 ### `spec.edge.routes`
 
