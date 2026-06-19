@@ -178,9 +178,19 @@ func TestRenderCertOnlySubject(t *testing.T) {
 	if !strings.Contains(s, "mqtt.example.com") {
 		t.Errorf("cert-only host must be an ACME subject:\n%s", s)
 	}
-	// app.example.com appears in BOTH a route match and the subjects (>=2); the
-	// cert-only host appears ONLY in subjects (exactly once) — proving no proxy route.
-	if n := strings.Count(s, "mqtt.example.com"); n != 1 {
-		t.Errorf("cert-only host must appear once (subjects only), got %d:\n%s", n, s)
+	// Caddy only OBTAINS a cert for a name in tls.certificates.automate (a cert-only
+	// subject has no route for auto-HTTPS to pick up, and on-demand is off). Without
+	// this the policy exists but no ACME order ever runs.
+	if !strings.Contains(s, `"automate"`) {
+		t.Errorf("cert-only issuance requires tls.certificates.automate:\n%s", s)
+	}
+	// The cert-only host appears in subjects + automate (2) but in NO proxy route; the
+	// proxy host (app) appears in a route match + subjects + automate (>=3). The counts
+	// prove mqtt has no route while still being set up for issuance.
+	if n := strings.Count(s, "mqtt.example.com"); n != 2 {
+		t.Errorf("cert-only host must appear in subjects + automate only (2), got %d:\n%s", n, s)
+	}
+	if n := strings.Count(s, "app.example.com"); n < 3 {
+		t.Errorf("proxy host must appear in route + subjects + automate (>=3), got %d:\n%s", n, s)
 	}
 }

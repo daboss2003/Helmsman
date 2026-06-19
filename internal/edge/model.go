@@ -90,7 +90,15 @@ type caddyHeaderOps struct {
 }
 
 type caddyTLS struct {
-	Automation caddyAutomation `json:"automation"`
+	// Certificates.automate is what makes Caddy PROACTIVELY obtain a cert for a name.
+	// automation.policies only scopes the issuer; a cert-only subject (one no server
+	// route references) is never obtained unless it's listed here (on-demand is off).
+	Certificates *caddyCertificates `json:"certificates,omitempty"`
+	Automation   caddyAutomation    `json:"automation"`
+}
+
+type caddyCertificates struct {
+	Automate []string `json:"automate,omitempty"`
 }
 
 type caddyAutomation struct {

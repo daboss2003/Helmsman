@@ -245,10 +245,17 @@ func Render(base BaseConfig, routes []Route, certOnly []string) ([]byte, error) 
 	// on_demand omitted (off). No subjects → no automation policy (base serves
 	// nothing, proxies to nothing — the safe recovery floor).
 	if len(subjects) > 0 {
-		cfg.Apps.TLS = &caddyTLS{Automation: caddyAutomation{Policies: []caddyTLSPolicy{{
-			Subjects: subjects,
-			Issuers:  []caddyIssuer{{Module: "acme", CA: base.ACMECA, Email: base.ACMEEmail}},
-		}}}}
+		cfg.Apps.TLS = &caddyTLS{
+			// automate makes Caddy actually obtain a cert for every subject — including
+			// cert-only ones (no proxy route references them, so auto-HTTPS wouldn't
+			// pick them up). Without this Caddy has the policy but never issues, and a
+			// cert_binding app (e.g. emqx/DNS) waits forever for a cert that never comes.
+			Certificates: &caddyCertificates{Automate: subjects},
+			Automation: caddyAutomation{Policies: []caddyTLSPolicy{{
+				Subjects: subjects,
+				Issuers:  []caddyIssuer{{Module: "acme", CA: base.ACMECA, Email: base.ACMEEmail}},
+			}}},
+		}
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }
