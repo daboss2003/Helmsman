@@ -18,11 +18,22 @@
     if (!btn) return;
     evt.preventDefault();
 
-    // Reveal a secret: audited POST → text/plain. Set textContent (NEVER
-    // innerHTML) so a secret value can't become markup (plan §5.5).
+    // Reveal/hide a secret (toggle): audited POST → text/plain. Set textContent
+    // (NEVER innerHTML) so a secret value can't become markup (plan §5.5).
     var revURL = btn.getAttribute("data-reveal-url");
     if (revURL) {
       var key = btn.getAttribute("data-reveal-key");
+      var span = document.getElementById("reveal-" + key);
+      if (!span) return;
+      // Already revealed → re-hide by restoring the saved mask. No re-fetch.
+      if (btn.getAttribute("data-revealed") === "1") {
+        span.textContent = btn.getAttribute("data-mask") || "";
+        btn.setAttribute("data-revealed", "0");
+        btn.textContent = "reveal";
+        return;
+      }
+      // First reveal: remember the mask so we can restore it on hide.
+      if (btn.getAttribute("data-mask") === null) btn.setAttribute("data-mask", span.textContent);
       var body = new URLSearchParams(); body.set("key", key);
       fetch(revURL, {
         method: "POST", credentials: "same-origin",
@@ -30,8 +41,11 @@
         body: body.toString(),
       }).then(function (r) { return r.ok ? r.text() : null; })
         .then(function (txt) {
-          var span = document.getElementById("reveal-" + key);
-          if (span && txt !== null) span.textContent = txt;
+          if (txt !== null) {
+            span.textContent = txt;
+            btn.setAttribute("data-revealed", "1");
+            btn.textContent = "hide";
+          }
         }).catch(function () {});
       return;
     }

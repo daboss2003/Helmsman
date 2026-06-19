@@ -142,6 +142,26 @@ func TestRenderEnvFileUniqueAnd0600(t *testing.T) {
 	}
 }
 
+// Importing a .env file from disk parses, classifies, and stores its entries — the
+// path behind the file picker (whose accept= filter was dropped so dotenv files are
+// selectable). Literals end up visible on the env page.
+func TestEnvImportFromFile(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, csrf := e.authed(t)
+	cookies := []*http.Cookie{sess, csrf}
+	content := "APP_NAME=demo\nAPI_URL=https://api.example.com\nLOG_LEVEL=info\n"
+	resp := e.reqUpload(t, "/apps/shop/env/import", "127.0.0.1:1", csrf.Value, "envfile", ".env", content, cookies)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("env import = %d, want 303", resp.StatusCode)
+	}
+	body := readBody(e.req(t, "GET", "/apps/shop/env", "127.0.0.1:1", nil, cookies, nil))
+	for _, want := range []string{"APP_NAME", "demo", "API_URL", "LOG_LEVEL"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("imported env not shown on page: missing %q", want)
+		}
+	}
+}
+
 // Pre-deploy reachability: the env editor must be usable BEFORE an app's first
 // deploy (otherwise: can't set env without deploying, can't deploy sanely without
 // env). The app home 404s until containers exist, so the env page's breadcrumb must
