@@ -1,7 +1,9 @@
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"net/url"
@@ -61,6 +63,25 @@ var templateFuncs = template.FuncMap{
 		}
 		return n
 	},
+	// assetVer is a content hash of the embedded JS/CSS, appended as ?v= to their
+	// URLs so a new build busts the browser cache (the assets are served with a
+	// 1-hour max-age; without this, an upgrade's UI fixes wouldn't reach the browser
+	// until the cache expired or the operator hard-refreshed).
+	"assetVer": func() string { return staticAssetVer },
+}
+
+// staticAssetVer is the cache-bust token for /static/app.js + app.css, computed once
+// from their embedded bytes at package init.
+var staticAssetVer = computeStaticVer()
+
+func computeStaticVer() string {
+	h := sha256.New()
+	for _, name := range []string{"static/app.js", "static/app.css"} {
+		if b, err := embeddedAssets.ReadFile(name); err == nil {
+			h.Write(b)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 const sparkW, sparkH = 220.0, 32.0

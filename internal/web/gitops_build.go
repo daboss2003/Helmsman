@@ -519,6 +519,7 @@ func (s *Server) waitForCertBindings(ctx context.Context, def *definition.Defini
 	defer cancel()
 	tick := time.NewTicker(3 * time.Second)
 	defer tick.Stop()
+	ticks := 0
 	for {
 		select {
 		case <-wctx.Done():
@@ -532,6 +533,16 @@ func (s *Server) waitForCertBindings(ctx context.Context, def *definition.Defini
 			sweep()
 			if len(pending) == 0 {
 				return nil
+			}
+			// Heartbeat ~every 15s so the deploy's streaming connection never goes
+			// idle long enough for the browser/edge proxy to drop it ("network error").
+			if ticks++; ticks%5 == 0 {
+				var still []string
+				for h := range pending {
+					still = append(still, h)
+				}
+				sort.Strings(still)
+				onLine(fmt.Sprintf("still waiting for the edge to issue %s … (%ds elapsed)", strings.Join(still, ", "), ticks*3))
 			}
 		}
 	}

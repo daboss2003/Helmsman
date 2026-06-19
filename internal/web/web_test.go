@@ -203,6 +203,17 @@ func TestSecurityHeadersPresent(t *testing.T) {
 	}
 }
 
+// Static JS/CSS URLs must carry a ?v= cache-bust token. They're served with a
+// 1-hour max-age, so without a per-build token an upgrade's UI fixes wouldn't reach
+// the browser until the cache expired (the "my fix isn't showing up" trap).
+func TestStaticAssetsAreCacheBusted(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	body := readBody(e.req(t, "GET", "/login", "127.0.0.1:1", nil, nil, nil))
+	if !strings.Contains(body, "/static/app.js?v=") || !strings.Contains(body, "/static/app.css?v=") {
+		t.Errorf("asset URLs must carry a ?v= cache-bust token; body:\n%s", body)
+	}
+}
+
 // When GitHub OAuth is configured, the CSP must allow github.com as a form-action
 // target — the Connect button POSTs to /github/connect which 303-redirects there,
 // and form-action is enforced on the redirect. Without this the connect is blocked

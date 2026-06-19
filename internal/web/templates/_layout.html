@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{.CSRFToken}}">
   <title>{{.Title}}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{assetVer}}">
   <link rel="stylesheet" href="/static/theme.css">
 </head>
 <body>
@@ -44,7 +44,7 @@
   <div class="scrim" data-scrim></div>
 </div><!-- /layout -->
 {{end}}
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{assetVer}}"></script>
 </body>
 </html>
 {{end}}
