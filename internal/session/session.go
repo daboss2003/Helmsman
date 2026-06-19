@@ -153,6 +153,17 @@ func (m *Manager) DeleteAllForUser(ctx context.Context, username string) (int64,
 	return res.RowsAffected()
 }
 
+// DeleteAll revokes EVERY session (used when the auth config changes — password or
+// TOTP — so no session predating the change survives, regardless of which username it
+// was issued under). Returns rows affected.
+func (m *Manager) DeleteAll(ctx context.Context) (int64, error) {
+	res, err := m.db.ExecContext(ctx, `DELETE FROM sessions`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // GC removes expired sessions; called opportunistically. Uses the same effective
 // clock as Load so a backward step does not strand expired rows.
 func (m *Manager) GC(ctx context.Context) error {

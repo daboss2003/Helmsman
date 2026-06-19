@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -200,6 +201,45 @@ func TestSecurityHeadersPresent(t *testing.T) {
 	// With GitHub OAuth OFF (default), form-action stays locked to 'self' — no github.com.
 	if strings.Contains(h.Get("Content-Security-Policy"), "github.com") {
 		t.Errorf("CSP allows github.com form-action with GitHub disabled: %q", h.Get("Content-Security-Policy"))
+	}
+}
+
+// Enabling TOTP (or changing the password) must revoke every pre-existing session, so
+// a session minted before the change can't bypass the new factor — via reload OR
+// restart (reconcileAuthEpoch runs on both). A restart-path bypass was the reported
+// "I failed TOTP but I'm still in the dashboard" bug.
+func TestAuthEpochRevokesSessionsOnAuthChange(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	ctx := context.Background()
+
+	// A session valid under the current (no-TOTP) config.
+	rawID, err := e.srv.sessions.Create(ctx, "operator", "127.0.0.1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.sessions.Load(ctx, rawID); err != nil {
+		t.Fatalf("session should be valid before the auth change: %v", err)
+	}
+
+	// Enable TOTP and reconcile (what a reload/restart does).
+	e.srv.cfg.Auth.TOTPSecret = "JBSWY3DPEHPK3PXP"
+	sec, err := buildSecState(e.srv.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.srv.sec.Store(sec)
+	e.srv.reconcileAuthEpoch(ctx)
+
+	if _, err := e.srv.sessions.Load(ctx, rawID); err == nil {
+		t.Fatal("enabling TOTP must revoke pre-existing sessions — otherwise they bypass TOTP")
+	}
+
+	// A session under the now-current config must survive a reconcile with unchanged
+	// config (no logout-on-every-restart churn).
+	rawID2, _ := e.srv.sessions.Create(ctx, "operator", "127.0.0.1", "test")
+	e.srv.reconcileAuthEpoch(ctx)
+	if _, err := e.srv.sessions.Load(ctx, rawID2); err != nil {
+		t.Fatalf("unchanged auth config must NOT revoke sessions on reconcile: %v", err)
 	}
 }
 

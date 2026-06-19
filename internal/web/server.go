@@ -5,6 +5,8 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html/template"
@@ -230,7 +232,48 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 	if cfg.GitHub.Enabled() {
 		s.githubClient = github.New(&http.Client{Timeout: 30 * time.Second}, "", "")
 	}
+	// Revoke any session that predates the current auth config (password/TOTP) — at
+	// STARTUP, so enabling TOTP (or changing the password) forces re-auth even when
+	// applied via `systemctl restart`, not only via reload. Closes the gap where a
+	// pre-TOTP session kept full access after TOTP was turned on.
+	s.reconcileAuthEpoch(context.Background())
 	return s, nil
+}
+
+// authEpochKey stores a fingerprint of the auth config (username + password hash +
+// TOTP secret). When it changes, every existing session is revoked.
+const authEpochKey = "auth_epoch"
+
+// authFingerprint is a one-way hash of the auth-relevant config. It never exposes the
+// secrets (sha256, and the password is already a hash); it only needs to CHANGE when
+// any of them change.
+func authFingerprint(sec *secState) string {
+	h := sha256.New()
+	h.Write([]byte(sec.username))
+	h.Write([]byte{0})
+	h.Write([]byte(sec.passwordHash))
+	h.Write([]byte{0})
+	h.Write([]byte(sec.totpSecret))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// reconcileAuthEpoch revokes ALL sessions whenever the auth config has changed since
+// the sessions were issued (detected via a persisted fingerprint), via ANY path —
+// reload OR restart. First boot just records the fingerprint (nothing to revoke).
+func (s *Server) reconcileAuthEpoch(ctx context.Context) {
+	fp := authFingerprint(s.security())
+	if s.getSetting(ctx, authEpochKey) == fp {
+		return
+	}
+	// Fingerprint differs (auth config changed) OR no epoch is stored yet (first boot
+	// on this version — we can't prove existing sessions satisfied the current factors,
+	// so revoke once). A fresh install simply has 0 sessions, so this is a harmless
+	// no-op there. On a normal restart with unchanged config the fingerprint matches
+	// and we return above, so sessions are NOT dropped every restart.
+	if n, err := s.sessions.DeleteAll(ctx); err == nil && n > 0 {
+		s.log.Warn("auth config changed or first boot on this version — revoked all sessions; re-login required", "revoked", n)
+	}
+	_ = s.setSetting(ctx, authEpochKey, fp)
 }
 
 // activeTokenUnion recomputes the union of every active API token's CIDR set. On any
@@ -289,17 +332,12 @@ func (s *Server) Reload(ctx context.Context) error {
 		return err
 	}
 	sec.tokenCIDRUnion = s.activeTokenUnion(ctx)
-	prev := s.security()
 	s.sec.Store(sec)
-	// If two-factor (TOTP) was just enabled or the secret rotated, revoke existing
-	// sessions so the operator must re-authenticate WITH the new factor — otherwise a
-	// session minted before 2FA would keep bypassing it (the "I enabled it but I'm
-	// still in" trap).
-	if sec.totpSecret != "" && (prev == nil || prev.totpSecret != sec.totpSecret) {
-		if n, derr := s.sessions.DeleteAllForUser(ctx, sec.username); derr == nil && n > 0 {
-			s.log.Warn("two-factor auth (TOTP) enabled/rotated — revoked existing sessions; re-login required", "revoked", n)
-		}
-	}
+	// Revoke all sessions if the auth config (password / TOTP / username) changed, so a
+	// session minted under the OLD config can't bypass the new one — the "I enabled 2FA
+	// but I'm still in" trap. Same fingerprint mechanism as startup, so it holds via
+	// reload OR restart.
+	s.reconcileAuthEpoch(ctx)
 	s.log.Info("config reloaded", "two_factor_totp", sec.totpSecret != "")
 	_ = s.audit.Log(ctx, audit.Event{
 		Action: "config_reload", Outcome: audit.OK, Level: audit.Security,
