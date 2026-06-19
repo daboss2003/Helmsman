@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/daboss2003/Helmsman/internal/secret"
 	"github.com/daboss2003/Helmsman/internal/store"
@@ -48,6 +49,41 @@ func TestSaveGetRoundTrip(t *testing.T) {
 	}
 	if creds.Token != tok {
 		t.Errorf("token = %q, want %q", creds.Token, tok)
+	}
+}
+
+// Regression: List() must not deadlock. The DB pool is a single connection
+// (store.SetMaxOpenConns(1)); the old List() held the rows open while calling Get()
+// (a nested query), self-deadlocking and stranding the connection — which froze every
+// request (the "loading forever, can't navigate anywhere" hang after a fetch). With
+// two+ rows on the single conn, the buggy version blocks forever; we bound it so the
+// test fails fast instead of hanging CI.
+func TestListNoNestedQueryDeadlock(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, p := range []string{"alpha", "bravo", "charlie"} {
+		if err := s.Save(ctx, SaveInput{Project: p, RepoURL: "https://github.com/o/" + p + ".git", Ref: "refs/heads/main", BuildPolicy: "never"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan []Config, 1)
+	go func() {
+		cfgs, err := s.List()
+		if err != nil {
+			t.Errorf("List: %v", err)
+		}
+		done <- cfgs
+	}()
+	select {
+	case cfgs := <-done:
+		if len(cfgs) != 3 {
+			t.Fatalf("List returned %d configs, want 3", len(cfgs))
+		}
+		if cfgs[0].Project != "alpha" || cfgs[2].Project != "charlie" {
+			t.Errorf("List order/contents wrong: %+v", cfgs)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("List() deadlocked — a nested query while its rows are open strands the single DB connection")
 	}
 }
 

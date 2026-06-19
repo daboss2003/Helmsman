@@ -151,22 +151,33 @@ func (s *Store) Get(project string) (Config, bool, error) {
 	return c, true, nil
 }
 
-// List returns all repo apps.
+// List returns all repo apps. It selects every column in ONE query and scans each
+// row directly — it must NOT call Get() inside the row loop. The DB pool is capped at
+// a single connection (store.SetMaxOpenConns(1)), so a nested query issued while these
+// rows are still open self-deadlocks: the open rows pin the only connection and the
+// nested query waits forever for a connection that never frees, stranding the pool and
+// hanging every subsequent request (session validation included).
 func (s *Store) List() ([]Config, error) {
-	rows, err := s.db.Query(`SELECT project FROM app_git ORDER BY project`)
+	rows, err := s.db.Query(
+		`SELECT project, repo_url, git_ref, compose_path, dockerfile_path, auto_deploy, build_policy, cred_kind,
+		        deployed_commit, staged_commit, update_state, commits_behind, last_fetch_at, last_fetch_error,
+		        webhook_token_hash IS NOT NULL
+		 FROM app_git ORDER BY project`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Config
 	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
+		var c Config
+		var ad int
+		if err := rows.Scan(
+			&c.Project, &c.RepoURL, &c.Ref, &c.ComposePath, &c.DockerfilePath, &ad, &c.BuildPolicy, &c.CredKind,
+			&c.DeployedCommit, &c.StagedCommit, &c.UpdateState, &c.CommitsBehind, &c.LastFetchAt, &c.LastFetchError, &c.HasWebhook); err != nil {
 			return nil, err
 		}
-		if c, ok, _ := s.Get(p); ok {
-			out = append(out, c)
-		}
+		c.AutoDeploy = ad == 1
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }
