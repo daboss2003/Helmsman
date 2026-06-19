@@ -42,7 +42,19 @@ You'll find this on the app's page (a **Repository & updates** panel) and on the
 
 To offer the one-click flow, whoever installs Helmsman does this once:
 
-1. In GitHub, create an **OAuth App** (Settings → Developer settings → OAuth Apps). Its **Authorization callback URL must match the URL your browser uses to reach the dashboard** — Helmsman derives the callback from `admin.hostname` if set, otherwise from the address you're on:
+1. In GitHub, create an **OAuth App** (Settings → Developer settings → OAuth Apps → **New OAuth App**). You'll see these fields:
+
+   | Field on the GitHub form | What to enter | Does Helmsman use it? |
+   |---|---|---|
+   | **Application name** | Anything, e.g. `Helmsman`. Shown to you on the authorization screen. | No — cosmetic. |
+   | **Homepage URL** | The base URL you use to reach the dashboard — `http://localhost:9000` on the tunnel, or `https://<admin.hostname>` with a domain. GitHub requires *a* valid URL here. | No — cosmetic; never read by Helmsman. |
+   | **Application description** | Optional. Leave blank or describe it. | No — cosmetic. |
+   | **Authorization callback URL** | **The one that matters** — must match exactly how your browser reaches the dashboard (see the table below). | **Yes** — must match exactly. |
+   | **Enable Device Flow** (checkbox) | **Leave it OFF.** | **No** — see note. |
+
+   > **Leave "Enable Device Flow" unchecked.** Helmsman signs you in with the standard browser redirect flow (you click Connect → GitHub → back to the callback URL). Device Flow is a different mechanism for things with no browser (CLIs, TVs); Helmsman never uses it. Turning it on won't break anything, but it adds an unused capability to your app — keep it off.
+
+   The **Authorization callback URL must match the URL your browser uses to reach the dashboard** — Helmsman derives the callback from `admin.hostname` if set, otherwise from the address you're on:
 
    | How you reach the dashboard | Set the OAuth App's callback URL to |
    |---|---|
