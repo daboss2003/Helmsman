@@ -147,14 +147,24 @@ func plan(apply, l4, restart bool) []step {
 			step{"add the Caddy apt repo + signing key", func() error { return writeCaddyRepo(apply) }},
 			step{"apt-get update", func() error { return run(apply, "apt-get", "update") }},
 			step{"install caddy", func() error { return run(apply, "apt-get", "install", "-y", "caddy") }},
-			step{"disable the distro caddy.service (Helmsman supervises its own child)", func() error { return run(apply, "systemctl", "disable", "--now", "caddy") }},
 		)
+	}
+	// ALWAYS disable the packaged caddy.service when it exists — Helmsman supervises its
+	// OWN Caddy child; the distro unit squats :80/:443 and crash-loops the edge. This is
+	// NOT gated on a fresh install (that was the bug: a host where caddy was already
+	// present skipped the disable). Idempotent; skipped when the unit isn't installed.
+	if unitExists("caddy.service") {
+		steps = append(steps, step{"disable the distro caddy.service (Helmsman supervises its own child)",
+			func() error { return run(apply, "systemctl", "disable", "--now", "caddy") }})
 	}
 	if l4 && !have("nginx") {
 		steps = append(steps,
 			step{"install nginx + the stream module", func() error { return run(apply, "apt-get", "install", "-y", "nginx", "libnginx-mod-stream") }},
-			step{"disable the distro nginx.service (Helmsman supervises its own child)", func() error { return run(apply, "systemctl", "disable", "--now", "nginx") }},
 		)
+	}
+	if l4 && unitExists("nginx.service") {
+		steps = append(steps, step{"disable the distro nginx.service (Helmsman supervises its own child)",
+			func() error { return run(apply, "systemctl", "disable", "--now", "nginx") }})
 	}
 	// CAP_NET_BIND_SERVICE is granted by the base unit now (no drop-in step needed).
 	if dockerLogsNeedCap() {
@@ -221,6 +231,9 @@ func preflight(l4 bool, cfg *config.Config, runtimeChecks bool) report {
 	managed := cfg == nil || cfg.Edge.Mode == config.EdgeManaged // default mode is managed
 	var r report
 	r.add(checkBinary("caddy", "managed HTTPS edge (:80/:443 + ACME)", "sudo helmsman setup --yes"))
+	if managed {
+		r.add(checkDistroService("caddy", ":80/:443 (edge)"))
+	}
 	r.add(checkBinary("docker", "container read/write plane", "install Docker + the compose plugin"))
 	r.add(checkDockerLogRotation())
 	r.add(checkDNS())
@@ -231,6 +244,7 @@ func preflight(l4 bool, cfg *config.Config, runtimeChecks bool) report {
 	}
 	if l4 {
 		r.add(checkBinary("nginx", "L4 (TCP/UDP) load balancer", "sudo helmsman setup --l4 --yes"))
+		r.add(checkDistroService("nginx", ":53/:853 + :80 (L4)"))
 		r.add(checkStreamModule())
 		r.add(checkResolvedStub())
 	}
@@ -283,6 +297,22 @@ func checkBinary(bin, what, fix string) result {
 		return result{bin, "ok", "found at " + p + " — " + what, ""}
 	}
 	return result{bin, "fail", "MISSING — " + what, fix}
+}
+
+// checkDistroService flags a packaged caddy/nginx unit that is active or enabled — it
+// fights Helmsman's supervised child for its ports (the #1 "edge child exited: address
+// already in use" cause, which otherwise shows up only as a mysterious cert failure at
+// deploy time). Literal binary, no shell — SEC-1 safe.
+func checkDistroService(name, ports string) result {
+	active, _ := exec.Command("systemctl", "is-active", name).Output()
+	enabled, _ := exec.Command("systemctl", "is-enabled", name).Output()
+	a, e := strings.TrimSpace(string(active)), strings.TrimSpace(string(enabled))
+	if a == "active" || e == "enabled" {
+		return result{name + " conflict", "fail",
+			"distro " + name + ".service is " + a + "/" + e + " — it squats " + ports + " and crash-loops Helmsman's supervised child",
+			"sudo systemctl disable --now " + name + "   (or: sudo helmsman setup --yes)"}
+	}
+	return result{name + " conflict", "ok", "no conflicting distro " + name + ".service", ""}
 }
 
 func checkDNS() result {
@@ -659,3 +689,11 @@ func printDNSGuidance(l4 bool) {
 }
 
 func have(bin string) bool { _, err := exec.LookPath(bin); return err == nil }
+
+// unitExists reports whether a systemd unit is installed on the host, so a "disable
+// the distro service" step is a no-op (skipped) rather than an error on hosts that
+// don't have it. Literal binary, no shell — SEC-1 safe.
+func unitExists(unit string) bool {
+	out, err := exec.Command("systemctl", "list-unit-files", unit, "--no-legend").Output()
+	return err == nil && strings.TrimSpace(string(out)) != ""
+}

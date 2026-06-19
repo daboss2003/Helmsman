@@ -21,6 +21,7 @@
 # APT repo output from deploy/apt/publish.sh (pushed to the gh-pages branch, not main)
 /public/
 
-# Local working plan / scratch patch docs (never committed)
+# Local working plan / scratch patch docs (never committed). Root-only glob so it
+# never matches tracked docs under docs/.
 /M20_PLAN.md
-/helmsman-socketproxy-patch.md
+/helmsman-*-patch.md

@@ -21,6 +21,16 @@ func TestCheckBinary(t *testing.T) {
 	}
 }
 
+// A distro-service conflict is reported ONLY when the unit is actually active/enabled.
+// An absent unit (or no systemctl, e.g. on the macOS dev box) must report "ok" — never
+// a false alarm. (Only an active/enabled unit is a "fail"; can't assert that portably.)
+func TestCheckDistroServiceNoFalseAlarm(t *testing.T) {
+	r := checkDistroService("helmsman-no-such-service-xyz", ":80/:443")
+	if r.state != "ok" {
+		t.Errorf("absent distro service = %q, want ok (no false alarm)", r.state)
+	}
+}
+
 func TestReportPrint(t *testing.T) {
 	var r report
 	r.add(result{"caddy", "fail", "MISSING", "sudo helmsman setup --yes"})

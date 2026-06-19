@@ -4,6 +4,8 @@
 
 Helmsman is running. This guide walks through signing in and deploying an app with a public HTTPS address. It all happens in the dashboard.
 
+> **First, if you installed Caddy or nginx yourself:** run `sudo helmsman setup --yes` (or `sudo systemctl disable --now caddy nginx`) before your first deploy. Helmsman supervises its own Caddy/nginx; a packaged `caddy.service`/`nginx.service` fights it for `:80`/`:443` and your first deploy fails on the TLS cert. `helmsman doctor` flags this as a conflict.
+
 ## Sign in
 
 Open the dashboard in your browser at the hostname you set during installation:

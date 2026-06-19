@@ -65,6 +65,15 @@ helmsman doctor              # read-only: reports anything off + the exact fix
 sudo helmsman setup --yes    # installs the Caddy binary — the managed edge needs it
 ```
 
+> **Helmsman runs its OWN supervised Caddy (and nginx for L4).** The packaged
+> `caddy.service`/`nginx.service` would squat `:80`/`:443` and crash-loop Helmsman's
+> edge (you'd see a green `doctor` of old but a cert failure at deploy: *"the edge has
+> not issued the TLS cert yet"*). `helmsman setup` now **disables those distro units**
+> whenever they're present — even if you installed Caddy/nginx yourself beforehand. If
+> you ever add them later, run `sudo helmsman setup --yes` again (or
+> `sudo systemctl disable --now caddy nginx`). `helmsman doctor` flags an active/enabled
+> distro `caddy`/`nginx` as a **conflict** with the one-line fix.
+
 That's everything for a normal HTTPS app. Two extras apply **only in specific cases**:
 
 - **A non-HTTP service on a privileged port (a DNS resolver on `:53`, MQTT, …)?** Install the L4
