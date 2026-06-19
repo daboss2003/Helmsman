@@ -2,15 +2,26 @@
 {{template "nav" .}}
 <main class="wrap">
   <p><a href="/">← Overview</a></p>
-  <h1>{{.App.DisplayName}}</h1>
+  <h1>{{.App.DisplayName}}{{if .Protected}} <span class="badge">SYSTEM</span>{{end}}</h1>
+  {{if .Protected}}
+  <p class="muted">{{.App.UpCount}}/{{.App.Total}} services up · project <code>{{.App.Project}}</code></p>
+  {{else}}
   <p class="muted">{{.App.UpCount}}/{{.App.Total}} services up · app <code>{{.App.Project}}</code>
     · <a href="/apps/{{pathEscape .App.Project}}/env">env</a>
     · <a href="/apps/{{pathEscape .App.Project}}/config-files">config files</a>
     · <a href="/apps/{{pathEscape .App.Project}}/ops-config">ops config</a>
     · <a href="/apps/{{pathEscape .App.Project}}/git">git</a>
     · <a href="/apps/{{pathEscape .App.Project}}/setup">setup</a></p>
+  {{end}}
 
-  {{if .WriteDisabledReason}}
+  {{if .Protected}}
+  <section class="panel">
+    <h2>Managed by Helmsman</h2>
+    <p class="muted">This is the read-plane proxy — Helmsman's own infrastructure, not an app.
+      It is brought up, supervised, and pinned by Helmsman itself. Lifecycle, scaling, env, and
+      config actions are intentionally unavailable here; its state below is read-only.</p>
+  </section>
+  {{else if .WriteDisabledReason}}
   <div class="error" role="alert">Write plane unavailable: {{.WriteDisabledReason}}. Lifecycle actions are disabled.</div>
   {{else}}
   <section class="panel">
@@ -55,7 +66,7 @@
         <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <button type="submit" class="btn btn-sm">Check for updates</button>
       </form>
-      {{if not .WriteDisabledReason}}
+      {{if and (not .WriteDisabledReason) (not $.Protected)}}
       {{if and (or (eq .UpdateState "update_available") (eq .UpdateState "history_rewritten")) .StagedCommit}}
       <button type="button" class="btn btn-sm btn-primary lc-btn" data-lc-confirm="Deploy commit {{.StagedCommit}} to {{.Project}}?" data-lc-url="/apps/{{pathEscape .Project}}/git/deploy?sha={{.StagedCommit}}">Deploy update</button>
       {{else if .DeployedCommit}}
@@ -74,7 +85,7 @@
 
   <pre id="log-output" class="stream" hidden></pre>
 
-  {{if not .WriteDisabledReason}}
+  {{if and (not .WriteDisabledReason) (not .Protected)}}
   <section class="panel">
     <h2>Auto-scaling <span class="muted">(opt-in, per service)</span></h2>
     <p class="muted">Helmsman can scale replicas of a <strong>stateless, edge-fronted HTTP</strong> service up

@@ -22,10 +22,12 @@ type tmplData struct {
 	EdgeMode    string
 	Events      []eventRow
 	Snap        *monitor.Snapshot
-	OrderedApps []monitor.App     // overview tiles in the operator's saved order (M7)
+	OrderedApps []monitor.App     // operator app tiles in the saved order (M7); excludes managed infra
+	SystemApps  []monitor.App     // protected/managed projects (read-plane proxy) — read-only System tiles
 	Provisioned []provisionedView // provisioned apps incl. not-yet-deployed (M8)
 	App         *monitor.App
 	Project     string
+	Protected   bool // the App is a Helmsman-managed/protected project — no app actions
 	OpsCfg      *ops.Config
 	OpsStatus   *ops.Status
 
@@ -133,6 +135,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		EdgeMode:    string(s.cfg.Edge.Mode),
 		Snap:        snap,
 		OrderedApps: s.orderedApps(snap),
+		SystemApps:  s.systemApps(snap),
 		Provisioned: s.provisionedApps(),
 	})
 }
@@ -140,7 +143,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 // handleOverviewPartial returns just the overview fragment for live polling.
 func (s *Server) handleOverviewPartial(w http.ResponseWriter, r *http.Request) {
 	snap := s.snapshot()
-	s.renderPartial(w, "overview", tmplData{Snap: snap, OrderedApps: s.orderedApps(snap)})
+	s.renderPartial(w, "overview", tmplData{Snap: snap, OrderedApps: s.orderedApps(snap), SystemApps: s.systemApps(snap)})
 }
 
 func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +164,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		Username:            sess.Username,
 		App:                 app,
 		Snap:                snap,
+		Protected:           s.cfg.IsProtectedProject(project),
 		WriteDisabledReason: s.writeDisabledReason(),
 		Supervisor:          s.supervisorStates(project),
 		Scaling:             s.scalingDesired(project),
@@ -180,7 +184,7 @@ func (s *Server) handleAppPartial(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app not found", http.StatusNotFound)
 		return
 	}
-	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap, CSRFToken: CSRFToken(r.Context()), WriteDisabledReason: s.writeDisabledReason(), Supervisor: s.supervisorStates(project)})
+	s.renderPartial(w, "appdetail", tmplData{App: app, Snap: snap, CSRFToken: CSRFToken(r.Context()), Protected: s.cfg.IsProtectedProject(project), WriteDisabledReason: s.writeDisabledReason(), Supervisor: s.supervisorStates(project)})
 }
 
 // eventsPageSize bounds one page of the audit viewer.

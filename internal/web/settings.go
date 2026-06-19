@@ -42,16 +42,25 @@ func (s *Server) orderedApps(snap *monitor.Snapshot) []monitor.App {
 	if snap == nil {
 		return nil
 	}
+	// Protected/managed projects (the read-plane socket-proxy, the edge) are
+	// Helmsman's own infrastructure — surfaced in the System section, never mixed
+	// in with the operator's app tiles.
+	apps := make([]monitor.App, 0, len(snap.Apps))
+	for _, a := range snap.Apps {
+		if !s.cfg.IsProtectedProject(a.Project) {
+			apps = append(apps, a)
+		}
+	}
 	order := s.getSetting(context.Background(), tileOrderKey)
 	if order == "" {
-		return snap.Apps
+		return apps
 	}
-	byProj := make(map[string]monitor.App, len(snap.Apps))
-	for _, a := range snap.Apps {
+	byProj := make(map[string]monitor.App, len(apps))
+	for _, a := range apps {
 		byProj[a.Project] = a
 	}
-	out := make([]monitor.App, 0, len(snap.Apps))
-	seen := make(map[string]bool, len(snap.Apps))
+	out := make([]monitor.App, 0, len(apps))
+	seen := make(map[string]bool, len(apps))
 	for _, p := range strings.Split(order, ",") {
 		p = strings.TrimSpace(p)
 		if a, ok := byProj[p]; ok && !seen[p] {
@@ -59,8 +68,24 @@ func (s *Server) orderedApps(snap *monitor.Snapshot) []monitor.App {
 			seen[p] = true
 		}
 	}
-	for _, a := range snap.Apps { // append any app not named in the saved order
+	for _, a := range apps { // append any app not named in the saved order
 		if !seen[a.Project] {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// systemApps returns the protected/managed projects (e.g. the read-plane socket-
+// proxy) as read-only tiles, kept separate from the operator's apps. They are
+// Helmsman's own infrastructure: shown for visibility, never app-controllable.
+func (s *Server) systemApps(snap *monitor.Snapshot) []monitor.App {
+	if snap == nil {
+		return nil
+	}
+	var out []monitor.App
+	for _, a := range snap.Apps {
+		if s.cfg.IsProtectedProject(a.Project) {
 			out = append(out, a)
 		}
 	}

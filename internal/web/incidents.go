@@ -55,10 +55,12 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Unhealthy apps from the latest snapshot.
+	// Unhealthy apps from the latest snapshot. Protected/managed projects (the
+	// read-plane proxy) are Helmsman's own infrastructure — surfaced as System tiles,
+	// never as operator-actionable incidents.
 	if snap := s.snapshot(); snap != nil {
 		for _, a := range snap.Apps {
-			if a.Degraded() {
+			if a.Degraded() && !s.cfg.IsProtectedProject(a.Project) {
 				iv.Unhealthy = append(iv.Unhealthy, incidentApp{
 					Project: a.Project, DisplayName: a.DisplayName, Up: a.UpCount(), Total: a.Total(),
 				})
@@ -70,7 +72,7 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 	if s.selfHeal != nil {
 		if all, err := s.selfHeal.LoadAll(); err == nil {
 			for k, f := range all {
-				if f.Phase == selfheal.CircuitOpen {
+				if f.Phase == selfheal.CircuitOpen && !s.cfg.IsProtectedProject(k.App) {
 					iv.Circuit = append(iv.Circuit, incidentSvc{App: k.App, Service: k.Service})
 				}
 			}

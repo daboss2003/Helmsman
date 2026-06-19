@@ -211,6 +211,9 @@ section.panel > h2 .pill { font-weight: 600; }
 .tile:hover { border-color: var(--border-2); transform: translateY(-1px); box-shadow: var(--shadow-lg); color: var(--fg); }
 .tile-name { font-weight: 600; display: flex; align-items: center; gap: 0.5rem; word-break: break-word; }
 .tile-stat { font-size: 0.88rem; }
+/* System tiles are Helmsman-managed infrastructure: read-only, visually distinct
+   (dashed border + recessed surface) so they never read as operator apps. */
+.tile-system { background: var(--surface); border-style: dashed; }
 
 /* ============================= tables ============================= */
 .grid, table.grid { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }

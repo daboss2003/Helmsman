@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"os"
@@ -122,6 +123,44 @@ func TestTileOrderPersistAndApply(t *testing.T) {
 	order := []string{got[0].Project, got[1].Project, got[2].Project}
 	if order[0] != "shop" || order[1] != "blog" || order[2] != "wiki" {
 		t.Errorf("orderedApps = %v, want [shop blog wiki]", order)
+	}
+}
+
+// Protected/managed projects (the read-plane proxy) must never appear as operator
+// app tiles; they belong in the read-only System section. orderedApps drops them and
+// systemApps surfaces exactly them — even when a saved tile order names one.
+func TestManagedProjectsPartitionedFromApps(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.cfg.ProtectedProjects = []string{"helmsman-socket-proxy"}
+
+	snap := &monitor.Snapshot{Apps: []monitor.App{
+		{Project: "blog"}, {Project: "helmsman-socket-proxy"}, {Project: "shop"},
+	}}
+
+	// No saved order: managed infra is excluded from app tiles.
+	apps := e.srv.orderedApps(snap)
+	for _, a := range apps {
+		if a.Project == "helmsman-socket-proxy" {
+			t.Fatalf("orderedApps leaked a protected project: %v", apps)
+		}
+	}
+	if len(apps) != 2 {
+		t.Fatalf("orderedApps = %d apps, want 2 (blog, shop)", len(apps))
+	}
+
+	// systemApps surfaces exactly the protected project.
+	sys := e.srv.systemApps(snap)
+	if len(sys) != 1 || sys[0].Project != "helmsman-socket-proxy" {
+		t.Fatalf("systemApps = %v, want [helmsman-socket-proxy]", sys)
+	}
+
+	// Even if the saved order explicitly names the protected project, it stays out.
+	if err := e.srv.setSetting(context.Background(), tileOrderKey, "helmsman-socket-proxy,shop,blog"); err != nil {
+		t.Fatal(err)
+	}
+	apps = e.srv.orderedApps(snap)
+	if len(apps) != 2 || apps[0].Project != "shop" || apps[1].Project != "blog" {
+		t.Fatalf("orderedApps with order = %v, want [shop blog] (proxy excluded)", apps)
 	}
 }
 

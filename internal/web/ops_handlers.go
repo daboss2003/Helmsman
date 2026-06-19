@@ -117,13 +117,25 @@ func (s *Server) opsWriteBack(r *http.Request, project string) {
 // handleQueueAction performs a server-side, secret-bearing queue action (the
 // secret never reaches the browser, plan §4.2).
 func (s *Server) handleQueueAction(w http.ResponseWriter, r *http.Request) {
+	project := r.PathValue("project")
+	queue := r.PathValue("queue")
+	action := r.PathValue("action")
+
+	// Protected/managed projects (the read-plane proxy, edge) are Helmsman's own
+	// infrastructure — never app-controllable, mirroring lifecycle/scale/env (plan §3).
+	// Checked first so the policy holds regardless of whether ops is available.
+	if s.cfg.IsProtectedProject(project) {
+		_ = s.audit.Log(r.Context(), audit.Event{
+			Actor: sessionUser(r), IP: ClientIP(r.Context()).String(),
+			Action: "ops_queue_" + action, Target: project + "/" + queue, Outcome: audit.Deny, Level: audit.Security, Detail: "protected project",
+		})
+		http.Error(w, "this is a protected project and cannot be controlled as an app", http.StatusForbidden)
+		return
+	}
 	if s.prober == nil {
 		http.Error(w, "ops not available", http.StatusNotFound)
 		return
 	}
-	project := r.PathValue("project")
-	queue := r.PathValue("queue")
-	action := r.PathValue("action")
 
 	err := s.prober.QueueAction(r.Context(), project, queue, action)
 	outcome := audit.OK

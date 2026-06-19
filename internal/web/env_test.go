@@ -153,3 +153,18 @@ func TestEnvProtectedProjectBlocked(t *testing.T) {
 		t.Errorf("protected project env edit = %d, want 403", resp.StatusCode)
 	}
 }
+
+// A protected project's RICH queue actions (pause/resume/retry-failed) carry a
+// server-held secret — they must be refused at the handler, unconditionally, even
+// before the ops-availability check, mirroring every other write path.
+func TestQueueActionProtectedProjectBlocked(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.cfg.ProtectedProjects = []string{"helmsman-socket-proxy"}
+	sess, csrf := e.authed(t)
+	resp := e.req(t, "POST", "/apps/helmsman-socket-proxy/queues/default/pause", "127.0.0.1:1",
+		map[string]string{"Origin": "https://example.com"},
+		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("protected project queue action = %d, want 403", resp.StatusCode)
+	}
+}
