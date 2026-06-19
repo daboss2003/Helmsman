@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -483,6 +484,30 @@ func TestDeployCertBindingBlocksUntilIssued(t *testing.T) {
 	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "did not issue the TLS cert") {
 		t.Fatalf("a not-yet-issued cert_binding must block the deploy after the wait, got %v", err)
+	}
+}
+
+// A deploy in progress must NOT be restartable: a second deploy request returns 409
+// (the in-flight deploy runs in the background and the single-flight gate is held), so
+// navigating away and re-triggering can't restart it from scratch.
+func TestDeployInProgressReturns409(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), true, "") // writes allowed
+	slug := "shop"
+	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: nginx\n"
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
+	_ = configureRepo(t, e, slug, sha)
+	sess, csrf := e.authed(t)
+	// Simulate an in-progress background deploy holding the single-flight gate.
+	if !e.srv.gitDeploy.TryAcquire() {
+		t.Fatal("could not acquire the deploy gate")
+	}
+	defer e.srv.gitDeploy.Release()
+	resp := e.req(t, "POST", "/apps/"+slug+"/git/deploy?sha="+sha, "127.0.0.1:1",
+		map[string]string{"Origin": "https://example.com"},
+		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("deploy while one is in progress = %d, want 409 (must not restart)", resp.StatusCode)
 	}
 }
 

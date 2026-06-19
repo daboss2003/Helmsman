@@ -523,31 +523,54 @@ func (s *Server) handleGitDeploy(w http.ResponseWriter, r *http.Request) {
 	sha := strings.TrimSpace(r.FormValue("sha"))
 
 	if !s.gitDeploy.TryAcquire() {
-		http.Error(w, "a git operation is already in progress; try again shortly", http.StatusConflict)
+		http.Error(w, "a deploy is already in progress — it continues in the background even if you leave this page; refresh the app to see the result", http.StatusConflict)
 		return
 	}
-	defer s.gitDeploy.Release()
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
-	clearWriteDeadline(w) // deploy stream can run minutes (ACME wait) — don't let WriteTimeout cut it
+	clearWriteDeadline(w) // deploy stream can run minutes (build + ACME) — exempt from WriteTimeout
 	flusher, _ := w.(http.Flusher)
-	writeln := func(format string, a ...any) {
-		fmt.Fprintf(w, format+"\n", a...)
+
+	// Run the deploy on a BACKGROUND context in a goroutine — NOT the request context.
+	// Previously the deploy ran on r.Context(), so navigating away or any connection
+	// blip cancelled it mid-build and a re-trigger restarted from scratch. Now it runs
+	// to completion regardless of the client; we stream progress best-effort, and the
+	// single-flight gate (held until the goroutine finishes) blocks a duplicate restart.
+	lines := make(chan string, 512)
+	go func() {
+		defer s.gitDeploy.Release()
+		defer close(lines)
+		bg, cancel := context.WithTimeout(context.Background(), gitDeployTimeout)
+		defer cancel()
+		emit := func(line string) {
+			select {
+			case lines <- line:
+			default: // client gone / slow — drop rather than block the deploy
+			}
+		}
+		emit(fmt.Sprintf("$ deploy %s @ %s", project, shortSha(sha)))
+		if err := s.deployRepoApp(bg, cfg, sha, "manual", actor, emit); err != nil {
+			emit(fmt.Sprintf("\n[failed: %v]", err))
+			_ = s.audit.Log(bg, audit.Event{Actor: actor, IP: peer, Action: "git_deploy", Target: project + "@" + shortSha(sha), Outcome: audit.Error, Level: audit.Security, Detail: err.Error()})
+			return
+		}
+		emit("\n[done]")
+		_ = s.audit.Log(bg, audit.Event{Actor: actor, IP: peer, Action: "git_deploy", Target: project + "@" + shortSha(sha), Outcome: audit.OK, Level: audit.Security})
+	}()
+
+	// Stream to the client until the deploy finishes (lines closed) or the client
+	// disconnects (write error). On disconnect we just stop reading — the goroutine
+	// above keeps deploying in the background.
+	for line := range lines {
+		if _, werr := fmt.Fprintln(w, line); werr != nil {
+			break
+		}
 		if flusher != nil {
 			flusher.Flush()
 		}
 	}
-
-	writeln("$ deploy %s @ %s", project, shortSha(sha))
-	if err := s.deployRepoApp(r.Context(), cfg, sha, "manual", actor, func(line string) { writeln("%s", line) }); err != nil {
-		writeln("\n[failed: %v]", err)
-		_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "git_deploy", Target: project + "@" + shortSha(sha), Outcome: audit.Error, Level: audit.Security, Detail: err.Error()})
-		return
-	}
-	writeln("\n[done]")
-	_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "git_deploy", Target: project + "@" + shortSha(sha), Outcome: audit.OK, Level: audit.Security})
 }
 
 // deployRepoApp promotes ONE reviewed commit sha. The CALLER must hold the
