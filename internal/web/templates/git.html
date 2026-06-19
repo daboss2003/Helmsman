@@ -53,6 +53,17 @@
     </form>
   </section>
 
+  <section class="panel">
+    <h2>App configuration <span class="muted">(set before your first deploy)</span></h2>
+    <p class="muted">Environment variables, secrets, and config files are applied <strong>when you deploy</strong>.
+      Set them here first so the app comes up configured on its very first deploy — you don't need to deploy once
+      to unlock these.</p>
+    <div class="queue-actions">
+      <a class="btn btn-sm btn-primary" href="/apps/{{pathEscape .Project}}/env">Environment &amp; secrets →</a>
+      <a class="btn btn-sm" href="/apps/{{pathEscape .Project}}/config-files">Config files →</a>
+    </div>
+  </section>
+
   {{if .Diff}}
   <section class="panel">
     <h2>Pending update <span class="muted">({{.Diff.CommitsBehind}} commit(s) ahead of deployed)</span></h2>

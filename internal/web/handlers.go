@@ -27,7 +27,8 @@ type tmplData struct {
 	Provisioned []provisionedView // provisioned apps incl. not-yet-deployed (M8)
 	App         *monitor.App
 	Project     string
-	Protected   bool // the App is a Helmsman-managed/protected project — no app actions
+	Protected   bool   // the App is a Helmsman-managed/protected project — no app actions
+	BackURL     string // breadcrumb target; the app home, or the repository page when not yet deployed
 	OpsCfg      *ops.Config
 	OpsStatus   *ops.Status
 
@@ -170,6 +171,18 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		Scaling:             s.scalingDesired(project),
 		Git:                 s.gitViewFor(r.Context(), project),
 	})
+}
+
+// appBackURL is the breadcrumb target for an app sub-page (env, config files, …).
+// It points at the app home once the app is deployed, but at the repository page
+// before that — because the app home (handleApp) 404s until the app has containers,
+// so a connected-but-not-yet-deployed repo would otherwise get a "back" link to a
+// 404. (Project names are validated slugs, so they are URL-safe unescaped.)
+func (s *Server) appBackURL(project string) string {
+	if snap := s.snapshot(); snap != nil && snap.AppByProject(project) != nil {
+		return "/apps/" + project
+	}
+	return "/apps/" + project + "/git"
 }
 
 // handleAppPartial returns just the app service-table fragment for live polling.

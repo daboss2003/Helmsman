@@ -54,6 +54,7 @@ func (s *Server) handleConfigFilesGet(w http.ResponseWriter, r *http.Request) {
 		CSRFToken: CSRFToken(r.Context()),
 		Username:  sessionUser(r),
 		Project:   project,
+		BackURL:   s.appBackURL(project),
 	}
 	var app *monitor.App
 	if snap := s.snapshot(); snap != nil {

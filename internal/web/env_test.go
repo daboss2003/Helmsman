@@ -142,6 +142,22 @@ func TestRenderEnvFileUniqueAnd0600(t *testing.T) {
 	}
 }
 
+// Pre-deploy reachability: the env editor must be usable BEFORE an app's first
+// deploy (otherwise: can't set env without deploying, can't deploy sanely without
+// env). The app home 404s until containers exist, so the env page's breadcrumb must
+// fall back to the repository page rather than that 404.
+func TestEnvReachableBeforeDeploy(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, csrf := e.authed(t)
+	resp := e.req(t, "GET", "/apps/newrepo/env", "127.0.0.1:1", nil, []*http.Cookie{sess, csrf}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET env pre-deploy = %d, want 200 (env must be reachable before first deploy)", resp.StatusCode)
+	}
+	if body := readBody(resp); !strings.Contains(body, `href="/apps/newrepo/git"`) {
+		t.Errorf("env breadcrumb must fall back to the repository page pre-deploy (no 404 to the app home)")
+	}
+}
+
 // review #7/#11: a protected project's env is not editable.
 func TestEnvProtectedProjectBlocked(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")

@@ -53,6 +53,7 @@ func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {
 		CSRFToken:  CSRFToken(r.Context()),
 		Username:   sessionUser(r),
 		Project:    project,
+		BackURL:    s.appBackURL(project),
 		EnvVersion: version,
 	}
 	var literals []string

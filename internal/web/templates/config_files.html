@@ -1,7 +1,7 @@
 {{template "top" .}}
 {{template "nav" .}}
 <main class="wrap">
-  <p><a href="/apps/{{.Project}}">← {{.Project}}</a></p>
+  <p><a href="{{.BackURL}}">← {{.Project}}</a></p>
   <h1>Managed config files — {{.Project}}</h1>
   <p class="muted">Helmsman fills only its own <code>{{"{{hm.KEY}}"}}</code> delimiter; your app's
     <code>${…}</code>/<code>{{"{{ }}"}}</code> placeholders survive byte-identical. Rendered host-side at
