@@ -19,7 +19,7 @@ import (
 // Caddy validates + atomically swaps, and REJECTS a bad document while keeping the
 // running config — so a failed apply never takes the edge down (SBD-8 floor).
 type Admin struct {
-	base   string // http base, e.g. "http://127.0.0.1:2019" or "http://unix"
+	base   string // http base, e.g. "http://127.0.0.1:2019" or "http://localhost" (unix socket)
 	client *http.Client
 }
 
@@ -30,7 +30,13 @@ func NewAdmin(listen string) *Admin {
 		sock := strings.TrimPrefix(listen, "unix/") // "unix//x" → "/x"
 		d := &net.Dialer{Timeout: 5 * time.Second}
 		return &Admin{
-			base: "http://unix",
+			// "localhost", NOT "unix": the DialContext below always dials the socket
+			// (it ignores the URL host), so this only sets the request's Host header —
+			// and Caddy's admin endpoint enforces an origin allow-list (enforce_origin:
+			// 127.0.0.1/::1/localhost, see render.go). "http://unix" → Host: unix →
+			// 403 "host not allowed: unix"; "localhost" is allowed and is Caddy's own
+			// unix-admin convention (curl --unix-socket … http://localhost/…).
+			base: "http://localhost",
 			client: &http.Client{
 				Timeout:       15 * time.Second,
 				CheckRedirect: noRedirect,

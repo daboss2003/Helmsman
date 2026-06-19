@@ -135,6 +135,20 @@ func TestReconcileConcurrentIsSerialized(t *testing.T) {
 	}
 }
 
+// Over a unix socket the admin client always dials the socket regardless of URL host
+// (the DialContext ignores the address), so the only thing Caddy sees is the request's
+// Host header (= the base URL's host). Caddy's admin endpoint enforces an origin
+// allow-list (enforce_origin: 127.0.0.1 / ::1 / localhost — see render.go); a Host of
+// "unix" is rejected 403 "host not allowed: unix", and the edge config never loads.
+// The unix-admin base host must therefore be one Caddy allows.
+func TestUnixAdminHostIsAllowedOrigin(t *testing.T) {
+	a := NewAdmin("unix//run/helmsman/caddy-admin.sock")
+	allowed := map[string]bool{"http://127.0.0.1": true, "http://[::1]": true, "http://localhost": true}
+	if !allowed[a.base] {
+		t.Errorf("unix admin base = %q — its Host is not in Caddy's admin origin allow-list, so /load is 403'd (host not allowed). want one of %v", a.base, allowed)
+	}
+}
+
 func TestAvailableFailClosedOffLinux(t *testing.T) {
 	ok, why := Available("definitely-not-a-real-binary-xyz")
 	if ok {
