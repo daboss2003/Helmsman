@@ -7,15 +7,19 @@ import (
 	"testing"
 )
 
-// The embedded, Helmsman-owned proxy must stay locked down: read-only, loopback-only,
-// and deny-by-default (only the read verbs enabled). This guards the one component
-// that fronts the docker socket from silently gaining write authority.
+// The embedded, Helmsman-owned proxy must stay locked down: loopback-only, capability-
+// stripped, and deny-by-default (only the read verbs enabled). This guards the one
+// component that fronts the docker socket from silently gaining write authority.
+// NOTE: read_only on the rootfs is deliberately NOT asserted — the haproxy-based image
+// renders its config under /usr/local/etc/haproxy at startup, so a read-only rootfs
+// crash-loops it. The read-plane boundary is the :ro socket mount + verb allowlist +
+// cap_drop + no-new-privileges asserted below, none of which depend on read_only.
 func TestEmbeddedProxyIsLockedDown(t *testing.T) {
 	c := string(Compose())
 	for _, must := range []string{
-		"read_only: true",
 		"127.0.0.1:2375:2375",                          // loopback bind only
 		"/var/run/docker.sock:/var/run/docker.sock:ro", // read-only socket mount
+		"cap_drop:",                                    // capabilities stripped
 		"no-new-privileges:true",
 		`CONTAINERS: "1"`, `INFO: "1"`, `VERSION: "1"`, // read verbs allowed
 		`POST: "0"`, `EXEC: "0"`, `IMAGES: "0"`, `VOLUMES: "0"`, `NETWORKS: "0"`, `BUILD: "0"`, // write verbs denied

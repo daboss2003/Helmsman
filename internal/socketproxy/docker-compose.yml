@@ -14,7 +14,13 @@ services:
     image: ghcr.io/tecnativa/docker-socket-proxy@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
     container_name: helmsman-socket-proxy
     restart: unless-stopped
-    read_only: true
+    # NOTE: NOT read_only. This image (haproxy-based) renders /usr/local/etc/haproxy/
+    # haproxy.cfg from a baked template at startup; a read-only rootfs makes that write
+    # fail and `set -e` crash-loops the entrypoint (the read plane never comes up). The
+    # read-plane boundary does NOT depend on read_only — it is the :ro docker.sock mount,
+    # the verb allowlist below (only CONTAINERS/INFO/VERSION), cap_drop: ALL, and
+    # no-new-privileges. (A tmpfs over that dir shadows the baked template; a named
+    # volume would serve a STALE verb-allowlist after an image bump — both worse.)
     cap_drop:
       - ALL
     security_opt:

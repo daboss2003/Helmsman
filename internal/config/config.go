@@ -418,7 +418,11 @@ func checkPerms(path string) error {
 	}
 	// If the group can read (0640), the group must be the service's own group so
 	// only the service account — not an arbitrary group — can read the master key.
-	if perm&0o040 != 0 && gid != 0 && gid != uint32(os.Getgid()) {
+	// Skip this when running as ROOT (euid 0): root reads regardless of group, and a
+	// root tool (e.g. `sudo helmsman doctor`) is not the service, so os.Getgid() is the
+	// invoking shell's group, not the service's — comparing to it false-alarms. `serve`
+	// runs non-root as the service, so it still enforces this (the real chokepoint).
+	if perm&0o040 != 0 && gid != 0 && os.Geteuid() != 0 && gid != uint32(os.Getgid()) {
 		return fmt.Errorf("config: %s is group-readable by gid %d, not the service group %d", path, gid, os.Getgid())
 	}
 	return nil
