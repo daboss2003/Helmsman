@@ -531,6 +531,7 @@ func (s *Server) handleGitDeploy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
+	clearWriteDeadline(w) // deploy stream can run minutes (ACME wait) — don't let WriteTimeout cut it
 	flusher, _ := w.(http.Flusher)
 	writeln := func(format string, a ...any) {
 		fmt.Fprintf(w, format+"\n", a...)

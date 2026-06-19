@@ -76,7 +76,7 @@ var staticAssetVer = computeStaticVer()
 
 func computeStaticVer() string {
 	h := sha256.New()
-	for _, name := range []string{"static/app.js", "static/app.css"} {
+	for _, name := range []string{"static/app.js", "static/app.css", "static/favicon.svg"} {
 		if b, err := embeddedAssets.ReadFile(name); err == nil {
 			h.Write(b)
 		}

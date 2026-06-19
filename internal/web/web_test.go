@@ -212,6 +212,13 @@ func TestStaticAssetsAreCacheBusted(t *testing.T) {
 	if !strings.Contains(body, "/static/app.js?v=") || !strings.Contains(body, "/static/app.css?v=") {
 		t.Errorf("asset URLs must carry a ?v= cache-bust token; body:\n%s", body)
 	}
+	if !strings.Contains(body, `rel="icon"`) || !strings.Contains(body, "/static/favicon.svg") {
+		t.Errorf("a favicon link must be present; body:\n%s", body)
+	}
+	// The favicon itself is served (embedded).
+	if resp := e.req(t, "GET", "/static/favicon.svg", "127.0.0.1:1", nil, nil, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /static/favicon.svg = %d, want 200", resp.StatusCode)
+	}
 }
 
 // When GitHub OAuth is configured, the CSP must allow github.com as a form-action

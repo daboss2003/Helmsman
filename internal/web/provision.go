@@ -201,6 +201,7 @@ func (s *Server) handleProvisionDeploy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
+	clearWriteDeadline(w) // long-lived deploy stream — exempt from the 60s WriteTimeout
 	flusher, _ := w.(http.Flusher)
 	writeln := func(format string, a ...any) {
 		fmt.Fprintf(w, format+"\n", a...)

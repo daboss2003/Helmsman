@@ -73,6 +73,7 @@ func (s *Server) runLifecycle(w http.ResponseWriter, r *http.Request, project, s
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no") // disable proxy buffering for live output
+	clearWriteDeadline(w)                     // long-lived stream — exempt from the 60s WriteTimeout
 	flusher, _ := w.(http.Flusher)
 	writeln := func(format string, a ...any) {
 		fmt.Fprintf(w, format+"\n", a...)
@@ -287,6 +288,7 @@ func (s *Server) handleServiceLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
+	clearWriteDeadline(w) // SSE log stream is long-lived — exempt from the 60s WriteTimeout
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)

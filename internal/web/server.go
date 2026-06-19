@@ -517,6 +517,16 @@ func cacheControl(next http.Handler) http.Handler {
 	})
 }
 
+// clearWriteDeadline removes the server's WriteTimeout (server.go: 60s) for THIS
+// response. A deploy/log/setup stream legitimately runs for minutes (e.g. the deploy
+// now waits up to 150s for ACME), and the absolute write deadline would otherwise cut
+// the connection mid-stream — the client sees "network error" and, since the deploy
+// runs on the request context, the deploy aborts. Per-response only; other handlers
+// keep the 60s slow-client protection.
+func clearWriteDeadline(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+}
+
 // auditDeny records an allowlist denial (called from the allowlist middleware).
 func (s *Server) auditDeny(r *http.Request, peer, client netip.Addr) {
 	_ = s.audit.Log(r.Context(), audit.Event{
