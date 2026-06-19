@@ -356,6 +356,9 @@ func (s *Server) Handler() http.Handler {
 	// Env settings (M5): literals + write-only secrets, masked reveal, history.
 	mux.HandleFunc("GET /apps/{project}/env", s.requireAuth(s.withCSRFToken(s.handleEnvGet)))
 	mux.HandleFunc("POST /apps/{project}/env", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEnvSaveLiterals))))
+	mux.HandleFunc("POST /apps/{project}/env/literal", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEnvAddLiteral))))
+	mux.HandleFunc("POST /apps/{project}/env/literal/remove", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvRemoveLiteral))))
+	mux.HandleFunc("POST /apps/{project}/env/import", capBody(512<<10, s.requireAuth(s.requireCSRF(s.handleEnvImport))))
 	mux.HandleFunc("POST /apps/{project}/env/secret", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEnvSetSecret))))
 	mux.HandleFunc("POST /apps/{project}/env/secret/remove", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvRemoveSecret))))
 	mux.HandleFunc("POST /apps/{project}/env/reveal", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEnvReveal))))

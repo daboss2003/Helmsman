@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,11 +12,16 @@ import (
 	"strings"
 
 	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/cfgfile"
 	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/Helmsman/internal/envimport"
 	"github.com/daboss2003/Helmsman/internal/envstore"
 	"github.com/daboss2003/Helmsman/internal/monitor"
 	"github.com/daboss2003/Helmsman/internal/secret"
 )
+
+// envKeyForm validates an env var name typed in the dashboard.
+var envKeyForm = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // envEntryView is a template-safe view of one env entry (no plaintext for secrets).
 type envEntryView struct {
@@ -146,6 +152,122 @@ func (s *Server) handleEnvRemoveSecret(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.saveEnv(w, r, project, next, "env_remove_secret")
+}
+
+// handleEnvAddLiteral upserts ONE non-secret variable from key+value fields (the
+// per-row editor), preserving every other entry. A value that trips the literal-
+// secret lint is rejected with a pointer to the Secret field — a plain literal is
+// stored in clear, so an obvious secret must not land here.
+func (s *Server) handleEnvAddLiteral(w http.ResponseWriter, r *http.Request) {
+	if s.envStore == nil {
+		http.Error(w, "env store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	project := r.PathValue("project")
+	key := strings.TrimSpace(r.PostFormValue("key"))
+	val := r.PostFormValue("value")
+	if key == "" {
+		http.Redirect(w, r, "/apps/"+project+"/env", http.StatusSeeOther)
+		return
+	}
+	if !envKeyForm.MatchString(key) {
+		http.Error(w, "invalid key: must match [A-Za-z_][A-Za-z0-9_]*", http.StatusUnprocessableEntity)
+		return
+	}
+	if reason, hit := cfgfile.LiteralSecretLint([]byte(val)); hit {
+		http.Error(w, "that value "+reason+" — use the Secret field instead so it's stored masked", http.StatusUnprocessableEntity)
+		return
+	}
+	cur, _, err := s.envStore.Current(project)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	next := make([]envstore.Entry, 0, len(cur)+1)
+	for _, e := range cur {
+		if e.Key != key {
+			next = append(next, e)
+		}
+	}
+	next = append(next, envstore.Entry{Key: key, Value: secret.New(val), Secret: false})
+	s.saveEnv(w, r, project, next, "env_add_literal")
+}
+
+// handleEnvRemoveLiteral drops one non-secret variable by key.
+func (s *Server) handleEnvRemoveLiteral(w http.ResponseWriter, r *http.Request) {
+	if s.envStore == nil {
+		http.Error(w, "env store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	_ = r.ParseForm()
+	project := r.PathValue("project")
+	key := strings.TrimSpace(r.PostFormValue("key"))
+	cur, _, err := s.envStore.Current(project)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	next := make([]envstore.Entry, 0, len(cur))
+	for _, e := range cur {
+		if e.Key != key {
+			next = append(next, e)
+		}
+	}
+	s.saveEnv(w, r, project, next, "env_remove_literal")
+}
+
+// handleEnvImport ingests an uploaded .env file (pick-a-file): it is parsed,
+// hygiene-checked, and CLASSIFIED (biased toward secret) by the same code path as
+// `helmsman secret import`, with the override-proof literal-secret HARD STOP — so an
+// obvious secret in the file is stored masked, never as a clear literal. Parsed
+// entries are upserted into the current set (existing keys updated, others kept).
+func (s *Server) handleEnvImport(w http.ResponseWriter, r *http.Request) {
+	if s.envStore == nil {
+		http.Error(w, "env store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	project := r.PathValue("project")
+	f, _, err := r.FormFile("envfile")
+	if err != nil {
+		http.Error(w, "choose a .env file to import", http.StatusBadRequest)
+		return
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, 256<<10)) // bounded
+	if err != nil {
+		http.Error(w, "could not read the file", http.StatusBadRequest)
+		return
+	}
+	entries, err := envimport.Parse(raw) // parse + hygiene + classify (biased secret)
+	if err != nil {
+		http.Error(w, "import rejected: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if err := envimport.ValidateForIngest(entries); err != nil {
+		http.Error(w, "import rejected: "+err.Error(), http.StatusUnprocessableEntity) // literal-secret hard stop
+		return
+	}
+	cur, _, err := s.envStore.Current(project)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	merged := map[string]envstore.Entry{}
+	for _, e := range cur {
+		merged[e.Key] = e
+	}
+	for _, e := range entries {
+		merged[e.Key] = envstore.Entry{Key: e.Key, Value: e.Value, Secret: e.Secret}
+	}
+	next := make([]envstore.Entry, 0, len(merged))
+	for _, e := range merged {
+		next = append(next, e)
+	}
+	s.saveEnv(w, r, project, next, "env_import_file")
 }
 
 // handleEnvReveal returns one value as text/plain, no-store, audited (plan §5.5).
