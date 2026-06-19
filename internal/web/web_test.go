@@ -197,6 +197,25 @@ func TestSecurityHeadersPresent(t *testing.T) {
 			t.Errorf("missing security header %s", want)
 		}
 	}
+	// With GitHub OAuth OFF (default), form-action stays locked to 'self' — no github.com.
+	if strings.Contains(h.Get("Content-Security-Policy"), "github.com") {
+		t.Errorf("CSP allows github.com form-action with GitHub disabled: %q", h.Get("Content-Security-Policy"))
+	}
+}
+
+// When GitHub OAuth is configured, the CSP must allow github.com as a form-action
+// target — the Connect button POSTs to /github/connect which 303-redirects there,
+// and form-action is enforced on the redirect. Without this the connect is blocked
+// ("violates form-action 'self'").
+func TestCSPAllowsGitHubFormActionWhenEnabled(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.cfg.GitHub.ClientID = "CID"
+	e.srv.cfg.GitHub.ClientSecret = "SECRET"
+	resp := e.req(t, "GET", "/login", "127.0.0.1:1", nil, nil, nil)
+	csp := resp.Header.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "form-action 'self' https://github.com") {
+		t.Errorf("CSP form-action does not allow github.com when GitHub enabled: %q", csp)
+	}
 }
 
 // --- login + CSRF flow ---

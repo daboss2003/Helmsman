@@ -98,9 +98,20 @@ func (s *Server) allowlistMiddleware(next http.Handler) http.Handler {
 func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
+		// form-action is enforced on the REDIRECT target of a form POST, not just its
+		// action. The "Connect with GitHub" button POSTs to /github/connect, which
+		// 303-redirects to https://github.com/login/oauth/authorize — so when GitHub
+		// OAuth is configured we must allow github.com as a form target, else the
+		// browser blocks the redirect ("violates form-action 'self'"). The return hop
+		// (github.com -> /github/callback) is a top-level GET navigation, not covered
+		// by form-action. Kept off unless GitHub is enabled (smallest surface).
+		formAction := "form-action 'self'"
+		if s.cfg.GitHub.Enabled() {
+			formAction = "form-action 'self' https://github.com"
+		}
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "+
-				"object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+				"object-src 'none'; frame-ancestors 'none'; base-uri 'none'; "+formAction)
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
 		// same-origin (NOT no-referrer): with no-referrer the browser sends `Origin:
