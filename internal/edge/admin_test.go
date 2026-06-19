@@ -135,17 +135,42 @@ func TestReconcileConcurrentIsSerialized(t *testing.T) {
 	}
 }
 
-// Over a unix socket the admin client always dials the socket regardless of URL host
-// (the DialContext ignores the address), so the only thing Caddy sees is the request's
-// Host header (= the base URL's host). Caddy's admin endpoint enforces an origin
-// allow-list (enforce_origin: 127.0.0.1 / ::1 / localhost — see render.go); a Host of
-// "unix" is rejected 403 "host not allowed: unix", and the edge config never loads.
-// The unix-admin base host must therefore be one Caddy allows.
+// Caddy's admin endpoint enforces an origin allow-list (enforce_origin:
+// 127.0.0.1 / ::1 / localhost, no port — see render.go) and checks BOTH the request's
+// Host header AND its Origin header. Over a unix socket the DialContext always dials
+// the socket (ignoring the URL host), so what Caddy sees is the Host (= base URL host)
+// and the Origin header. Both must be in the allow-list: a Host of "unix" → 403 "host
+// not allowed: unix"; an empty Origin → 403 "client is not allowed to access from
+// origin ''". So base host and origin host must both be allowed.
 func TestUnixAdminHostIsAllowedOrigin(t *testing.T) {
 	a := NewAdmin("unix//run/helmsman/caddy-admin.sock")
 	allowed := map[string]bool{"http://127.0.0.1": true, "http://[::1]": true, "http://localhost": true}
 	if !allowed[a.base] {
 		t.Errorf("unix admin base = %q — its Host is not in Caddy's admin origin allow-list, so /load is 403'd (host not allowed). want one of %v", a.base, allowed)
+	}
+	if !allowed[a.origin] {
+		t.Errorf("unix admin origin = %q — not in Caddy's allow-list, so /load is 403'd (origin ''). want one of %v", a.origin, allowed)
+	}
+}
+
+// End-to-end: a /load request must carry a non-empty Origin header whose host is in
+// Caddy's allow-list (the bare host, no admin port). Without it Caddy 403s "origin ''".
+func TestAdminSendsAllowedOriginHeader(t *testing.T) {
+	var gotOrigin, gotHost string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotOrigin, gotHost = r.Header.Get("Origin"), r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	a := NewAdmin(ts.Listener.Addr().String()) // httptest binds 127.0.0.1:PORT
+	if err := a.Load(context.Background(), []byte(`{}`)); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if gotOrigin != "http://127.0.0.1" { // host only, NO port (Caddy origins are bare hosts)
+		t.Errorf("Origin header = %q, want http://127.0.0.1", gotOrigin)
+	}
+	if !strings.HasPrefix(gotHost, "127.0.0.1") {
+		t.Errorf("Host header = %q, want 127.0.0.1[:port]", gotHost)
 	}
 }
 

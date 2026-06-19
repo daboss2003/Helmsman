@@ -20,6 +20,10 @@ import (
 // running config — so a failed apply never takes the edge down (SBD-8 floor).
 type Admin struct {
 	base   string // http base, e.g. "http://127.0.0.1:2019" or "http://localhost" (unix socket)
+	origin string // value for the Origin header — its host MUST be in Caddy's admin
+	// origin allow-list (render.go: 127.0.0.1/::1/localhost, no port). Caddy's
+	// enforce_origin checks BOTH the Host AND the Origin header; a request with no
+	// Origin is rejected 403 "client is not allowed to access from origin ''".
 	client *http.Client
 }
 
@@ -36,7 +40,8 @@ func NewAdmin(listen string) *Admin {
 			// 127.0.0.1/::1/localhost, see render.go). "http://unix" → Host: unix →
 			// 403 "host not allowed: unix"; "localhost" is allowed and is Caddy's own
 			// unix-admin convention (curl --unix-socket … http://localhost/…).
-			base: "http://localhost",
+			base:   "http://localhost",
+			origin: "http://localhost",
 			client: &http.Client{
 				Timeout:       15 * time.Second,
 				CheckRedirect: noRedirect,
@@ -48,7 +53,18 @@ func NewAdmin(listen string) *Admin {
 			},
 		}
 	}
-	return &Admin{base: "http://" + listen, client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: noRedirect}}
+	// TCP path. Caddy's admin origin allow-list holds BARE hosts (no port), so the
+	// Origin header must carry the host without the admin port (the Host header keeps
+	// the port for dialing).
+	host := listen
+	if h, _, err := net.SplitHostPort(listen); err == nil {
+		host = h
+	}
+	originHost := host
+	if strings.Contains(originHost, ":") { // IPv6 literal needs brackets in a URL
+		originHost = "[" + originHost + "]"
+	}
+	return &Admin{base: "http://" + listen, origin: "http://" + originHost, client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: noRedirect}}
 }
 
 // noRedirect refuses to follow any redirect (consistent with every other Helmsman
@@ -64,6 +80,7 @@ func (a *Admin) Load(ctx context.Context, configJSON []byte) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", a.origin) // Caddy enforce_origin rejects an empty Origin
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("edge: admin /load unreachable: %w", err)
