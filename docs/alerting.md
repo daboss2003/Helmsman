@@ -8,7 +8,7 @@ See also: [Scaling & self-healing](./scaling-and-self-healing.md) · [Backups & 
 
 ## Turning it on
 
-Enable alerting in `config.yaml` and reload:
+Enable alerting in `config.yaml` and **restart** Helmsman:
 
 ```yaml
 alerting:
@@ -17,6 +17,12 @@ alerting:
   quiet_end_hour: 7
   dead_mans_url: "https://hc-ping.com/your-uuid"   # heartbeat target (see below)
 ```
+
+```bash
+sudo systemctl restart helmsman
+```
+
+> **Restart, not reload.** The alerting engine starts at boot, so `systemctl reload` won't turn it on — you must `systemctl restart helmsman`. (See [editing the config file](./installation.md#editing-the-config-file-reload-vs-restart).)
 
 Everything else is managed on the **Alerts** page in the dashboard — there's a form for each part, no files or config to hand-edit. Open problems also appear on the **Incidents** screen.
 

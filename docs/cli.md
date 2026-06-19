@@ -234,6 +234,8 @@ start Helmsman again: systemctl start helmsman
 
 These bootstrap and verify the credentials and keys in `/etc/helmsman/config.yaml`. They print material you paste into the root-owned config (`0600 root:root`) — they do **not** edit the file for you. No web route reads or writes auth, the IP allowlist, the master key, or the bind address. Passwords are read from `/dev/tty`, never `argv`.
 
+After pasting, apply the change: **`hash-password` and `gen-totp`** (login/two-factor) take effect with `sudo systemctl reload helmsman`, but **`gen-key`** (the master key) is read only at startup and needs `sudo systemctl restart helmsman`. See [editing the config file](./installation.md#editing-the-config-file-reload-vs-restart).
+
 #### `helmsman gen-key`
 
 - **Purpose:** generate the AES-256-GCM master key (base64). Everything at rest — env blobs, git creds, ops secrets, channel secrets — is encrypted under it.

@@ -312,7 +312,7 @@ Core fans the same App Ops Interface out to agents. The v1 boundaries that make 
             ▲
             │ SSH (highest trust tier)
         OPERATOR ── helmsman CLI (keys · validate · secret import · restore) ─► root-of-trust + the ONE validator
-                 ── edits config.yaml directly ────────────► SIGHUP hot-reload
+                 ── edits config.yaml directly ──► reload (allowlist·auth·totp·tokens) | restart (keys·bind·edge·github·alerting)
 ```
 
 Read this diagram as a set of trust boundaries: internet → edge → app; edge → allowlist; app → read-only proxy; operator/SSH → privileged actions. Each arrow crosses a boundary, and at every crossing the receiving side fails closed. That is the whole architecture in one sentence — **a small number of narrow, hardened processes — the most dangerous (the raw-`docker.sock` proxy, the setup sandbox) isolated in their own user and cgroup — funnelling every privileged action through a single validating chokepoint, with the master key kept in a place the web plane can never reach.**

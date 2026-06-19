@@ -65,13 +65,19 @@ To offer the one-click flow, whoever installs Helmsman does this once:
    > - If `admin.hostname` **is set**, Helmsman *always* uses `https://<admin.hostname>/github/callback` — so that domain must be live (its HTTPS working) when you click Connect; the `localhost` callback won't be used even if you're on the tunnel.
    > - If you later add a domain (set `admin.hostname`), **update the OAuth App's callback URL** to the `https://…` form, or Connect will fail with a redirect-URI mismatch.
 
-2. Put the credentials in `config.yaml` and reload:
+2. Put the credentials in `config.yaml` and **restart** Helmsman:
 
    ```yaml
    github:
      client_id: "<from the OAuth App>"
      client_secret: "<from the OAuth App>"
    ```
+
+   ```bash
+   sudo systemctl restart helmsman
+   ```
+
+   > **Restart, not reload.** GitHub credentials are read once at startup, so `systemctl reload` will **not** pick them up — the **Connect with GitHub** button won't appear until you `systemctl restart helmsman`. (See [editing the config file](./installation.md#editing-the-config-file-reload-vs-restart).)
 
 3. Allow the server to reach `github.com` and `api.github.com` if you've locked down outbound network access (the egress filter is off by default).
 

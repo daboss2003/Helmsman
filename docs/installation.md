@@ -164,7 +164,20 @@ systemctl status helmsman
 
 That's it. **You won't run any Docker commands** — Helmsman sets up everything it needs to talk to Docker (a locked-down, read-only connection) and runs your HTTPS edge itself. From here on, it's all in the dashboard.
 
-> Changed your mind about who can reach the dashboard, or your password? Edit the config and run `systemctl reload helmsman` — it picks up the change safely, and ignores the edit if it's invalid.
+### Editing the config file (reload vs restart)
+
+`/etc/helmsman/config.yaml` is read at **startup**. After you hand-edit it, Helmsman won't notice the change on its own — you have to tell it to pick it up, and **how depends on what you changed**:
+
+| You changed… | Apply with |
+|---|---|
+| Who can reach the dashboard (`ip_allowlist`, `trust_proxy`, `trusted_proxies`), your login (`auth.username`, `auth.password_hash`, `auth.totp_secret`), or log retention (`retention.*`) | **`sudo systemctl reload helmsman`** — hot-applied, no downtime |
+| **Anything else** — the master `encryption_key`, `bind_addr`, `edge.*` (incl. `l4_enabled`), `admin.hostname`, `github.*`, `alerting.*`, `session.*`, `cookie.*`, `docker.*`, `protected_projects`, … | **`sudo systemctl restart helmsman`** |
+
+The rule of thumb: only the **allowlist + login + retention** are hot-reloadable; **everything else is read once at boot and needs a restart**. A reload that touches a restart-only setting will *silently do nothing* — so when in doubt, `restart` (it briefly drops the dashboard connection; your apps keep running).
+
+> **Reload is safe:** it validates the new file first and **keeps the old config if the edit is invalid**. One side effect to know: enabling/rotating two-factor (`auth.totp_secret`) on reload **logs you out**, so you re-authenticate with the new factor.
+
+(Most *app* settings — env, routes, scaling, self-healing, ops — aren't in this file at all; you manage them in the dashboard, which applies them live. This file is just the bootstrap essentials.)
 
 ## 5. You're ready
 

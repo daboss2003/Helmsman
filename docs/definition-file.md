@@ -386,7 +386,7 @@ spec:
 
 > **Prerequisites (the L4 LB is opt-in and not bundled):**
 > 1. Install **nginx + its stream module** on the host yourself — on Debian/Ubuntu `sudo apt install nginx libnginx-mod-stream` (the `stream` module is a *separate* package there). Helmsman's generated config already `include`s `/etc/nginx/modules-enabled/*.conf` so the module loads, but the package must be present or nginx rejects the config with `unknown directive "stream"`. Helmsman does **not** ship or pull nginx; it's only needed for L4 routes.
-> 2. Set `edge.l4_enabled: true` in `config.yaml`.
+> 2. Set `edge.l4_enabled: true` in `config.yaml`, then **restart** Helmsman (`sudo systemctl restart helmsman`) — edge settings are read at startup, so a reload won't pick this up ([reload vs restart](./installation.md#editing-the-config-file-reload-vs-restart)).
 > 3. Binding privileged ports (53/853) needs `CAP_NET_BIND_SERVICE` — the shipped unit **already grants it** (the supervised nginx inherits it), so there's nothing to do. (Or map a privileged host port to a high container port and keep the service unprivileged.)
 > 4. **If you bind `:53` (DNS): free it from `systemd-resolved` first.** On a default systemd host the `systemd-resolved` stub listener already holds `127.0.0.53:53` (and `127.0.0.54:53` on systemd ≥ 249). The supervised nginx binds the wildcard `0.0.0.0:53`, which collides with that bind → nginx fails to start (`address already in use`) and the L4 reconcile fails closed. Disable the stub listener, then keep host DNS working by pointing `resolv.conf` at the real upstreams (not the now-dead stub):
 >    ```bash
