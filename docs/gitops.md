@@ -42,7 +42,17 @@ You'll find this on the app's page (a **Repository & updates** panel) and on the
 
 To offer the one-click flow, whoever installs Helmsman does this once:
 
-1. In GitHub, create an **OAuth App** (Settings → Developer settings → OAuth Apps) with the **Authorization callback URL** set to `https://<your-dashboard>/github/callback`.
+1. In GitHub, create an **OAuth App** (Settings → Developer settings → OAuth Apps). Its **Authorization callback URL must match the URL your browser uses to reach the dashboard** — Helmsman derives the callback from `admin.hostname` if set, otherwise from the address you're on:
+
+   | How you reach the dashboard | Set the OAuth App's callback URL to |
+   |---|---|
+   | A public admin domain (`admin.hostname` set in config) | `https://<admin.hostname>/github/callback` |
+   | An **SSH tunnel** to loopback (no `admin.hostname`, the default before you have a domain) | `http://localhost:9000/github/callback` |
+
+   > **You do NOT need a public domain first.** GitHub allows a `localhost` callback, and it works over the SSH tunnel — so you can set GitHub up before pointing a domain at the box. **But the match is strict, and an OAuth App has only ONE callback URL:**
+   > - If `admin.hostname` **is set**, Helmsman *always* uses `https://<admin.hostname>/github/callback` — so that domain must be live (its HTTPS working) when you click Connect; the `localhost` callback won't be used even if you're on the tunnel.
+   > - If you later add a domain (set `admin.hostname`), **update the OAuth App's callback URL** to the `https://…` form, or Connect will fail with a redirect-URI mismatch.
+
 2. Put the credentials in `config.yaml` and reload:
 
    ```yaml
@@ -51,7 +61,7 @@ To offer the one-click flow, whoever installs Helmsman does this once:
      client_secret: "<from the OAuth App>"
    ```
 
-3. Allow the server to reach `github.com` and `api.github.com` if you've locked down outbound network access.
+3. Allow the server to reach `github.com` and `api.github.com` if you've locked down outbound network access (the egress filter is off by default).
 
 After that, **Connect with GitHub** appears on the Connect-a-repository page. Operators can disconnect at any time; already-connected repos keep working, because each uses its own deploy key rather than the GitHub login.
 
