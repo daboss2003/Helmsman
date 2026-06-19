@@ -298,8 +298,41 @@
     return true;
   }
   function pct(used, total) { return total > 0 ? (used / total) * 100 : 0; }
+  // Hover read-out: a vertical guide line follows the cursor and the chart's header
+  // number shows the exact value at that point (like a real chart's tooltip). Built
+  // from SVG attributes only (CSP-safe); the guide uses non-scaling-stroke so it stays
+  // crisp under the stretched viewBox.
+  function setupChartHover(svg) {
+    var W = 300, H = 140;
+    var key = svg.getAttribute("data-chart");
+    var nowEl = document.querySelector('[data-chart-now="' + key + '"]');
+    var restore = function () {
+      var g = svg.querySelector(".hover-guide");
+      if (g) svg.removeChild(g);
+      svg.__hovering = false;
+      var vals = svg.__vals;
+      if (nowEl) nowEl.textContent = (vals && vals.length) ? Math.round(vals[vals.length - 1]) + "%" : "—";
+    };
+    svg.addEventListener("mousemove", function (e) {
+      var vals = svg.__vals;
+      if (!vals || vals.length < 2) return;
+      var rect = svg.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      var frac = (e.clientX - rect.left) / rect.width;
+      frac = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
+      var idx = Math.round(frac * (vals.length - 1));
+      var gx = (idx / (vals.length - 1)) * W;
+      var g = svg.querySelector(".hover-guide");
+      if (!g) { g = el("line", { class: "hover-guide", "vector-effect": "non-scaling-stroke" }); svg.appendChild(g); }
+      g.setAttribute("x1", gx); g.setAttribute("y1", 0); g.setAttribute("x2", gx); g.setAttribute("y2", H);
+      svg.__hovering = true;
+      if (nowEl) nowEl.textContent = vals[idx].toFixed(1) + "%";
+    });
+    svg.addEventListener("mouseleave", restore);
+  }
   var charts = document.querySelectorAll("[data-chart]");
   if (charts.length) {
+    charts.forEach(setupChartHover);
     var refreshCharts = function () {
       if (!pageVisible()) return;
       fetch("/partials/metrics.json", { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
@@ -315,10 +348,12 @@
             var key = svg.getAttribute("data-chart");
             var vals = series[key];
             var drew = drawArea(svg, vals);
+            svg.__vals = drew ? vals : null; // for hover read-out
             var empty = document.querySelector('[data-chart-empty="' + key + '"]');
             if (empty) empty.style.display = drew ? "none" : "";
             var now = document.querySelector('[data-chart-now="' + key + '"]');
-            if (now) now.textContent = (drew && vals.length) ? Math.round(vals[vals.length - 1]) + "%" : "—";
+            // Don't clobber the read-out while the cursor is parked on the chart.
+            if (now && !svg.__hovering) now.textContent = (drew && vals.length) ? Math.round(vals[vals.length - 1]) + "%" : "—";
           });
         })
         .catch(function () { /* transient */ });

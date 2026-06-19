@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/daboss2003/Helmsman/internal/builder"
 	"github.com/daboss2003/Helmsman/internal/cfgfile"
@@ -473,10 +474,73 @@ func (s *Server) registerCertBindings(ctx context.Context, project string, def *
 	}
 }
 
+// certIssueWaitTimeout bounds how long a deploy waits for the managed edge to issue a
+// cert_binding's ACME cert before giving up. HTTP-01 normally completes in seconds; the
+// generous ceiling absorbs DNS propagation without holding a doomed deploy forever.
+// A var (not const) so tests can shrink it.
+var certIssueWaitTimeout = 150 * time.Second
+
+// waitForCertBindings blocks until the managed edge has issued every cert_binding's
+// leaf cert (ACME completes) or the timeout elapses, polling the edge's cert store and
+// streaming progress. registerCertBindings has already told the edge to issue these
+// subjects; this gives ACME the few seconds it needs so a SINGLE deploy finishes on its
+// own — instead of the old fail-closed "re-deploy once it is issued" that forced the
+// operator to deploy twice. On timeout it returns an actionable error (DNS / :80).
+func (s *Server) waitForCertBindings(ctx context.Context, def *definition.Definition, onLine func(string)) error {
+	root := s.caddyCertRoot
+	if root == "" {
+		root = defaultCaddyCertRoot
+	}
+	pending := map[string]bool{}
+	for _, name := range sortedServiceNames(def) {
+		for _, cb := range def.Spec.Compose.Services[name].CertBindings {
+			pending[cb.Hostname] = true
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	sweep := func() {
+		for h := range pending {
+			if _, _, ok := findCaddyLeaf(root, h); ok {
+				delete(pending, h)
+				onLine("edge issued the TLS cert for " + h)
+			}
+		}
+	}
+	sweep()
+	if len(pending) == 0 {
+		return nil
+	}
+	for h := range pending {
+		onLine("waiting for the edge to issue the TLS cert for " + h + " via ACME (automatic; up to " + certIssueWaitTimeout.String() + ")…")
+	}
+	wctx, cancel := context.WithTimeout(ctx, certIssueWaitTimeout)
+	defer cancel()
+	tick := time.NewTicker(3 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-wctx.Done():
+			var still []string
+			for h := range pending {
+				still = append(still, h)
+			}
+			sort.Strings(still)
+			return fmt.Errorf("the edge did not issue the TLS cert for %s within %s — check that the hostname's DNS points at this server and that :80/:443 are reachable from the internet (Let's Encrypt HTTP-01), then re-deploy", strings.Join(still, ", "), certIssueWaitTimeout)
+		case <-tick.C:
+			sweep()
+			if len(pending) == 0 {
+				return nil
+			}
+		}
+	}
+}
+
 // syncCertBindings copies each cert_binding's issued leaf cert+key from the edge's
 // store into the app's managed cert dir (tls.crt 0644, tls.key 0600), confined +
-// symlink-safe. If the edge hasn't issued the cert yet, the deploy blocks with a
-// clear message (re-deploy once ACME completes) — fail-closed, no spin-loop.
+// symlink-safe. waitForCertBindings runs first, so by here the leaf should exist; the
+// not-issued error remains as a fail-closed backstop.
 func (s *Server) syncCertBindings(rd string, def *definition.Definition) error {
 	root := s.caddyCertRoot
 	if root == "" {

@@ -172,9 +172,11 @@ section.panel > h2 .pill { font-weight: 600; }
 .chart-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.5rem; }
 .chart-head .chart-label { color: var(--muted); font-size: 0.78rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
 .chart-head .chart-now { font-weight: 650; font-size: 1.3rem; letter-spacing: -0.02em; }
-.chart { width: 100%; height: 140px; display: block; }
+.chart { width: 100%; height: 140px; display: block; cursor: crosshair; }
 .chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .grid-line { stroke: var(--border-2); stroke-width: 1; opacity: 0.4; }
+/* hover read-out guide (vertical line that tracks the cursor) */
+.chart .hover-guide { stroke: currentColor; stroke-width: 1; opacity: 0.55; stroke-dasharray: 3 3; }
 .chart-empty {
   position: absolute; left: 1.25rem; right: 1.25rem; bottom: 0.8rem; height: 140px;
   display: grid; place-items: center; color: var(--faint); font-size: 0.85rem; pointer-events: none;
@@ -225,6 +227,9 @@ section.panel > h2 .pill { font-weight: 600; }
 .grid tbody tr:hover { background: rgba(255,255,255,0.02); }
 .grid tbody tr:last-child td { border-bottom: 0; }
 .row-down td { color: var(--muted); }
+/* collapsible section (e.g. the changed-files list — collapsed so you don't scroll past it) */
+details.accordion > summary { cursor: pointer; font-weight: 600; padding: 0.45rem 0; list-style-position: inside; user-select: none; }
+details.accordion > summary:hover { color: var(--primary); }
 .row-ok td:first-child, .row-down td:first-child { font-weight: 600; }
 .out-deny td { color: var(--error); }
 .lvl-security td:nth-child(7) { color: var(--security); font-weight: 600; }
@@ -268,8 +273,11 @@ section.panel > h2 .pill { font-weight: 600; }
 .btn-danger { background: transparent; color: var(--error); border-color: rgba(248,113,113,.4); }
 .btn-danger:hover { background: rgba(248,113,113,.1); }
 .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.83rem; }
-button.link, .lc-btn { background: none; border: 0; color: #a5b4fc; cursor: pointer; padding: 0; font: inherit; font-weight: 500; }
-button.link:hover, .lc-btn:hover { color: #c7d2fe; text-decoration: underline; }
+/* .link = link-styled inline action (in dense table cells). .lc-btn is ONLY a JS hook
+   (it carries no appearance) — pair it with .btn/.btn-primary for a real button, or
+   with .link for an inline link. */
+button.link { background: none; border: 0; color: #a5b4fc; cursor: pointer; padding: 0; font: inherit; font-weight: 500; }
+button.link:hover { color: #c7d2fe; text-decoration: underline; }
 .inline { display: inline; margin: 0; }
 
 /* ============================= forms ============================= */

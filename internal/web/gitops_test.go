@@ -463,8 +463,14 @@ func TestDeploySyncsCertBinding(t *testing.T) {
 	}
 }
 
-// A cert_binding whose cert the edge hasn't issued yet blocks the deploy (fail-closed).
+// A cert_binding whose cert the edge hasn't issued yet blocks the deploy (fail-closed):
+// the deploy waits for ACME up to certIssueWaitTimeout, then blocks with an actionable
+// timeout error rather than proceeding without the cert.
 func TestDeployCertBindingBlocksUntilIssued(t *testing.T) {
+	old := certIssueWaitTimeout
+	certIssueWaitTimeout = 200 * time.Millisecond // don't wait the full 150s in the test
+	t.Cleanup(func() { certIssueWaitTimeout = old })
+
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	e.srv.caddyCertRoot = t.TempDir() // empty — nothing issued
@@ -475,8 +481,8 @@ func TestDeployCertBindingBlocksUntilIssued(t *testing.T) {
 	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
 	cfg := configureRepo(t, e, slug, sha)
 	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
-	if err == nil || !strings.Contains(err.Error(), "not issued") {
-		t.Fatalf("a not-yet-issued cert_binding must block the deploy, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "did not issue the TLS cert") {
+		t.Fatalf("a not-yet-issued cert_binding must block the deploy after the wait, got %v", err)
 	}
 }
 
