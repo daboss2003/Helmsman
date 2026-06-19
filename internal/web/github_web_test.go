@@ -107,3 +107,21 @@ func TestGitHubConnectStartsFlow(t *testing.T) {
 		t.Error("connect must set the oauth state cookie")
 	}
 }
+
+// Regression: the repo-picker page (GET /github/repos) must run withCSRFToken so its
+// "Connect" form carries a valid token. Without that wrapper the rendered csrf_token
+// is empty and picking a repo + Connect fails with "forbidden: csrf token mismatch".
+// (The handler 303s here because no GitHub connection is stored, but the wrapper runs
+// FIRST and must mint the cookie regardless.) Sending only the session cookie — no
+// csrf cookie — forces withCSRFToken to issue one, which is what we assert.
+func TestGitHubReposIssuesCSRFToken(t *testing.T) {
+	e := buildGitHubServer(t)
+	sess, _ := e.login(t, "127.0.0.1:1", testPassword, "")
+	if sess == nil {
+		t.Fatal("login failed")
+	}
+	resp := e.req(t, "GET", "/github/repos", "127.0.0.1:1", nil, []*http.Cookie{sess}, nil)
+	if cookieByName(resp, e.srv.csrfCookieName()) == nil {
+		t.Fatal("GET /github/repos issued no CSRF cookie — withCSRFToken missing; the picker form's csrf_token renders empty and Connect fails with a token mismatch")
+	}
+}

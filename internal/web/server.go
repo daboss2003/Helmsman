@@ -398,7 +398,7 @@ func (s *Server) Handler() http.Handler {
 	// state cookie instead (set only by the authenticated+CSRF'd connect action).
 	mux.HandleFunc("POST /github/connect", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitHubConnect))))
 	mux.HandleFunc("GET /github/callback", s.handleGitHubCallback)
-	mux.HandleFunc("GET /github/repos", s.requireAuth(s.handleGitHubRepos))
+	mux.HandleFunc("GET /github/repos", s.requireAuth(s.withCSRFToken(s.handleGitHubRepos)))
 	mux.HandleFunc("POST /github/connect-repo", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitHubConnectRepo))))
 	mux.HandleFunc("POST /github/disconnect", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitHubDisconnect))))
 	// Managed edge (M11): per-app public routes (Caddy/ACME). The whole config is
