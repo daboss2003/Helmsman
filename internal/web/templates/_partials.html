@@ -162,7 +162,7 @@
     {{range .Services}}
     {{$phase := index $sup .Service}}
     <tr class="{{if .Running}}row-ok{{else}}row-down{{end}}">
-      <td>{{.Service}}</td>
+      <td><a href="/apps/{{pathEscape $proj}}/services/{{pathEscape .Service}}">{{.Service}}</a></td>
       <td>{{.State}}</td>
       <td class="health-{{.Health}}">{{.Health}}</td>
       <td class="mono">{{pct1 .CPUPercent}}</td>

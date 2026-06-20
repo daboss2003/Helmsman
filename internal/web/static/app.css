@@ -187,7 +187,7 @@ section.panel > h2 .pill { font-weight: 600; }
 
 /* ============================= pills / badges ============================= */
 .pill {
-  display: inline-flex; align-items: center; gap: 0.4rem;
+  display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap;
   padding: 0.18rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
   border: 1px solid var(--border-2); color: var(--muted); background: var(--surface-2);
 }
@@ -196,7 +196,7 @@ section.panel > h2 .pill { font-weight: 600; }
 .pill-warn { color: var(--warn); border-color: rgba(251,191,36,.3); background: rgba(251,191,36,.12); }
 .pill-down { color: var(--error); border-color: rgba(248,113,113,.3); background: rgba(248,113,113,.12); }
 .badge {
-  display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.7rem; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; font-size: 0.7rem; font-weight: 600;
   padding: 0.12rem 0.5rem; border-radius: 6px; background: var(--primary-soft);
   color: #c7d2fe; border: 1px solid rgba(99,102,241,.3); vertical-align: middle;
 }

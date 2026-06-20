@@ -243,6 +243,16 @@ func TestAuthEpochRevokesSessionsOnAuthChange(t *testing.T) {
 	}
 }
 
+// The per-service page 404s for a service that is neither running nor declared.
+func TestServicePageUnknownService404(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, csrf := e.authed(t)
+	resp := e.req(t, "GET", "/apps/nope/services/ghost", "127.0.0.1:1", nil, []*http.Cookie{sess, csrf}, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown service page = %d, want 404", resp.StatusCode)
+	}
+}
+
 // Static JS/CSS URLs must carry a ?v= cache-bust token. They're served with a
 // 1-hour max-age, so without a per-build token an upgrade's UI fixes wouldn't reach
 // the browser until the cache expired (the "my fix isn't showing up" trap).

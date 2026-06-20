@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/daboss2003/Helmsman/internal/audit"
@@ -103,7 +104,7 @@ func (s *Server) handleScalingSave(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "scaling_policy_save", Target: project + "/" + service, Outcome: audit.OK, Level: audit.Security})
-			http.Redirect(w, r, "/apps/"+project, http.StatusSeeOther)
+			http.Redirect(w, r, "/apps/"+project+"/services/"+url.PathEscape(service), http.StatusSeeOther)
 			return
 		}
 	}
@@ -114,7 +115,7 @@ func (s *Server) handleScalingSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "scaling_policy_save", Target: project + "/" + service, Outcome: audit.OK, Level: audit.Security})
-	http.Redirect(w, r, "/apps/"+project, http.StatusSeeOther)
+	http.Redirect(w, r, "/apps/"+project+"/services/"+url.PathEscape(service), http.StatusSeeOther)
 }
 
 // scalingFromForm builds a definition scaling entry from the dashboard form.

@@ -27,8 +27,9 @@ type tmplData struct {
 	Provisioned []provisionedView // provisioned apps incl. not-yet-deployed (M8)
 	App         *monitor.App
 	Project     string
-	Protected   bool   // the App is a Helmsman-managed/protected project — no app actions
-	BackURL     string // breadcrumb target; the app home, or the repository page when not yet deployed
+	Protected   bool         // the App is a Helmsman-managed/protected project — no app actions
+	BackURL     string       // breadcrumb target; the app home, or the repository page when not yet deployed
+	Svc         *serviceView // the per-service page model
 	OpsCfg      *ops.Config
 	OpsStatus   *ops.Status
 
