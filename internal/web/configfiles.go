@@ -328,10 +328,18 @@ func (s *Server) materializeConfigFiles(app *monitor.App, env compose.Env) error
 		if !confinedUnder(dest, runDir) {
 			return fmt.Errorf("config file %q path escapes the app directory", f.Name)
 		}
-		// Defense-in-depth (review #3): if a non-secret-bearing file's RENDERED
-		// output trips the literal-secret lint (e.g. a secret bound via env:),
-		// tighten to 0600 rather than leave it group-readable.
-		mode := os.FileMode(f.Mode)
+		// 0644 (world-readable): a managed config file is bind-mounted read-only INTO the
+		// service container, which usually runs non-root (EMQX uid 1000, hardened built
+		// images), so it must be readable by "other". The 0700 run dir keeps other host
+		// users out. f.Mode is unreliable for this — unset → 0000, or the store default
+		// 0640, BOTH unreadable by the container — so we standardize on 0644 here (this is
+		// also the second materialization pass, which previously clobbered the 0644 that
+		// materializeManaged wrote in pass one).
+		mode := os.FileMode(0o644)
+		// Defense-in-depth (review #3): if a non-secret-bearing file's RENDERED output
+		// trips the literal-secret lint (e.g. a secret bound via env:), tighten to 0600
+		// rather than leave it world-readable. (Declared secret-bearing files stay 0644 —
+		// confined by the run dir — so the container can still read them.)
 		if !f.SecretBearing {
 			if _, hit := cfgfile.LiteralSecretLint(out); hit {
 				mode = 0o600

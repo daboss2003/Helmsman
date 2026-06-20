@@ -310,6 +310,8 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.83rem; line-height: 1.5; color: #cdd9e5; max-height: 24rem; overflow: auto;
   white-space: pre-wrap; word-break: break-word;
 }
+/* "Close" button injected above an opened log/output/preview stream so it can be dismissed */
+.stream-close { display: block; width: fit-content; margin: 0.75rem 0 -0.25rem auto; }
 .spark { width: 100%; max-width: 320px; height: 36px; color: var(--primary); display: block; margin-bottom: 0.6rem; }
 
 /* ============================= alerts / errors ============================= */

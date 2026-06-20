@@ -579,6 +579,16 @@ func (s *Server) syncCertBindings(rd string, def *definition.Definition) error {
 			if !confinedUnder(dir, rd) {
 				return fmt.Errorf("service %q cert dir escapes the run dir", name)
 			}
+			// The cert dir is bind-mounted into the container, so its non-root user must
+			// be able to TRAVERSE it. MkdirAll is a no-op on a dir that already exists, so
+			// an explicit Chmod is needed to fix a stale 0700 left by an older deploy (the
+			// run dir is not wiped between deploys). The 0700 run dir keeps the host out.
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("service %q cert dir: %w", name, err)
+			}
+			if err := os.Chmod(dir, 0o755); err != nil {
+				return fmt.Errorf("service %q cert dir chmod: %w", name, err)
+			}
 			if err := atomicWrite(filepath.Join(dir, "tls.crt"), cdata, 0o644, rd); err != nil {
 				return fmt.Errorf("service %q cert: %w", name, err)
 			}
@@ -663,10 +673,17 @@ func materializeBindDirs(rd string, binds []string) error {
 			return fmt.Errorf("bind source %q escapes the app directory", src)
 		}
 		if fi, err := os.Lstat(dest); err == nil {
-			// A symlinked bind source could be swapped to escape rd — refuse it; a
-			// regular file/dir is left untouched.
+			// A symlinked bind source could be swapped to escape rd — refuse it.
 			if fi.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("bind source %q is a symlink", src)
+			}
+			// Pre-existing dir: re-apply 0755 so a non-root container can traverse the
+			// bind mount. MkdirAll is a no-op here, so a stale 0700 from an older deploy
+			// (the run dir isn't wiped) would otherwise persist → "permission denied".
+			if fi.IsDir() {
+				if err := os.Chmod(dest, 0o755); err != nil {
+					return fmt.Errorf("bind dir %q chmod: %w", src, err)
+				}
 			}
 			continue
 		}
@@ -677,8 +694,12 @@ func materializeBindDirs(rd string, binds []string) error {
 		}
 		// 0755 (traversable): a bind-mounted dir must be enterable by the container's
 		// non-root user. It's a subdir of the 0700 run dir, so the host stays confined.
+		// Chmod after MkdirAll so the mode is exact regardless of umask.
 		if err := os.MkdirAll(dest, 0o755); err != nil {
 			return fmt.Errorf("create bind dir %q: %w", src, err)
+		}
+		if err := os.Chmod(dest, 0o755); err != nil {
+			return fmt.Errorf("bind dir %q chmod: %w", src, err)
 		}
 		if err := noSymlinkComponents(dest, rd); err != nil {
 			return fmt.Errorf("bind source %q: %w", src, err)

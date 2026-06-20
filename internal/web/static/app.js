@@ -13,6 +13,31 @@
   // Lifecycle + log streaming (M4). Buttons carry data-lc-url (POST, streamed
   // response) or data-log-url (GET, SSE). The CSRF token rides the header.
   var logSource = null;
+
+  // showStream reveals a streaming <pre> (logs / deploy output) and ensures a "Close"
+  // button sits just above it — so an opened log/output panel can always be dismissed
+  // (closing also stops an active SSE log stream).
+  function showStream(pre) {
+    if (!pre) return;
+    pre.hidden = false;
+    var prev = pre.previousElementSibling;
+    if (prev && prev.classList && prev.classList.contains("stream-close")) {
+      prev.hidden = false;
+      return;
+    }
+    var closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "stream-close btn btn-sm btn-ghost";
+    closeBtn.textContent = "✕ Close";
+    closeBtn.addEventListener("click", function () {
+      if (logSource) { logSource.close(); logSource = null; }
+      pre.hidden = true;
+      pre.textContent = "";
+      closeBtn.hidden = true;
+    });
+    pre.parentNode.insertBefore(closeBtn, pre);
+  }
+
   document.addEventListener("click", function (evt) {
     var btn = evt.target.closest ? evt.target.closest("[data-lc-url],[data-log-url],[data-reveal-url]") : null;
     if (!btn) return;
@@ -55,7 +80,7 @@
       var logOut = document.getElementById("log-output");
       if (!logOut) return;
       if (logSource) logSource.close();
-      logOut.hidden = false;
+      showStream(logOut);
       logOut.textContent = "… connecting to logs …\n";
       logSource = new EventSource(logURL);
       logSource.onmessage = function (e) {
@@ -71,7 +96,7 @@
     var confirmMsg = btn.getAttribute("data-lc-confirm");
     if (confirmMsg && !window.confirm(confirmMsg)) return;
     var out = document.getElementById("deploy-output");
-    if (out) { out.hidden = false; out.textContent = "$ " + lcURL + "\n"; }
+    if (out) { showStream(out); out.textContent = "$ " + lcURL + "\n"; }
     btn.disabled = true;
     fetch(lcURL, {
       method: "POST",
@@ -110,7 +135,7 @@
         headers: { "X-CSRF-Token": token, "Content-Type": "application/x-www-form-urlencoded" },
         body: body.toString(),
       }).then(function (r) { return r.text(); })
-        .then(function (t) { if (out) { out.hidden = false; out.textContent = t; } })
+        .then(function (t) { if (out) { showStream(out); out.textContent = t; } })
         .catch(function () {});
     });
   }
@@ -175,7 +200,7 @@
         headers: { "X-CSRF-Token": token, "Content-Type": "application/x-www-form-urlencoded" },
         body: body.toString(),
       }).then(function (r) { return r.text(); })
-        .then(function (t) { if (out) { out.hidden = false; out.textContent = t; } })
+        .then(function (t) { if (out) { showStream(out); out.textContent = t; } })
         .catch(function () {});
     });
   }

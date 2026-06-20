@@ -40,8 +40,34 @@ func TestMaterializeRendersChmodsAndPreservesAppPlaceholders(t *testing.T) {
 		t.Errorf("rendered:\n got %q\nwant %q", out, want)
 	}
 	fi, _ := os.Stat(filepath.Join(runDir, "config/rabbit.conf"))
-	if fi.Mode().Perm() != 0o600 { // secret-bearing → 0600
-		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
+	// Bind-mounted into a (non-root) container, so it must be container-readable (0644);
+	// on-host secrecy comes from the 0700 run dir, not the file mode (same as tls.key).
+	if fi.Mode().Perm() != 0o644 {
+		t.Errorf("mode = %v, want 0644 (container-readable; confined by the 0700 run dir)", fi.Mode().Perm())
+	}
+}
+
+// A config file with no explicit mode and no secret must materialize 0644 — so a
+// non-root container can read the bind mount. Regression for the EACCES where an unset
+// mode wrote the file 0o000 (unreadable by anyone, clobbering the first pass's 0644).
+func TestMaterializeConfigFileUnsetModeIsReadable(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	if err := e.srv.cfgStore.SaveConfigFile(context.Background(), "shop", cfgstore.SaveInput{
+		Name: "plain.conf", RelPath: "config/plain.conf", Template: "hello = world\n",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runDir := t.TempDir()
+	app := &monitor.App{Project: "shop", WorkingDir: runDir}
+	if err := e.srv.materializeConfigFiles(app, compose.Env{}); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(runDir, "config/plain.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o644 {
+		t.Errorf("unset-mode config file = %v, want 0644 (must not be 0000)", fi.Mode().Perm())
 	}
 }
 
