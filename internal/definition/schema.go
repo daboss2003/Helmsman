@@ -98,6 +98,7 @@ type Service struct {
 	Healthcheck  []string            `yaml:"healthcheck,omitempty"`
 	Restart      string              `yaml:"restart,omitempty"`
 	DependsOn    []string            `yaml:"depends_on,omitempty"`
+	OpsInterface *OpsInterface       `yaml:"ops_interface,omitempty"` // per-service ops endpoint (§4); probed for RICH health/queues/metrics
 }
 
 // EnvValue is a per-service env var: a literal value XOR a `{secret: NAME}` reference.
@@ -464,27 +465,39 @@ func (s *Spec) validateSelfHealing() error {
 // reference (if set) names a DECLARED secret (the value is resolved at deploy — never
 // stored here). The same predicates run again in ops.ConfigStore.Set at apply.
 func (s *Spec) validateOpsInterface() error {
-	oi := s.OpsInterface
+	// App-level (legacy) + each per-service ops_interface use identical predicates.
+	if err := s.validateOIFields(s.OpsInterface, "ops_interface"); err != nil {
+		return err
+	}
+	for name, svc := range s.Compose.Services {
+		if err := s.validateOIFields(svc.OpsInterface, "services."+name+".ops_interface"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Spec) validateOIFields(oi *OpsInterface, ctx string) error {
 	if oi == nil {
 		return nil
 	}
 	if oi.Mode != "" && oi.Mode != "auto" && oi.Mode != "rich" && oi.Mode != "basic" {
-		return fmt.Errorf("ops_interface.mode %q must be auto, rich, or basic", oi.Mode)
+		return fmt.Errorf("%s.mode %q must be auto, rich, or basic", ctx, oi.Mode)
 	}
 	if oi.Enabled {
 		if err := ops.ValidateBaseURL(oi.BaseURL); err != nil {
-			return fmt.Errorf("ops_interface.base_url: %w", err)
+			return fmt.Errorf("%s.base_url: %w", ctx, err)
 		}
 	}
 	if bp := strings.TrimRight(strings.TrimSpace(oi.BasePath), "/"); bp != "" && !opsclient.ValidateRelPath(bp) {
-		return fmt.Errorf("ops_interface.base_path %q must be a relative path like /ops", oi.BasePath)
+		return fmt.Errorf("%s.base_path %q must be a relative path like /ops", ctx, oi.BasePath)
 	}
 	if h := strings.TrimSpace(oi.SecretHeader); h != "" && !opsclient.ValidHeaderName(h) {
-		return fmt.Errorf("ops_interface.secret_header %q is invalid (e.g. X-Ops-Secret)", oi.SecretHeader)
+		return fmt.Errorf("%s.secret_header %q is invalid (e.g. X-Ops-Secret)", ctx, oi.SecretHeader)
 	}
 	if oi.Secret != "" {
 		if !secretRe.MatchString(oi.Secret) {
-			return fmt.Errorf("ops_interface.secret references an invalid secret name %q", oi.Secret)
+			return fmt.Errorf("%s.secret references an invalid secret name %q", ctx, oi.Secret)
 		}
 		declared := false
 		for _, sec := range s.Secrets {
@@ -494,7 +507,7 @@ func (s *Spec) validateOpsInterface() error {
 			}
 		}
 		if !declared {
-			return fmt.Errorf("ops_interface.secret references undeclared secret %q (add it under spec.secrets)", oi.Secret)
+			return fmt.Errorf("%s.secret references undeclared secret %q (add it under spec.secrets)", ctx, oi.Secret)
 		}
 	}
 	return nil

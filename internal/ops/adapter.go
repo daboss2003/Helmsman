@@ -131,6 +131,15 @@ func (a opsV1) Probe(ctx context.Context, c Doer, t Target, d Discovery) Result 
 			}
 		}
 	}
+	// metrics (optional capability): open-ended monitor cards (database/cache/routes/
+	// system/…). A failure here never downgrades the app — health already succeeded.
+	if hasCapability(d.Capabilities, "metrics") {
+		if mr, merr := c.Get(ctx, t.BaseURL, joinPath(base, "/metrics"), t.SecretHeader, t.Secret); merr == nil && mr.Status == 200 {
+			if gs, ok := parseMetrics(mr.Body); ok {
+				res.Metrics = gs
+			}
+		}
+	}
 	return res
 }
 

@@ -19,6 +19,9 @@ const (
 	maxIndicators     = 256
 	maxQueues         = 256
 	maxCountsPerQueue = 64
+	maxMetricGroups   = 64
+	maxMetricItems    = 64
+	maxOpsStrLen      = 200 // cap any single untrusted label/value/unit string
 )
 
 // Mode distinguishes a RICH (contract-implementing) app from a BASIC one.
@@ -67,7 +70,24 @@ type SnapshotPoint struct {
 	Value float64 // 0..1 fraction of dependencies up
 }
 
-// Result is the canonical ops record attached to an app (plan §4.3: one record,
+// MetricItem is one labeled value within a metric group (e.g. "Hit rate" = "94.2"
+// "%"). Status is optional and only used to color the row (up/down/degraded).
+type MetricItem struct {
+	Label  string
+	Value  string
+	Unit   string
+	Status string // "" | up | down | degraded | unknown
+}
+
+// MetricGroup is a titled card of metric items — the open-ended "monitor" unit. The
+// app names the groups it wants (Database, Cache, Routes, System, Memory, …); Helmsman
+// renders each as a panel, so the set is NOT limited to a fixed schema.
+type MetricGroup struct {
+	Title string
+	Items []MetricItem
+}
+
+// Result is the canonical ops record attached to a service (plan §4.3: one record,
 // distinguished by Mode + per-indicator Source).
 type Result struct {
 	Mode            Mode
@@ -75,10 +95,14 @@ type Result struct {
 	Capabilities    []string
 	Indicators      []Indicator
 	Queues          []Queue
+	Metrics         []MetricGroup
 	Snapshot        []SnapshotPoint
 	AlertingCapable bool
 	Err             string
 }
+
+// IsRich reports whether this is a RICH ops record (for template use).
+func (r Result) IsRich() bool { return r.Mode == RICH }
 
 // HealthScore returns the fraction of indicators that are up (1.0 if none).
 func (r Result) HealthScore() float64 {
@@ -223,4 +247,86 @@ func parseQueues(body []byte) (qs []Queue, ok bool) {
 		qs = append(qs, out)
 	}
 	return qs, true
+}
+
+// metricsEnvelope is the {groups:[{title, items:[{label,value,unit,status}]}]} shape —
+// open-ended cards (database/cache/routes/system/…), each a labeled table. value is
+// accepted as a JSON string OR number.
+type metricsEnvelope struct {
+	Groups []struct {
+		Title string `json:"title"`
+		Items []struct {
+			Label  string          `json:"label"`
+			Value  json.RawMessage `json:"value"`
+			Unit   string          `json:"unit"`
+			Status string          `json:"status"`
+		} `json:"items"`
+	} `json:"groups"`
+}
+
+// parseMetrics normalizes a /metrics body into metric groups. Returns ok=false on
+// malformed JSON (→ caller leaves Metrics empty, app stays RICH from health). Element
+// counts and string lengths are capped — the body is untrusted.
+func parseMetrics(body []byte) (gs []MetricGroup, ok bool) {
+	var env metricsEnvelope
+	if err := json.Unmarshal(unwrapEnvelope(body), &env); err != nil {
+		return nil, false
+	}
+	for _, g := range env.Groups {
+		if len(gs) >= maxMetricGroups {
+			break
+		}
+		grp := MetricGroup{Title: clipOps(g.Title)}
+		for _, it := range g.Items {
+			if len(grp.Items) >= maxMetricItems {
+				break
+			}
+			grp.Items = append(grp.Items, MetricItem{
+				Label:  clipOps(it.Label),
+				Value:  clipOps(rawScalar(it.Value)),
+				Unit:   clipOps(it.Unit),
+				Status: normMetricStatus(it.Status),
+			})
+		}
+		gs = append(gs, grp)
+	}
+	return gs, true
+}
+
+// rawScalar renders a JSON value (string or number) as a plain string; anything else
+// becomes "". (html/template escapes it at render; this only normalizes the type.)
+func rawScalar(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n.String()
+	}
+	return ""
+}
+
+func normMetricStatus(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "up", "ok", "healthy":
+		return "up"
+	case "down", "error", "critical":
+		return "down"
+	case "degraded", "warn", "warning":
+		return "degraded"
+	default:
+		return ""
+	}
+}
+
+func clipOps(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > maxOpsStrLen {
+		return s[:maxOpsStrLen]
+	}
+	return s
 }

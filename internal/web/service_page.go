@@ -1,10 +1,14 @@
 package web
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/daboss2003/Helmsman/internal/definition"
 	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/ops"
+	secretpkg "github.com/daboss2003/Helmsman/internal/secret"
 )
 
 // serviceView is the per-service page model: one service's live status, self-heal
@@ -22,6 +26,7 @@ type serviceView struct {
 	Phase                     string              // self-heal supervisor phase, e.g. CIRCUIT_OPEN
 	DesiredReplicas           int                 // 0 when scaling isn't active
 	Policy                    *definition.Scaling // current scaling policy; nil = none yet
+	Ops                       *ops.Result         // live ops probe (RICH health/queues/metrics); nil if no ops endpoint
 }
 
 // handleServiceGet renders the per-service page.
@@ -47,9 +52,11 @@ func (s *Server) handleServiceGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	inDef := false
+	var svcDef definition.Service
 	if def := s.currentDef(project); def != nil {
-		if _, ok := def.Spec.Compose.Services[service]; ok {
+		if sd, ok := def.Spec.Compose.Services[service]; ok {
 			inDef = true
+			svcDef = sd
 		}
 		for i := range def.Spec.Scaling {
 			if def.Spec.Scaling[i].Service == service {
@@ -65,6 +72,24 @@ func (s *Server) handleServiceGet(w http.ResponseWriter, r *http.Request) {
 	}
 	sv.Phase = s.supervisorStates(project)[service]
 	sv.DesiredReplicas = s.scalingDesired(project)[service]
+
+	// Per-service ops: probe THIS service's ops endpoint (from the canonical) on demand,
+	// so its RICH health / queues / metric cards render on its own page. Bounded timeout;
+	// any failure just leaves Ops nil (the page still renders the rest).
+	if oi := svcDef.OpsInterface; oi != nil && oi.Enabled && oi.Mode != "basic" && s.prober != nil {
+		secret := ""
+		if oi.Secret != "" && s.envStore != nil {
+			if ent, ok, _ := s.envStore.Get(project, oi.Secret); ok {
+				if v, derr := ent.DecodedValue(); derr == nil {
+					secret = string(v)
+				}
+			}
+		}
+		target := ops.Target{BaseURL: oi.BaseURL, SecretHeader: oi.SecretHeader, Secret: secretpkg.New(secret), BasePath: oi.BasePath}
+		pctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		sv.Ops = s.prober.ProbeTarget(pctx, target, oi.Adapter, oi.Mode)
+		cancel()
+	}
 
 	s.render(w, r, "service.html", tmplData{
 		Title:               service + " — " + project,

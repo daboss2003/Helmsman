@@ -462,9 +462,11 @@ self_healing:
 
 > Self-healing has no separate dashboard editor — `helmsman.yaml` is the source of truth. The supervisor reads the policy each tick, so a redeploy re-tunes it without a restart. See [Self-healing](./scaling-and-self-healing.md).
 
-### `spec.ops_interface`
+### `spec.ops_interface` / `services.<name>.ops_interface`
 
-The app's optional **ops endpoint** (§4): Helmsman probes it for RICH health and queue stats. Everything here is operator config **except the shared-secret value** — set the value in the dashboard, or declare a secret and point `secret` at it; the value **never** lives in this file.
+An optional **ops endpoint** (§4) Helmsman probes for RICH health, queues, and open-ended **metric cards** (database, cache, routes, system, …). It can be set **per service** under `services.<name>.ops_interface` (recommended — each service gets its own rich view on its page) or app-level under `spec.ops_interface`. Everything here is operator config **except the shared-secret value** — set the value in the dashboard, or declare a secret and point `secret` at it; the value **never** lives in this file.
+
+> **Full contract + JSON examples (health, queues, metrics): [App Ops Interface](./app-ops-interface.md).**
 
 ```yaml
 ops_interface:
@@ -786,7 +788,7 @@ spec:
 
 This API is a legitimate scaling candidate because every C1–C7 condition holds: it is an edge HTTP upstream with a known internal port, publishes no fixed host port (replicas are internal-port-only), holds no exclusive RW volume, is not stateful, carries no deploy-time *identity* placeholder (a *shared* `SHARED_AUTH_TOKEN` is fine — a per-node cookie would not be), honors a stateless restart contract, and opted in. Compare with [example A](#worked-example-a--a-stateful-broker), where the broker is stateful and scaling is therefore not even authored.
 
-> **Self-healing and the App Ops Interface are real features, but they are not `helmsman.yaml` keys** — you configure them per app in the dashboard. See [Scaling & self-healing](./scaling-and-self-healing.md).
+> **Self-healing** is configured per app in the dashboard (not a `helmsman.yaml` key) — see [Scaling & self-healing](./scaling-and-self-healing.md). The **App Ops Interface** IS a definition key: set `ops_interface` per service (or app-level) — see [App Ops Interface](./app-ops-interface.md).
 
 ---
 

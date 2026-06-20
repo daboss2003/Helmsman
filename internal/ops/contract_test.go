@@ -2,6 +2,36 @@ package ops
 
 import "testing"
 
+func TestParseMetrics(t *testing.T) {
+	body := []byte(`{"groups":[
+		{"title":"Database","items":[
+			{"label":"Connections","value":12,"status":"up"},
+			{"label":"Slow queries","value":"3","unit":"/min","status":"warn"}]},
+		{"title":"Cache","items":[{"label":"Hit rate","value":94.2,"unit":"%"}]}
+	]}`)
+	gs, ok := parseMetrics(body)
+	if !ok {
+		t.Fatal("parseMetrics ok=false on valid body")
+	}
+	if len(gs) != 2 || gs[0].Title != "Database" || gs[1].Title != "Cache" {
+		t.Fatalf("groups = %+v", gs)
+	}
+	// number value coerced to string; string value kept; status normalized.
+	if gs[0].Items[0].Value != "12" || gs[0].Items[0].Status != "up" {
+		t.Errorf("item0 = %+v, want value 12 / status up", gs[0].Items[0])
+	}
+	if gs[0].Items[1].Value != "3" || gs[0].Items[1].Unit != "/min" || gs[0].Items[1].Status != "degraded" {
+		t.Errorf("item1 = %+v (warn should normalize to degraded)", gs[0].Items[1])
+	}
+	if gs[1].Items[0].Value != "94.2" || gs[1].Items[0].Unit != "%" {
+		t.Errorf("cache item = %+v", gs[1].Items[0])
+	}
+	// Untrusted input that isn't a JSON object → ok=false (caller leaves Metrics empty).
+	if _, ok := parseMetrics([]byte(`not json`)); ok {
+		t.Error("parseMetrics should reject non-JSON")
+	}
+}
+
 func TestMajorMatches(t *testing.T) {
 	for _, v := range []string{"1.0", "1.5", "1"} {
 		if !majorMatches(v) {

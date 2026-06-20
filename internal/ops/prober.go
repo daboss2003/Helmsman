@@ -40,7 +40,7 @@ func (p *Prober) Probe(ctx context.Context, project string) (*Result, bool) {
 	if cfg.OpsMode == "rich" {
 		// Operator override: skip descriptor discovery (the app gates its ops
 		// endpoints), probe directly (plan §4.1 discovery-precondition caveat).
-		disc = Discovery{Mode: RICH, Version: "1.0", Capabilities: []string{"health", "queues"}, BasePath: cleanBasePath(cfg.BasePath)}
+		disc = Discovery{Mode: RICH, Version: "1.0", Capabilities: []string{"health", "queues", "metrics"}, BasePath: cleanBasePath(cfg.BasePath)}
 	} else {
 		disc = adapter.Discover(ctx, p.client, target)
 	}
@@ -59,6 +59,28 @@ func (p *Prober) Probe(ctx context.Context, project string) (*Result, bool) {
 		res.Snapshot = p.loadSnapshot(ctx, project)
 	}
 	return res, true
+}
+
+// ProbeTarget probes ONE ops Target directly (no DB-backed config, no snapshot ring),
+// for per-service ops driven from the canonical helmsman.yaml. mode is auto|rich|basic.
+// Returns nil when mode is "basic" (ops disabled for the service).
+func (p *Prober) ProbeTarget(ctx context.Context, target Target, adapterName, mode string) *Result {
+	if mode == "basic" {
+		return nil
+	}
+	adapter := Lookup(adapterName)
+	var disc Discovery
+	if mode == "rich" {
+		// Operator override: skip descriptor discovery, probe directly.
+		disc = Discovery{Mode: RICH, Version: "1.0", Capabilities: []string{"health", "queues", "metrics"}, BasePath: cleanBasePath(target.BasePath)}
+	} else {
+		disc = adapter.Discover(ctx, p.client, target)
+	}
+	if disc.Mode != RICH {
+		return &Result{Mode: BASIC, Version: disc.Version, Err: disc.Note}
+	}
+	res := adapter.Probe(ctx, p.client, target, disc)
+	return &res
 }
 
 var queueActions = map[string]bool{"pause": true, "resume": true, "retry-failed": true}
