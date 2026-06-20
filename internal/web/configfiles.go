@@ -417,7 +417,10 @@ func (s *Server) bindingResolver(app *monitor.App, env compose.Env, bindings []c
 // symlink and the dir still resolves under runDir (TOCTOU guard, review #1).
 func atomicWrite(dest string, data []byte, mode os.FileMode, runDir string) error {
 	dir := filepath.Dir(dest)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	// 0755 (traversable): a DIR bind-mounted into a container (e.g. a cert_binding's
+	// dir) must be enterable by the container's non-root user. These are subdirs of the
+	// 0700 run dir, so other host users still can't reach them.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	if err := noSymlinkComponents(dest, runDir); err != nil {

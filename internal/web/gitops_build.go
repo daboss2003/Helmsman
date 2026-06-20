@@ -291,7 +291,7 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 			}
 			// Render {{hm.KEY}} tokens against the file's explicit bindings (literal /
 			// secret / env / app / cert); the app's own ${…} survive untouched.
-			rendered, secretBearing, rerr := cfgfile.Render(content, s.configBindingResolver(project, name, svc, cf.Bindings))
+			rendered, _, rerr := cfgfile.Render(content, s.configBindingResolver(project, name, svc, cf.Bindings))
 			if rerr != nil {
 				return fmt.Errorf("service %q config file: %w", name, rerr)
 			}
@@ -299,11 +299,12 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 			if !confinedUnder(dest, rd) {
 				return fmt.Errorf("service %q config file path escapes the run dir", name)
 			}
-			mode := os.FileMode(0o640)
-			if secretBearing {
-				mode = 0o600 // a rendered secret-bearing file is never group-readable
-			}
-			if err := atomicWrite(dest, rendered, mode, rd); err != nil {
+			// 0644 (world-readable): the bind-mounted file must be readable by the
+			// CONTAINER's process, which runs as a non-root user different from the
+			// helmsman user that wrote it — a 0600/0640 helmsman-owned file EACCESes
+			// inside the container. Host exposure is confined by the 0700 run dir (only
+			// helmsman + root can traverse it), so this does not widen on-host access.
+			if err := atomicWrite(dest, rendered, 0o644, rd); err != nil {
 				return fmt.Errorf("service %q config file: %w", name, err)
 			}
 		}
@@ -328,7 +329,10 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 			if !confinedUnder(dest, rd) {
 				return fmt.Errorf("service %q secret file path escapes the run dir", name)
 			}
-			if err := atomicWrite(dest, val, 0o600, rd); err != nil {
+			// 0644 like config files above: the container (non-root, different UID)
+			// must be able to read this bind-mounted secret file; on-host access stays
+			// confined by the 0700 run dir. (A 0600 file is unreadable in the container.)
+			if err := atomicWrite(dest, val, 0o644, rd); err != nil {
 				return fmt.Errorf("service %q secret file: %w", name, err)
 			}
 		}
@@ -578,7 +582,9 @@ func (s *Server) syncCertBindings(rd string, def *definition.Definition) error {
 			if err := atomicWrite(filepath.Join(dir, "tls.crt"), cdata, 0o644, rd); err != nil {
 				return fmt.Errorf("service %q cert: %w", name, err)
 			}
-			if err := atomicWrite(filepath.Join(dir, "tls.key"), kdata, 0o600, rd); err != nil {
+			// 0644: the cert-binding app (e.g. emqx) reads this key as its own non-root
+			// user from the bind mount; confined on-host by the 0700 run dir.
+			if err := atomicWrite(filepath.Join(dir, "tls.key"), kdata, 0o644, rd); err != nil {
 				return fmt.Errorf("service %q cert key: %w", name, err)
 			}
 		}
@@ -669,7 +675,9 @@ func materializeBindDirs(rd string, binds []string) error {
 		if err := noSymlinkComponents(dest, rd); err != nil {
 			return fmt.Errorf("bind source %q: %w", src, err)
 		}
-		if err := os.MkdirAll(dest, 0o750); err != nil {
+		// 0755 (traversable): a bind-mounted dir must be enterable by the container's
+		// non-root user. It's a subdir of the 0700 run dir, so the host stays confined.
+		if err := os.MkdirAll(dest, 0o755); err != nil {
 			return fmt.Errorf("create bind dir %q: %w", src, err)
 		}
 		if err := noSymlinkComponents(dest, rd); err != nil {

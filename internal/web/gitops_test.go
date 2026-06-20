@@ -373,8 +373,8 @@ func TestDeployMaterializesConfigAndSecretFiles(t *testing.T) {
 	if serr != nil || string(sb) != "SECRETVAL" {
 		t.Errorf("secret file not materialized: %v %q", serr, sb)
 	}
-	if fi, _ := os.Stat(sf); fi != nil && fi.Mode().Perm() != 0o600 {
-		t.Errorf("secret file mode = %v, want 0600", fi.Mode().Perm())
+	if fi, _ := os.Stat(sf); fi != nil && fi.Mode().Perm() != 0o644 {
+		t.Errorf("secret file mode = %v, want 0644 (container-readable; confined by the 0700 run dir)", fi.Mode().Perm())
 	}
 	cmp, _ := os.ReadFile(filepath.Join(rd, "docker-compose.yml"))
 	for _, want := range []string{"/etc/app.conf:ro", "/run/secrets/jwt:ro"} {
@@ -420,8 +420,8 @@ spec:
 	if rerr != nil || string(b) != "key = S3CRET\n" {
 		t.Errorf("config token not rendered: %v %q", rerr, b)
 	}
-	if fi, _ := os.Stat(p); fi != nil && fi.Mode().Perm() != 0o600 {
-		t.Errorf("secret-bearing config file mode = %v, want 0600", fi.Mode().Perm())
+	if fi, _ := os.Stat(p); fi != nil && fi.Mode().Perm() != 0o644 {
+		t.Errorf("secret-bearing config file mode = %v, want 0644 (container-readable; confined by the 0700 run dir)", fi.Mode().Perm())
 	}
 }
 
@@ -455,8 +455,13 @@ func TestDeploySyncsCertBinding(t *testing.T) {
 		t.Errorf("cert not synced: %v %q", rerr, b)
 	}
 	keyP := filepath.Join(rd, ".helmsman", "certs", "emqx", "mqtt.example.com", "tls.key")
-	if fi, _ := os.Stat(keyP); fi == nil || fi.Mode().Perm() != 0o600 {
-		t.Errorf("cert key must be 0600, got %v", fi)
+	if fi, _ := os.Stat(keyP); fi == nil || fi.Mode().Perm() != 0o644 {
+		t.Errorf("cert key must be 0644 (the cert-binding app reads it from the bind mount as a non-root user), got %v", fi)
+	}
+	// The cert dir is bind-mounted as a DIRECTORY, so it must be traversable (o+x) by
+	// the container's non-root user — else it can't reach tls.crt/tls.key.
+	if fi, _ := os.Stat(filepath.Dir(keyP)); fi == nil || fi.Mode().Perm()&0o001 == 0 {
+		t.Errorf("cert dir must be traversable by others (o+x) for the dir bind mount, got %v", fi)
 	}
 	cmp, _ := os.ReadFile(filepath.Join(rd, "docker-compose.yml"))
 	if !strings.Contains(string(cmp), "/etc/certs:ro") {
