@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/daboss2003/Helmsman/internal/store"
@@ -45,6 +46,92 @@ func TestReconcilePushesWholeConfig(t *testing.T) {
 	}
 	if !strings.Contains(string(gotBody), "app.example.com") || !strings.Contains(string(gotBody), "web:8080") {
 		t.Errorf("pushed config missing the route:\n%s", gotBody)
+	}
+}
+
+// A discovered replica pool replaces the single service-name dial and lights up the
+// least-conn + passive-health machinery (auto-scaling edge pool).
+func TestReconcileAppliesDiscoveredPool(t *testing.T) {
+	var gotBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rs := NewRouteStore(db)
+	if err := rs.Save(context.Background(), Route{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rec := NewReconciler(rs, NewAdmin(ts.Listener.Addr().String()), baseCfg(), quietLog())
+	rec.SetPoolDiscoverer(func(_ context.Context, routes []Route) map[string][]string {
+		return map[string][]string{PoolKey(routes[0]): {"172.18.0.5:8080", "172.18.0.6:8080"}}
+	})
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	for _, want := range []string{"172.18.0.5:8080", "172.18.0.6:8080", "least_conn", "passive"} {
+		if !strings.Contains(string(gotBody), want) {
+			t.Errorf("pushed config missing %q:\n%s", want, gotBody)
+		}
+	}
+	// The pool overrides the service-name selector — it must not also be dialed.
+	if strings.Contains(string(gotBody), "web:8080") {
+		t.Errorf("a pooled route should not also dial the service name:\n%s", gotBody)
+	}
+}
+
+// An empty discovery result (no live replica IPs, or the socket-proxy down) is
+// fail-safe: the route keeps its single service-name dial and gets no LB machinery.
+func TestReconcileEmptyPoolKeepsSingleDial(t *testing.T) {
+	var gotBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	db, _ := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	rs := NewRouteStore(db)
+	_ = rs.Save(context.Background(), Route{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true})
+	rec := NewReconciler(rs, NewAdmin(ts.Listener.Addr().String()), baseCfg(), quietLog())
+	rec.SetPoolDiscoverer(func(_ context.Context, routes []Route) map[string][]string { return nil })
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !strings.Contains(string(gotBody), "web:8080") {
+		t.Errorf("empty discovery must keep the single service-name dial:\n%s", gotBody)
+	}
+	if strings.Contains(string(gotBody), "least_conn") {
+		t.Errorf("a single dial must not get LB machinery:\n%s", gotBody)
+	}
+}
+
+// Reconcile is idempotent: re-rendering the same route set (the steady pool-refresh
+// case) is byte-identical to the last applied config, so it skips the Caddy /load.
+func TestReconcileIdempotentSkipsReload(t *testing.T) {
+	var loads int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&loads, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	db, _ := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	rs := NewRouteStore(db)
+	_ = rs.Save(context.Background(), Route{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true})
+	rec := NewReconciler(rs, NewAdmin(ts.Listener.Addr().String()), baseCfg(), quietLog())
+	for i := 0; i < 3; i++ {
+		if err := rec.Reconcile(context.Background()); err != nil {
+			t.Fatalf("reconcile %d: %v", i, err)
+		}
+	}
+	if got := atomic.LoadInt32(&loads); got != 1 {
+		t.Errorf("3 identical reconciles → %d /load calls, want 1 (idempotent skip)", got)
 	}
 }
 
@@ -141,7 +228,7 @@ func TestReconcileConcurrentIsSerialized(t *testing.T) {
 // the socket (ignoring the URL host), so what Caddy sees is the Host (= base URL host)
 // and the Origin header. Both must be in the allow-list: a Host of "unix" → 403 "host
 // not allowed: unix"; an empty Origin → 403 "client is not allowed to access from
-// origin ''". So base host and origin host must both be allowed.
+// origin ”". So base host and origin host must both be allowed.
 func TestUnixAdminHostIsAllowedOrigin(t *testing.T) {
 	a := NewAdmin("unix//run/helmsman/caddy-admin.sock")
 	allowed := map[string]bool{"http://127.0.0.1": true, "http://[::1]": true, "http://localhost": true}
@@ -154,7 +241,7 @@ func TestUnixAdminHostIsAllowedOrigin(t *testing.T) {
 }
 
 // End-to-end: a /load request must carry a non-empty Origin header whose host is in
-// Caddy's allow-list (the bare host, no admin port). Without it Caddy 403s "origin ''".
+// Caddy's allow-list (the bare host, no admin port). Without it Caddy 403s "origin ”".
 func TestAdminSendsAllowedOriginHeader(t *testing.T) {
 	var gotOrigin, gotHost string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

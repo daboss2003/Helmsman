@@ -102,9 +102,20 @@ type Reconciler struct {
 	base      BaseConfig
 	log       *slog.Logger
 	certHosts func() []string // cert-only ACME subjects (spec.cert_bindings); may be nil
-	mu        sync.Mutex      // serializes Reconcile/Revert: read→render→Load→lastGood is atomic
-	lastGood  []byte
+	// poolFn discovers the live replica endpoints for a set of routes — the auto-scaling
+	// edge pool, recomputed from read-only container discovery each reconcile. It returns
+	// pools keyed by PoolKey(route); a route absent from the map (or with an empty pool)
+	// keeps its single service-name dial and connections DNS-round-robin (the v1 path).
+	// It is invoked OUTSIDE the reconcile lock (it does slow socket-proxy I/O) — see
+	// Reconcile. nil disables pool discovery entirely.
+	poolFn   func(ctx context.Context, routes []Route) map[string][]string
+	mu       sync.Mutex // serializes the render→Load→lastGood commit (atomic, last-wins)
+	lastGood []byte
 }
+
+// PoolKey identifies the upstream a route's replica pool is computed for — its owning
+// app plus its service:port selector. Routes that share an upstream share a pool.
+func PoolKey(rt Route) string { return rt.AppID + "|" + rt.Upstream }
 
 // NewReconciler builds a Reconciler.
 func NewReconciler(store *RouteStore, admin *Admin, base BaseConfig, log *slog.Logger) *Reconciler {
@@ -114,6 +125,23 @@ func NewReconciler(store *RouteStore, admin *Admin, base BaseConfig, log *slog.L
 // SetCertHosts registers a provider for cert-only ACME subjects (hostnames Helmsman
 // must obtain a cert for without a proxy route — spec.cert_bindings).
 func (r *Reconciler) SetCertHosts(fn func() []string) { r.certHosts = fn }
+
+// SetPoolDiscoverer registers the live-replica endpoint discoverer. When set, each
+// reconcile asks fn for a route's current replica endpoints (ip:port) and, if it
+// returns any, dials that pool (least-conn + passive health, via Render) instead of
+// the single service-name upstream. fn must return only endpoints that are safe to
+// dial; Render re-validates every member regardless (SBD-4 backstop).
+func (r *Reconciler) SetPoolDiscoverer(fn func(ctx context.Context, routes []Route) map[string][]string) {
+	r.poolFn = fn
+}
+
+// ReconcilePool satisfies scale.EdgeReconciler: after the auto-scaler changes a
+// service's replica count, re-render the WHOLE edge config (which re-discovers every
+// route's live pool) and apply it. The app/service/replicas args are advisory — the
+// reconcile recomputes from live container discovery, so it always reflects truth.
+func (r *Reconciler) ReconcilePool(ctx context.Context, app, service string, replicas int) error {
+	return r.Reconcile(ctx)
+}
 
 func (r *Reconciler) certOnly() []string {
 	if r.certHosts == nil {
@@ -126,20 +154,53 @@ func (r *Reconciler) certOnly() []string {
 // (an unsafe route) it does NOT touch the live config. On an apply error the
 // previous config keeps running (Caddy /load is transactional).
 func (r *Reconciler) Reconcile(ctx context.Context) error {
-	// Serialize the whole read→render→Load→lastGood sequence. Without this, two
-	// concurrent reconciles (e.g. two route saves racing) could read different DB
-	// snapshots and have their /load calls complete OUT OF ORDER, landing a stale
-	// config after a newer one (and racing lastGood). With the lock, whichever
-	// reconcile runs last re-reads the current state and wins.
+	// Discover the live replica pools FIRST, OUTSIDE the lock: discovery does slow
+	// socket-proxy I/O (one container list), and holding the reconcile mutex across it
+	// would block a concurrent route-save for the whole call. We snapshot the route set,
+	// discover against it, then re-read + render + apply under the lock below.
+	var pools map[string][]string
+	if r.poolFn != nil {
+		if snapshot, err := r.store.List(); err == nil {
+			pools = r.poolFn(ctx, snapshot)
+		}
+		// A list/discovery error just yields no pools → every route falls back to its
+		// single service-name dial (fail-safe). It never aborts the reconcile.
+	}
+
+	// Serialize the render→Load→lastGood commit. Without this, two concurrent reconciles
+	// could have their /load calls complete OUT OF ORDER, landing a stale config after a
+	// newer one (and racing lastGood). We re-read the route set HERE (not the snapshot
+	// above) so whichever reconcile commits last reflects the current routes and wins; a
+	// route added after the snapshot just misses its pool for this one cycle (it gets the
+	// single dial now, and its pool on the next reconcile the route-save itself triggers).
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	routes, err := r.store.List()
 	if err != nil {
 		return fmt.Errorf("edge: list routes: %w", err)
 	}
+	// Apply discovered pools by upstream identity. An empty/absent pool (discovery error,
+	// socket-proxy down, a replica with no IP yet, an https upstream) leaves the route on
+	// its single service-name dial — the v1 DNS-round-robin behavior. Discovery is a
+	// fail-safe enhancement that never breaks a route; Render re-validates every dial.
+	for i := range routes {
+		if !routes[i].Enabled {
+			continue
+		}
+		if pool := pools[PoolKey(routes[i])]; len(pool) > 0 {
+			routes[i].Pool = pool
+		}
+	}
 	cfg, err := Render(r.base, routes, r.certOnly())
 	if err != nil {
 		return fmt.Errorf("edge: render: %w", err) // unsafe route → never applied
+	}
+	// Idempotent: if the rendered document is byte-identical to the last applied one
+	// (the common case for the periodic pool refresh when the replica set is stable),
+	// skip the /load — Helmsman is the sole source of truth for Caddy's config, so a
+	// matching render means the live config is already correct. Avoids needless reloads.
+	if bytes.Equal(cfg, r.lastGood) {
+		return nil
 	}
 	if err := r.admin.Load(ctx, cfg); err != nil {
 		return err

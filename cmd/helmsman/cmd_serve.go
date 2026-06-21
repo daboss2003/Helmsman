@@ -331,6 +331,18 @@ func cmdServe(args []string) error {
 		return err
 	}
 
+	// Wire the auto-scaling edge pool (plan §8A): each edge reconcile now discovers the
+	// live replica endpoints for every route via the read-only socket-proxy and dials
+	// that pool (least-conn + passive health) instead of a single service-name upstream.
+	// Discovery is fail-safe — an error/empty result keeps the single dial. Only when the
+	// edge is owned (edgeRecon != nil); leaving scale.Config.Edge nil otherwise (a typed
+	// nil would defeat the watcher's nil check and panic on a method call).
+	var edgePool scale.EdgeReconciler
+	if edgeRecon != nil {
+		edgeRecon.SetPoolDiscoverer(srv.DiscoverEdgePools)
+		edgePool = edgeRecon
+	}
+
 	// Self-healing supervisor (M13, plan §8.5): a bounded watcher at the poll cadence
 	// that acts ONLY through the gated write path (srv.Remediate via RunHeld) behind
 	// the four safety gates — it can only reduce pressure or page. Joined before the
@@ -373,7 +385,8 @@ func cmdServe(args []string) error {
 	// Opt-in auto-scaler (M14, plan §8A): one controller goroutine. OFF unless a
 	// per-service policy is enabled; the host-capacity guard caps every decision and
 	// collapses to effective_max=1 on a near-OOM box. Scaler = the gated web write
-	// path (srv via RunHeld); edge pool reconcile is left to DNS round-robin in v1.
+	// path (srv via RunHeld); Edge re-renders the edge config after a scale change so
+	// the new/removed replica is added to / dropped from the route's live dial pool.
 	// Joined before the deferred db.Close.
 	scaler := scale.New(scale.Config{
 		Store:        scalingStore,
@@ -381,6 +394,7 @@ func cmdServe(args []string) error {
 		Snap:         mon.Snapshot,
 		Sem:          dockerSem,
 		Scaler:       srv,
+		Edge:         edgePool,
 		Log:          log,
 		Interval:     cfg.Monitor.PollInterval.D(),
 		WritePlaneOK: writeAllowed,
@@ -414,6 +428,20 @@ func cmdServe(args []string) error {
 	})
 	wg.Add(1)
 	go func() { defer wg.Done(); scaler.Run(ctx) }()
+
+	// Edge reconcile/refresh loop (managed edge only). Two jobs:
+	//   1. Boot: the edge child starts on a base-only floor (routes live in SQLite but
+	//      aren't pushed at startup, unlike L4), so without an initial pass the edge 404s
+	//      every app hostname after a Helmsman restart until the next deploy/route-edit.
+	//   2. Steady: re-discover each route's live replica pool on a cadence, so a container
+	//      RECREATE that changes a replica's IP (self-heal restart, manual `docker compose
+	//      up`) — neither of which fires a scale or deploy event — is still picked up.
+	// Reconcile is idempotent (it reloads Caddy only when the rendered config changed), so
+	// a stable replica set costs one read-plane container list per tick and no reload.
+	if edgeRecon != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); runEdgeRefresher(ctx, edgeRecon, log) }()
+	}
 
 	// Connected-repo auto-fetch poller (Netlify-style): a repo connected in the
 	// dashboard "just works" with no webhook — Helmsman FETCHES every connected repo on
@@ -541,6 +569,37 @@ func edgeAdminListen(cfg *config.Config) string {
 		return cfg.Admin.Listen
 	}
 	return "unix//run/helmsman/caddy-admin.sock"
+}
+
+// runEdgeRefresher drives the managed edge's reconcile lifecycle until ctx is done.
+// It pushes the persisted route set (with live replica pools) shortly after boot —
+// retrying on a fast cadence until the child Caddy's admin answers — then settles to a
+// steady cadence that re-discovers pools so a container-recreate IP change is picked up.
+// Reconcile is idempotent (renders, and reloads Caddy only when the document changed),
+// so the steady ticks are cheap when the replica set is stable. A failed reconcile (the
+// admin not up yet, a Caddy blip) drops back to the fast cadence until it recovers.
+func runEdgeRefresher(ctx context.Context, r *edge.Reconciler, log *slog.Logger) {
+	const fast, steady = 3 * time.Second, 15 * time.Second
+	interval := fast
+	t := time.NewTimer(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err := r.Reconcile(rctx)
+			cancel()
+			if err != nil {
+				log.Debug("edge reconcile/pool refresh failed", "err", err)
+				interval = fast // admin not ready (or a blip) — retry soon
+			} else {
+				interval = steady
+			}
+			t.Reset(interval)
+		}
+	}
 }
 
 // toRetentionConfig maps the validated Tier-1 config block to the runner's policy

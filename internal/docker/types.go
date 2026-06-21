@@ -1,6 +1,9 @@
 package docker
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Version is the subset of GET /version we use.
 type Version struct {
@@ -21,12 +24,41 @@ type Info struct {
 
 // Container is the subset of a GET /containers/json entry we use.
 type Container struct {
-	ID     string            `json:"Id"`
-	Names  []string          `json:"Names"`
-	Image  string            `json:"Image"`
-	State  string            `json:"State"`  // running|exited|created|paused|...
-	Status string            `json:"Status"` // human string, e.g. "Up 3 hours (healthy)"
-	Labels map[string]string `json:"Labels"`
+	ID              string                  `json:"Id"`
+	Names           []string                `json:"Names"`
+	Image           string                  `json:"Image"`
+	State           string                  `json:"State"`  // running|exited|created|paused|...
+	Status          string                  `json:"Status"` // human string, e.g. "Up 3 hours (healthy)"
+	Labels          map[string]string       `json:"Labels"`
+	NetworkSettings containerNetworkSummary `json:"NetworkSettings"`
+}
+
+// containerNetworkSummary is the slice of /containers/json's NetworkSettings we
+// read: each attached network's in-container IP. The edge dials these directly
+// (it reaches them over the docker bridge), so the host need not resolve the
+// compose service name.
+type containerNetworkSummary struct {
+	Networks map[string]struct {
+		IPAddress string `json:"IPAddress"`
+	} `json:"Networks"`
+}
+
+// IPs returns the container's non-empty per-network IPv4 addresses, sorted by
+// network name for a deterministic order (so a re-render of the same replica set
+// produces byte-identical config and skips a needless Caddy reload).
+func (c Container) IPs() []string {
+	names := make([]string, 0, len(c.NetworkSettings.Networks))
+	for n := range c.NetworkSettings.Networks {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var out []string
+	for _, n := range names {
+		if ip := strings.TrimSpace(c.NetworkSettings.Networks[n].IPAddress); ip != "" {
+			out = append(out, ip)
+		}
+	}
+	return out
 }
 
 // Project returns the compose project label (the app key), or "" if unlabeled.
