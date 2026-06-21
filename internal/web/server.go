@@ -391,6 +391,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/supervisor/clear", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSupervisorClear))))
 	mux.HandleFunc("POST /apps/{project}/scaling", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleScalingSave))))
 	mux.HandleFunc("GET /apps/{project}/services/{service}/logs", s.requireAuth(s.handleServiceLogs))
+	mux.HandleFunc("GET /partials/service/{project}/{service}/ops", s.requireAuth(s.handleServiceOpsPartial))
 	mux.HandleFunc("GET /apps/{project}/services/{service}", s.requireAuth(s.withCSRFToken(s.handleServiceGet)))
 	// Env settings (M5): literals + write-only secrets, masked reveal, history.
 	mux.HandleFunc("GET /apps/{project}/env", s.requireAuth(s.withCSRFToken(s.handleEnvGet)))

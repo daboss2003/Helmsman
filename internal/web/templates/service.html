@@ -38,57 +38,14 @@
   <pre id="deploy-output" class="stream" hidden></pre>
   <pre id="log-output" class="stream" hidden></pre>
 
-  {{if .Ops}}{{if .Ops.IsRich}}
-  <section class="panel">
-    <h2>Health <span class="badge">RICH{{if .Ops.Version}} · v{{.Ops.Version}}{{end}}</span></h2>
-    <div class="indicators">
-      {{range .Ops.Indicators}}
-      <div class="indicator ind-{{.Status}}">
-        <span class="ind-name">{{.Name}}</span>
-        <span class="ind-status">{{.Status}}</span>
-        {{if .Message}}<span class="ind-msg muted">{{.Message}}</span>{{end}}
-      </div>
-      {{else}}<p class="muted">No dependency details reported.</p>{{end}}
-    </div>
-  </section>
-
-  {{range .Ops.Metrics}}
-  <section class="panel">
-    <h2>{{.Title}}</h2>
-    <table class="grid">
-      <tbody>
-        {{range .Items}}
-        <tr>
-          <td>{{.Label}}</td>
-          <td class="mono">{{.Value}}{{if .Unit}} {{.Unit}}{{end}}</td>
-          <td>{{if .Status}}<span class="pill {{if eq .Status "up"}}pill-ok{{else if eq .Status "down"}}pill-down{{else}}pill-warn{{end}}">{{.Status}}</span>{{end}}</td>
-        </tr>
-        {{end}}
-      </tbody>
-    </table>
-  </section>
+  {{/* Per-service ops (queues + metrics): refreshed in place on a timer like the
+       overview fragment — no manual reload. Health is NOT here; it's the prominent live
+       grid on the overview. Only services that declare an ops endpoint poll. */}}
+  {{if .HasOps}}
+  <div data-poll-url="/partials/service/{{pathEscape .Project}}/{{pathEscape .Service}}/ops" data-poll-interval="10000">
+    {{template "service_ops" $}}
+  </div>
   {{end}}
-
-  {{if .Ops.Queues}}
-  <section class="panel">
-    <h2>Queues</h2>
-    <table class="grid">
-      <thead><tr><th>Queue</th><th>State</th><th>Counts</th></tr></thead>
-      <tbody>
-        {{range .Ops.Queues}}
-        <tr>
-          <td>{{.Name}}</td>
-          <td>{{if .IsPaused}}<span class="pill pill-warn">paused</span>{{else}}<span class="pill pill-ok">active</span>{{end}}</td>
-          <td class="mono">{{range .Counts}}{{.Name}}={{.Value}} {{end}}</td>
-        </tr>
-        {{end}}
-      </tbody>
-    </table>
-  </section>
-  {{end}}
-  {{else if .Ops.Err}}
-  <section class="panel"><h2>Ops</h2><p class="muted">This service's ops endpoint is not RICH: {{.Ops.Err}}</p></section>
-  {{end}}{{end}}
 
   {{if and (not $.WriteDisabledReason) (not $.Protected)}}
   {{$p := .Policy}}
@@ -122,3 +79,46 @@
   {{end}}
 </main>
 {{template "bottom" .}}
+
+{{/* service_ops is the live-polled per-service ops fragment (queues + metrics). Rendered
+     inline on the page AND returned standalone by /partials/service/<p>/<s>/ops, so it
+     operates on the root tmplData (.Svc) and is identical in both paths. */}}
+{{define "service_ops"}}{{with .Svc}}
+{{if .Ops}}{{if .Ops.IsRich}}
+{{range .Ops.Metrics}}
+<section class="panel">
+  <h2>{{.Title}}</h2>
+  <table class="grid">
+    <tbody>
+      {{range .Items}}
+      <tr>
+        <td>{{.Label}}</td>
+        <td class="mono">{{.Value}}{{if .Unit}} {{.Unit}}{{end}}</td>
+        <td>{{if .Status}}<span class="pill {{if eq .Status "up"}}pill-ok{{else if eq .Status "down"}}pill-down{{else}}pill-warn{{end}}">{{.Status}}</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{if .Ops.Queues}}
+<section class="panel">
+  <h2>Queues</h2>
+  <table class="grid">
+    <thead><tr><th>Queue</th><th>State</th><th>Counts</th></tr></thead>
+    <tbody>
+      {{range .Ops.Queues}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{if .IsPaused}}<span class="pill pill-warn">paused</span>{{else}}<span class="pill pill-ok">active</span>{{end}}</td>
+        <td class="mono">{{range .Counts}}{{.Name}}={{.Value}} {{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{else if .Ops.Err}}
+<section class="panel"><h2>Ops</h2><p class="muted">This service's ops endpoint is not RICH: {{.Ops.Err}}</p></section>
+{{end}}{{end}}
+{{end}}{{end}}

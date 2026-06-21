@@ -237,6 +237,28 @@ details.accordion > summary:hover { color: var(--primary); }
 .health-unhealthy { color: var(--error); font-weight: 600; }
 .health-starting { color: var(--warn); }
 
+/* Service-health grid (overview) — a prominent, live health panel: one cell per service,
+   coloured by its container HEALTHCHECK state. Updates in place via the polled fragment. */
+.health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.8rem; margin-top: 0.3rem; }
+.health-cell {
+  display: flex; align-items: center; gap: 0.55rem;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-left: 3px solid var(--faint); border-radius: var(--radius-md);
+  padding: 0.7rem 0.9rem; text-decoration: none; color: var(--fg);
+}
+.health-cell:hover { border-color: var(--border-2); }
+.health-cell .health-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: none; }
+.health-cell .health-svc { font-weight: 600; }
+.health-cell .health-state { margin-left: auto; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); }
+.health-cell.hs-healthy { border-left-color: var(--ok); }
+.health-cell.hs-healthy .health-dot { background: var(--ok); }
+.health-cell.hs-unhealthy { border-left-color: var(--error); }
+.health-cell.hs-unhealthy .health-dot { background: var(--error); }
+.health-cell.hs-unhealthy .health-state { color: var(--error); }
+.health-cell.hs-starting { border-left-color: var(--warn); }
+.health-cell.hs-starting .health-dot { background: var(--warn); }
+.health-cell.hs-none { opacity: 0.65; }
+
 /* dependency indicators */
 .indicators { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.7rem; margin-top: 0.8rem; }
 .indicator {

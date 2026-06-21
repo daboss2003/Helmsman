@@ -40,6 +40,25 @@
   {{else}}{{template "statwait" "Apps healthy"}}{{end}}
 </div>
 
+{{/* Service health — a prominent, LIVE grid (this whole block is in the polled overview
+     fragment, so cells flip colour within ~5s without a reload). One cell per service,
+     coloured by its container HEALTHCHECK state — which already is dependency-aware
+     liveness (the app's /health/live), so no extra probing. */}}
+{{if $.OrderedApps}}
+<section class="panel">
+  <h2>Service health</h2>
+  <div class="health-grid">
+    {{range $.OrderedApps}}{{$app := .DisplayName}}{{$proj := .Project}}{{range .Services}}
+    <a class="health-cell hs-{{if .Health}}{{.Health}}{{else}}none{{end}}" href="/apps/{{pathEscape $proj}}/services/{{pathEscape .Service}}" title="{{$app}} / {{.Service}}: {{if .Health}}{{.Health}}{{else}}no healthcheck{{end}}">
+      <span class="health-dot"></span>
+      <span class="health-svc">{{.Service}}</span>
+      <span class="health-state">{{if .Health}}{{.Health}}{{else}}—{{end}}</span>
+    </a>
+    {{end}}{{end}}
+  </div>
+</section>
+{{end}}
+
 <section class="panel">
   <h2><span>Apps {{if $snap}}<span class="muted">({{len $.OrderedApps}})</span>{{end}}</span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
   {{if $.OrderedApps}}
