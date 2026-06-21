@@ -14,6 +14,33 @@ func TestValidateGeneratedHappyPath(t *testing.T) {
 	}
 }
 
+// A malformed mem_limit is rejected at validation (early), not deferred to docker; a
+// valid size and the unset (empty) case both pass.
+func TestValidateMemLimit(t *testing.T) {
+	set := func(field, v string) *Definition {
+		d := base()
+		web := d.Spec.Compose.Services["web"]
+		if field == "mem_limit" {
+			web.MemLimit = v
+		} else {
+			web.MemReservation = v
+		}
+		d.Spec.Compose.Services["web"] = web
+		return d
+	}
+	if err := Validate(set("mem_limit", "768x"), "/run/app", compose.Env{}, nil); err == nil || !strings.Contains(err.Error(), "mem_limit") {
+		t.Errorf("a malformed mem_limit must be rejected, got %v", err)
+	}
+	if err := Validate(set("mem_reservation", "lots"), "/run/app", compose.Env{}, nil); err == nil {
+		t.Error("a malformed mem_reservation must be rejected")
+	}
+	for _, ok := range []string{"768m", "1g", "768mb", "1073741824", ""} {
+		if err := Validate(set("mem_limit", ok), "/run/app", compose.Env{}, nil); err != nil {
+			t.Errorf("valid mem_limit %q rejected: %v", ok, err)
+		}
+	}
+}
+
 func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
 	d := base()
 	raw, err := ComposeBytes(d)

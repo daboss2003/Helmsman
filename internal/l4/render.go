@@ -26,13 +26,18 @@ import (
 // replica host:port endpoints. With an empty Pool the upstream is the Service:Port
 // name, resolved on the compose network (Docker DNS) — the v1 fallback.
 type Route struct {
+	AppID    string   // owning project — discovery scopes Service to it (two apps may share a service name)
 	Listen   int      // host port the L4 LB binds
 	Protocol string   // "tcp" | "udp"
 	Service  string   // selector → the service whose replicas receive traffic
 	Port     int      // the service's INTERNAL container port
 	LB       string   // "" (round_robin) | "least_conn" | "hash_client_ip"
-	Pool     []string // host:port of each live replica; empty → Service:Port via Docker DNS
+	Pool     []string // host:port of each live replica; EMPTY → route is SKIPPED at render
 }
+
+// PoolKey identifies a route's pool slot — one listener is one (port, protocol). The
+// reconciler keys discovered replica pools by this to merge them back onto the routes.
+func PoolKey(r Route) string { return strconv.Itoa(r.Listen) + "/" + r.Protocol }
 
 var (
 	// nameRe bounds a compose service name / upstream host so it can never carry a
@@ -137,6 +142,15 @@ func Render(routes []Route) (string, error) {
 		}
 		seen[key] = true
 
+		// No name fallback: the host nginx cannot resolve a compose service name, and a
+		// single unresolvable `server` makes `nginx -t` reject the WHOLE config — every
+		// listener goes down, including :53. So skip a route with no discovered replica
+		// pool until discovery has a live IP for it; an empty stream{} is valid, so the
+		// other listeners still bind. (The reconciler logs which services were skipped.)
+		if len(r.Pool) == 0 {
+			continue
+		}
+
 		name := fmt.Sprintf("l4_%d_%s", r.Listen, r.Protocol)
 		b.WriteString("    upstream " + name + " {\n")
 		switch r.LB {
@@ -145,11 +159,7 @@ func Render(routes []Route) (string, error) {
 		case "hash_client_ip":
 			b.WriteString("        hash $remote_addr consistent;\n")
 		}
-		members := r.Pool
-		if len(members) == 0 {
-			members = []string{fmt.Sprintf("%s:%d", r.Service, r.Port)} // Docker DNS fallback
-		}
-		for _, m := range members {
+		for _, m := range r.Pool {
 			b.WriteString("        server " + m + ";\n")
 		}
 		b.WriteString("    }\n")

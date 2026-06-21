@@ -146,6 +146,7 @@ compose:
 | `cert_bindings` | a managed cert synced into the service — see [`cert_bindings`](#speccert_bindings). |
 | `volumes` | `{ name, target }` (a managed named volume) or `{ source, target, read_only }` (a bind under the app's directory; the directory is created for you). |
 | `depends_on` / `healthcheck` / `command` / `restart` | sibling services / exec-array / exec-array / enum. |
+| `mem_limit` / `mem_reservation` | optional cgroup memory cap / soft reservation per replica, as a size string (`768m`, `1g`). A limit hard-bounds each replica (per-container OOM protection) **and** makes the auto-scaler's `up_mem_pct`/`down_mem_pct` measure against *this* budget instead of the host's total RAM — i.e. a true per-service signal. Omit both to leave the container unbounded (the default). Size comfortably above measured RSS so the kernel doesn't OOM-kill it. |
 
 The dangerous keys (`privileged`, `cap_add`, host namespaces, host binds, host-publish) **cannot be
 expressed** — no input can generate them, and the generated compose is re-checked by the validator
@@ -430,7 +431,7 @@ A deploy persists each policy (unset thresholds default to 80/40, with a positiv
 | `enabled` | bool | `false` | Opt-in. |
 | `min` / `max` | int | `1`/`1` | Replica bounds. On a small box `effective_max` **collapses to 1** — scaling becomes a permanent safe no-op and a wanted scale-up fires `scale_refused_no_capacity` rather than queuing a docker child. |
 | `up_cpu_pct` / `down_cpu_pct` | float | — | Scale up above / down below this sustained CPU %. Hysteresis is up-eager / down-lazy with a dead band between them. |
-| `up_mem_pct` / `down_mem_pct` | float | — | Optional memory triggers, with the same hysteresis. |
+| `up_mem_pct` / `down_mem_pct` | float | — | Optional memory triggers, with the same hysteresis. The percentage is RSS ÷ the container's memory limit — so set the service's [`mem_limit`](#a-service) for a true per-service signal; without one, the kernel reports the limit as the host's total RAM and the trigger is box-relative. |
 | `per_replica_mem_mib` | int | — | Per-replica memory reservation (MiB). Feeds the host-capacity guard; if a replica's real RSS exceeds it, Helmsman clamps and alerts. |
 | `per_replica_cpu_milli` | int | — | Optional per-replica CPU reservation (millicores). |
 

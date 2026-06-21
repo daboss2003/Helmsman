@@ -67,6 +67,11 @@ type Service struct {
 	Healthcheck []string `json:"healthcheck"` // exec form, e.g. ["curl","-f","http://localhost/health"]
 	Restart     string   `json:"restart"`
 	DependsOn   []string `json:"depends_on"` // sibling service names
+	// MemLimit/MemReservation are compose byte-size strings ("768m", "1g"); empty omits the
+	// key. A limit bounds each replica (per-container OOM protection) and makes the scaler's
+	// mem trigger per-service. Validated in the definition layer; allow-listed in compose.
+	MemLimit       string `json:"mem_limit,omitempty"`
+	MemReservation string `json:"mem_reservation,omitempty"`
 }
 
 // Build marks a service whose image Helmsman BUILDS from a generated Dockerfile.

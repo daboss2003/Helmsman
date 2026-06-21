@@ -10,6 +10,31 @@ import (
 	"github.com/daboss2003/Helmsman/internal/store"
 )
 
+// resolveBase rewrites a service-name base_url to the backing container's bridge IP
+// (port + scheme + path preserved); a literal IP and a nil resolver pass through; an
+// unresolvable service errors so the probe reports a clear BASIC failure.
+func TestResolveBase(t *testing.T) {
+	p := &Prober{resolve: func(_ context.Context, project, service string) (string, bool) {
+		if project == "shop" && service == "api" {
+			return "172.18.0.5", true
+		}
+		return "", false
+	}}
+	if got, err := p.resolveBase(context.Background(), "shop", "http://api:3000/ops"); err != nil || got != "http://172.18.0.5:3000/ops" {
+		t.Errorf("service-name rewrite = %q, %v; want http://172.18.0.5:3000/ops", got, err)
+	}
+	if got, err := p.resolveBase(context.Background(), "shop", "http://10.0.0.9:8081"); err != nil || got != "http://10.0.0.9:8081" {
+		t.Errorf("literal IP must pass through unchanged, got %q, %v", got, err)
+	}
+	if _, err := p.resolveBase(context.Background(), "shop", "http://ghost:3000"); err == nil {
+		t.Error("an unresolvable service must error (→ clear BASIC failure)")
+	}
+	nilResolver := &Prober{}
+	if got, err := nilResolver.resolveBase(context.Background(), "shop", "http://api:3000"); err != nil || got != "http://api:3000" {
+		t.Errorf("a nil resolver must pass the base_url through, got %q, %v", got, err)
+	}
+}
+
 // fakeDoer returns canned responses keyed by relative path, and records the
 // secret header it was handed so tests can assert it travels server-side.
 type fakeDoer struct {
@@ -149,7 +174,7 @@ func proberWith(t *testing.T, doer Doer, cfg SetInput) *Prober {
 	if err := cs.Set("shop", cfg); err != nil {
 		t.Fatal(err)
 	}
-	return NewProber(cs, doer, db)
+	return NewProber(cs, doer, db, nil)
 }
 
 func TestProbeRichViaDescriptor(t *testing.T) {

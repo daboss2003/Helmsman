@@ -88,6 +88,12 @@ func ValidateBaseURL(raw string) error {
 	if ip, perr := netip.ParseAddr(host); perr == nil && opsclient.IsBlockedAddr(ip.Unmap()) {
 		return errors.New("base URL must not be a loopback/link-local/metadata address; point it at the app's container endpoint")
 	}
+	// No managed dial may target a control-plane port (SBD-4), matching the edge/L4
+	// upstream rule. This matters now that a service-name base_url is resolved to a live
+	// container IP and actually dialed: a control-plane port must never be a probe target.
+	if p := u.Port(); p == "9000" || p == "2019" || p == "2375" {
+		return errors.New("base URL must not target a control-plane port (9000/2019/2375)")
+	}
 	return nil
 }
 

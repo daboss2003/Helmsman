@@ -53,11 +53,11 @@ func (s *RouteStore) ReplaceProject(ctx context.Context, project string, routes 
 }
 
 // List returns every project's L4 routes (the input to a render), ordered
-// deterministically. Pool is left empty — the renderer falls back to the
-// service:port name (Docker DNS) until a later phase populates live replica pools.
+// deterministically. AppID is returned so the reconciler can scope replica discovery
+// to the owning project; Pool is left empty for the reconciler to populate.
 func (s *RouteStore) List() ([]Route, error) {
 	rows, err := s.db.Query(
-		`SELECT listen, protocol, service, port, lb FROM app_l4_routes ORDER BY listen, protocol`)
+		`SELECT app_id, listen, protocol, service, port, lb FROM app_l4_routes ORDER BY listen, protocol`)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (s *RouteStore) List() ([]Route, error) {
 	var out []Route
 	for rows.Next() {
 		var r Route
-		if err := rows.Scan(&r.Listen, &r.Protocol, &r.Service, &r.Port, &r.LB); err != nil {
+		if err := rows.Scan(&r.AppID, &r.Listen, &r.Protocol, &r.Service, &r.Port, &r.LB); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

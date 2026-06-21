@@ -2,6 +2,7 @@ package definition
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 
@@ -10,6 +11,20 @@ import (
 	"github.com/daboss2003/Helmsman/internal/edge"
 	"github.com/daboss2003/Helmsman/internal/provision"
 )
+
+// memSizeRe matches a compose/docker byte-size string (mem_limit / mem_reservation):
+// a number with an optional unit — b, k/kb, m/mb, g/gb, t/tb (case-insensitive), e.g.
+// "512m", "1g", "768mb", "1073741824". An empty value is allowed by callers (optional).
+// Permissive enough to accept every form docker accepts (no false rejections); strict
+// enough to reject obvious garbage early instead of failing at `docker compose up`.
+var memSizeRe = regexp.MustCompile(`(?i)^\d+(b|kb?|mb?|gb?|tb?)?$`)
+
+func validMemSize(field, v string) error {
+	if v == "" || memSizeRe.MatchString(v) {
+		return nil
+	}
+	return fmt.Errorf("%s %q is not a valid size (e.g. 512m, 1g)", field, v)
+}
 
 // reconcile.go is the shared validation core (plan §7.7): a definition is fanned out
 // into the EXISTING typed sub-structs and run through the SAME chokepoints the
@@ -27,6 +42,7 @@ func toProvisionSpec(d *Definition) provision.Spec {
 		s := provision.Service{
 			Name:    name,
 			Command: svc.Command, Healthcheck: svc.Healthcheck, Restart: svc.Restart, DependsOn: svc.DependsOn,
+			MemLimit: svc.MemLimit, MemReservation: svc.MemReservation,
 		}
 		if svc.Build != nil {
 			// Helmsman generates the Dockerfile into the run dir at deploy; the compose
@@ -96,8 +112,14 @@ func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []st
 	// against THIS app's containers — validated like any Layer-1 route (no
 	// control-plane port, no loopback, FQDN host).
 	declared := map[string]bool{}
-	for name := range d.Spec.Compose.Services {
+	for name, svc := range d.Spec.Compose.Services {
 		declared[name] = true
+		if err := validMemSize("service "+name+" mem_limit", svc.MemLimit); err != nil {
+			return err
+		}
+		if err := validMemSize("service "+name+" mem_reservation", svc.MemReservation); err != nil {
+			return err
+		}
 	}
 	for _, r := range d.Spec.Edge.Routes {
 		if !declared[r.Service] {

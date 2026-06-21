@@ -99,6 +99,12 @@ type Service struct {
 	Restart      string              `yaml:"restart,omitempty"`
 	DependsOn    []string            `yaml:"depends_on,omitempty"`
 	OpsInterface *OpsInterface       `yaml:"ops_interface,omitempty"` // per-service ops endpoint (§4); probed for RICH health/queues/metrics
+	// MemLimit sets a cgroup memory cap per replica (e.g. "768m", "1g"). It also makes the
+	// autoscaler's up_mem_pct/down_mem_pct per-service: docker reports it as the container's
+	// mem limit, so the trigger measures RSS against THIS budget, not the host's total RAM.
+	// MemReservation is the optional soft reservation. Both empty → unbounded (host RAM), as today.
+	MemLimit       string `yaml:"mem_limit,omitempty"`
+	MemReservation string `yaml:"mem_reservation,omitempty"`
 }
 
 // EnvValue is a per-service env var: a literal value XOR a `{secret: NAME}` reference.

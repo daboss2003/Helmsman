@@ -23,6 +23,30 @@ func sampleSpec() Spec {
 	}
 }
 
+// A service's mem_limit/mem_reservation are emitted into the generated compose; unset
+// fields are omitted (existing apps stay byte-identical, no cgroup cap).
+func TestGenerateMemLimit(t *testing.T) {
+	spec := sampleSpec()
+	spec.Services[0].MemLimit = "768m"
+	spec.Services[0].MemReservation = "512m"
+	out, err := Generate(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"mem_limit: 768m", "mem_reservation: 512m"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("generated compose missing %q:\n%s", want, out)
+		}
+	}
+	bare, err := Generate(sampleSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bare), "mem_limit") || strings.Contains(string(bare), "mem_reservation") {
+		t.Errorf("a service with no mem fields must omit the keys:\n%s", bare)
+	}
+}
+
 // The generated compose is safe by construction AND passes the §5.6 chokepoint.
 func TestGenerateProducesSafeComposeThatPassesValidator(t *testing.T) {
 	out, err := Generate(sampleSpec())

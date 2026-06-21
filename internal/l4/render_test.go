@@ -7,14 +7,15 @@ import (
 
 func TestRenderTCPandUDP(t *testing.T) {
 	out, err := Render([]Route{
-		{Listen: 53, Protocol: "udp", Service: "coredns", Port: 5353, LB: "hash_client_ip"},
+		{Listen: 53, Protocol: "udp", Service: "coredns", Port: 5353, LB: "hash_client_ip",
+			Pool: []string{"10.0.0.7:5353"}},
 		{Listen: 853, Protocol: "tcp", Service: "coredns", Port: 8853, LB: "least_conn",
 			Pool: []string{"10.0.0.5:8853", "10.0.0.6:8853"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// UDP listener + udp directive; DNS-fallback upstream (no pool → service:port).
+	// UDP listener + udp directive; the upstream is the discovered replica bridge IP.
 	for _, want := range []string{
 		// loads the dynamic stream module on Debian/Ubuntu (else "unknown directive stream")
 		"include /etc/nginx/modules-enabled/*.conf;",
@@ -24,7 +25,7 @@ func TestRenderTCPandUDP(t *testing.T) {
 		"stream {",
 		"upstream l4_53_udp {",
 		"hash $remote_addr consistent;",
-		"server coredns:5353;",
+		"server 10.0.0.7:5353;",
 		"listen 53 udp;",
 		"proxy_pass l4_53_udp;",
 		// TCP listener + explicit pool + least_conn.
@@ -40,6 +41,36 @@ func TestRenderTCPandUDP(t *testing.T) {
 	}
 	if strings.Contains(out, "listen 853 udp") {
 		t.Errorf("tcp route must not get a udp listener:\n%s", out)
+	}
+}
+
+// A route with no discovered pool must be SKIPPED — never emitted as the unresolvable
+// service name (the host nginx can't resolve it, and one bad upstream makes nginx -t
+// reject the WHOLE config). The pooled route still renders; an all-empty set is a valid
+// empty stream{} (so the other listeners bind instead of every listener going down).
+func TestRenderSkipsEmptyPool(t *testing.T) {
+	out, err := Render([]Route{
+		{Listen: 53, Protocol: "udp", Service: "coredns", Port: 5353}, // no Pool → skipped
+		{Listen: 853, Protocol: "tcp", Service: "coredns", Port: 8853, Pool: []string{"10.0.0.5:8853"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, absent := range []string{"l4_53_udp", "listen 53", "coredns:5353"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("empty-pool route must be skipped (no listener, no name fallback): found %q\n%s", absent, out)
+		}
+	}
+	if !strings.Contains(out, "server 10.0.0.5:8853;") {
+		t.Errorf("the pooled route must still render:\n%s", out)
+	}
+
+	empty, err := Render([]Route{{Listen: 53, Protocol: "udp", Service: "x", Port: 5353}})
+	if err != nil {
+		t.Fatalf("an all-empty-pool render must succeed (valid empty stream): %v", err)
+	}
+	if strings.Contains(empty, "upstream ") || strings.Contains(empty, "server ") {
+		t.Errorf("all-empty-pool render must emit no upstream/server:\n%s", empty)
 	}
 }
 

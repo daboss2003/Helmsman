@@ -4,11 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
+	"net/url"
 	"regexp"
 	"time"
 
 	"github.com/daboss2003/Helmsman/internal/store"
 )
+
+// ServiceResolver maps (project, service) → a routable container bridge IP, via the
+// read-only socket-proxy. ok=false when no running replica is found. It exists because
+// the control plane is a host process that cannot resolve a compose service name (those
+// live only on Docker's internal DNS) — so a base_url like http://api:3000 must be
+// rewritten to the container's IP before the prober dials it. nil disables the rewrite
+// (only literal-IP base_urls work then).
+type ServiceResolver func(ctx context.Context, project, service string) (ip string, ok bool)
 
 // Prober runs discovery + probe for one app per call (the monitor drives the
 // cadence: sequential + jittered, plan §4). It also persists the snapshot ring
@@ -17,13 +28,39 @@ type Prober struct {
 	store    *ConfigStore
 	client   Doer
 	db       *store.DB
-	ringSize int // retained samples per app
-	sparkN   int // samples returned for the sparkline
+	resolve  ServiceResolver // rewrites a service-name base_url to a bridge IP; nil = no rewrite
+	ringSize int             // retained samples per app
+	sparkN   int             // samples returned for the sparkline
 }
 
-// NewProber builds a Prober. client is the SSRF-safe outbound client.
-func NewProber(cs *ConfigStore, client Doer, db *store.DB) *Prober {
-	return &Prober{store: cs, client: client, db: db, ringSize: 100, sparkN: 60}
+// NewProber builds a Prober. client is the SSRF-safe outbound client; resolve rewrites a
+// service-name base_url to the backing container's bridge IP (nil = literal-IP only).
+func NewProber(cs *ConfigStore, client Doer, db *store.DB, resolve ServiceResolver) *Prober {
+	return &Prober{store: cs, client: client, db: db, resolve: resolve, ringSize: 100, sparkN: 60}
+}
+
+// resolveBase rewrites a service-name base_url to the backing container's bridge IP
+// (scoped to project). A literal-IP host, or a nil resolver, is returned unchanged.
+// Scheme, port, and path are preserved.
+func (p *Prober) resolveBase(ctx context.Context, project, raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", errors.New("bad base_url")
+	}
+	host := u.Hostname()
+	if p.resolve == nil || net.ParseIP(host) != nil {
+		return raw, nil // no resolver wired, or already a literal IP
+	}
+	ip, ok := p.resolve(ctx, project, host)
+	if !ok {
+		return "", fmt.Errorf("service %q has no running replica (or socket-proxy down)", host)
+	}
+	if port := u.Port(); port != "" {
+		u.Host = net.JoinHostPort(ip, port)
+	} else {
+		u.Host = ip
+	}
+	return u.String(), nil
 }
 
 // Probe returns the canonical ops Result for a project. ok=false means ops is
@@ -34,7 +71,15 @@ func (p *Prober) Probe(ctx context.Context, project string) (*Result, bool) {
 		return nil, false
 	}
 	adapter := Lookup(cfg.Adapter)
-	target := Target{BaseURL: cfg.BaseURL, SecretHeader: cfg.SecretHeader, Secret: cfg.Secret, BasePath: cfg.BasePath}
+	base, rerr := p.resolveBase(ctx, project, cfg.BaseURL)
+	if rerr != nil {
+		// The service name didn't resolve to a live replica — report it as a clear BASIC
+		// result (not a cryptic dial error) and record it so the panel shows why.
+		res := &Result{Mode: BASIC, Err: "ops endpoint not reachable: " + rerr.Error()}
+		p.record(ctx, project, Discovery{Mode: BASIC}, res)
+		return res, true
+	}
+	target := Target{BaseURL: base, SecretHeader: cfg.SecretHeader, Secret: cfg.Secret, BasePath: cfg.BasePath}
 
 	var disc Discovery
 	if cfg.OpsMode == "rich" {
@@ -112,8 +157,12 @@ func (p *Prober) QueueAction(ctx context.Context, project, queue, action string)
 	if !ok || !cfg.Enabled || cfg.OpsMode == "basic" {
 		return ErrOpsNotEnabled
 	}
+	base, rerr := p.resolveBase(ctx, project, cfg.BaseURL)
+	if rerr != nil {
+		return ErrQueueFailed
+	}
 	path := joinPath(cleanBasePath(cfg.BasePath), "/queues/"+queue+"/"+action)
-	resp, err := p.client.Post(ctx, cfg.BaseURL, path, cfg.SecretHeader, cfg.Secret, nil)
+	resp, err := p.client.Post(ctx, base, path, cfg.SecretHeader, cfg.Secret, nil)
 	if err != nil {
 		return ErrQueueFailed
 	}

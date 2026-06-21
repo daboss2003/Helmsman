@@ -61,7 +61,7 @@ func TestReconcileWritesAndReloads(t *testing.T) {
 	s.sighup = func(p *os.Process) error { reloaded = true; return nil }
 
 	if err := s.Reconcile(context.Background(), []Route{
-		{Listen: 53, Protocol: "udp", Service: "coredns", Port: 5353},
+		{Listen: 53, Protocol: "udp", Service: "coredns", Port: 5353, Pool: []string{"10.0.0.7:5353"}},
 	}); err != nil {
 		t.Fatal(err)
 	}

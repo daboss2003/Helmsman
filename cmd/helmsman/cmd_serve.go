@@ -93,7 +93,12 @@ func cmdServe(args []string) error {
 	dockerCli := docker.New(cfg.Docker.ProxyAddr)
 	hostSampler := hostmon.New(cfg.DataDir)
 	opsStore := ops.NewConfigStore(db, cipher)
-	prober := ops.NewProber(opsStore, opsclient.New(), db)
+	// The ops prober dials a service-name base_url (http://api:3000), but the control
+	// plane is a host process that can't resolve compose names — so resolve the name to a
+	// running replica's bridge IP via the read-only socket-proxy before dialing.
+	prober := ops.NewProber(opsStore, opsclient.New(), db, func(c context.Context, project, service string) (string, bool) {
+		return web.ServiceIP(c, dockerCli, project, service)
+	})
 	envStore := envstore.New(db, cipher)
 	cfgStore := cfgstore.New(db, cipher)
 	gitStore := gitstore.New(db, cipher)
@@ -287,6 +292,19 @@ func cmdServe(args []string) error {
 				if lerr != nil {
 					return lerr
 				}
+				// Dial discovered bridge IPs, not the compose service name: the host nginx
+				// can't resolve it, and one unresolvable upstream makes `nginx -t` reject the
+				// WHOLE config (every listener down). A route with no live replica is left
+				// pool-less → the renderer skips it (its listener binds once a replica is up).
+				pools := web.DiscoverL4Pools(c, dockerCli, log, rs)
+				for i := range rs {
+					if p, ok := pools[l4.PoolKey(rs[i])]; ok {
+						rs[i].Pool = p
+					} else {
+						log.Debug("l4: route has no live replica yet; listener not bound until one is up",
+							"listen", rs[i].Listen, "protocol", rs[i].Protocol, "service", rs[i].Service)
+					}
+				}
 				return sup.Reconcile(c, rs)
 			}
 			if rerr := l4Reconcile(ctx); rerr != nil { // write the initial config from the store
@@ -294,6 +312,10 @@ func cmdServe(args []string) error {
 			}
 			wg.Add(1)
 			go func() { defer wg.Done(); sup.Run(ctx) }()
+			// Periodic re-discovery (mirrors the edge): a container recreate changes a
+			// replica's IP with no scale/deploy event; this rebinds the listener within ~15s.
+			wg.Add(1)
+			go func() { defer wg.Done(); runReconcileLoop(ctx, "l4", l4Reconcile, log) }()
 			log.Info("managed L4 LB started")
 		} else {
 			log.Warn("managed L4 LB not owned on this host", "reason", why)
@@ -440,7 +462,7 @@ func cmdServe(args []string) error {
 	// a stable replica set costs one read-plane container list per tick and no reload.
 	if edgeRecon != nil {
 		wg.Add(1)
-		go func() { defer wg.Done(); runEdgeRefresher(ctx, edgeRecon, log) }()
+		go func() { defer wg.Done(); runReconcileLoop(ctx, "edge", edgeRecon.Reconcile, log) }()
 	}
 
 	// Connected-repo auto-fetch poller (Netlify-style): a repo connected in the
@@ -571,14 +593,14 @@ func edgeAdminListen(cfg *config.Config) string {
 	return "unix//run/helmsman/caddy-admin.sock"
 }
 
-// runEdgeRefresher drives the managed edge's reconcile lifecycle until ctx is done.
-// It pushes the persisted route set (with live replica pools) shortly after boot —
-// retrying on a fast cadence until the child Caddy's admin answers — then settles to a
-// steady cadence that re-discovers pools so a container-recreate IP change is picked up.
-// Reconcile is idempotent (renders, and reloads Caddy only when the document changed),
-// so the steady ticks are cheap when the replica set is stable. A failed reconcile (the
-// admin not up yet, a Caddy blip) drops back to the fast cadence until it recovers.
-func runEdgeRefresher(ctx context.Context, r *edge.Reconciler, log *slog.Logger) {
+// runReconcileLoop drives a managed plane's (edge or L4) reconcile lifecycle until ctx
+// is done. It reconciles shortly after boot — retrying on a fast cadence until it first
+// succeeds (the child proxy's control surface may not be up yet) — then settles to a
+// steady cadence that re-discovers each route's live replica pool, so a container-recreate
+// IP change is picked up with no scale/deploy event. Reconcile is expected to be cheap
+// when nothing changed (the edge skips an unchanged /load; nginx -t + reload is fast), and
+// a failure drops back to the fast cadence until it recovers. name labels the debug log.
+func runReconcileLoop(ctx context.Context, name string, reconcile func(context.Context) error, log *slog.Logger) {
 	const fast, steady = 3 * time.Second, 15 * time.Second
 	interval := fast
 	t := time.NewTimer(interval)
@@ -589,11 +611,11 @@ func runEdgeRefresher(ctx context.Context, r *edge.Reconciler, log *slog.Logger)
 			return
 		case <-t.C:
 			rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			err := r.Reconcile(rctx)
+			err := reconcile(rctx)
 			cancel()
 			if err != nil {
-				log.Debug("edge reconcile/pool refresh failed", "err", err)
-				interval = fast // admin not ready (or a blip) — retry soon
+				log.Debug(name+" reconcile/pool refresh failed", "err", err)
+				interval = fast // control surface not ready (or a blip) — retry soon
 			} else {
 				interval = steady
 			}
