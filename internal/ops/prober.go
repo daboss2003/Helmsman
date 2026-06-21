@@ -109,10 +109,19 @@ func (p *Prober) Probe(ctx context.Context, project string) (*Result, bool) {
 // ProbeTarget probes ONE ops Target directly (no DB-backed config, no snapshot ring),
 // for per-service ops driven from the canonical helmsman.yaml. mode is auto|rich|basic.
 // Returns nil when mode is "basic" (ops disabled for the service).
-func (p *Prober) ProbeTarget(ctx context.Context, target Target, adapterName, mode string) *Result {
+func (p *Prober) ProbeTarget(ctx context.Context, project string, target Target, adapterName, mode string) *Result {
 	if mode == "basic" {
 		return nil
 	}
+	// Resolve a compose-service-name base_url to the live bridge IP (the host can't resolve
+	// compose names) — same as the scheduled Probe/QueueAction paths. A literal IP or a nil
+	// resolver passes through; an unresolvable service is a clear BASIC failure, not a hang.
+	base, rerr := p.resolveBase(ctx, project, target.BaseURL)
+	if rerr != nil {
+		return &Result{Mode: BASIC, Err: "ops endpoint not reachable: " + rerr.Error()}
+	}
+	target.BaseURL = base
+
 	adapter := Lookup(adapterName)
 	var disc Discovery
 	if mode == "rich" {

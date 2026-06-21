@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/daboss2003/Helmsman/internal/opsclient"
@@ -40,10 +41,12 @@ func TestResolveBase(t *testing.T) {
 type fakeDoer struct {
 	responses  map[string]*opsclient.Response
 	lastSecret string
+	lastBase   string // the base URL the doer was last dialed at (asserts resolution)
 	postCalls  []string
 }
 
 func (f *fakeDoer) Get(ctx context.Context, base, relPath, secretHeader string, sec secret.Redacted) (*opsclient.Response, error) {
+	f.lastBase = base
 	if secretHeader != "" {
 		f.lastSecret = sec.Reveal()
 	}
@@ -175,6 +178,37 @@ func proberWith(t *testing.T, doer Doer, cfg SetInput) *Prober {
 		t.Fatal(err)
 	}
 	return NewProber(cs, doer, db, nil)
+}
+
+// ProbeTarget (the per-service on-demand path) must resolve a compose-service-name
+// base_url to the live bridge IP before dialing — parity with the scheduled Probe.
+func TestProbeTargetResolvesBaseURL(t *testing.T) {
+	doer := &fakeDoer{responses: map[string]*opsclient.Response{
+		"/health/live": {Status: 200, Body: []byte(`{"status":"ok"}`)},
+	}}
+	db := newTestDB(t)
+	p := NewProber(NewConfigStore(db, newCipher(t)), doer, db, func(_ context.Context, project, service string) (string, bool) {
+		if project == "shop" && service == "resolver" {
+			return "172.18.0.9", true
+		}
+		return "", false
+	})
+	// service name → dialed at the resolved bridge IP, port preserved.
+	if res := p.ProbeTarget(context.Background(), "shop", Target{BaseURL: "http://resolver:8081"}, "", "rich"); res == nil {
+		t.Fatal("nil result")
+	}
+	if !strings.Contains(doer.lastBase, "172.18.0.9:8081") {
+		t.Errorf("ProbeTarget dialed %q, want the resolved IP 172.18.0.9:8081", doer.lastBase)
+	}
+	// unresolvable service → clear BASIC failure, and NO dial.
+	doer.lastBase = ""
+	res := p.ProbeTarget(context.Background(), "shop", Target{BaseURL: "http://ghost:9999"}, "", "rich")
+	if res == nil || res.Mode != BASIC || res.Err == "" {
+		t.Errorf("an unresolvable service must be a clear BASIC failure, got %+v", res)
+	}
+	if doer.lastBase != "" {
+		t.Errorf("must not dial an unresolvable service, dialed %q", doer.lastBase)
+	}
 }
 
 func TestProbeRichViaDescriptor(t *testing.T) {

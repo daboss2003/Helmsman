@@ -87,7 +87,7 @@ func (s *Server) handleServiceGet(w http.ResponseWriter, r *http.Request) {
 		}
 		target := ops.Target{BaseURL: oi.BaseURL, SecretHeader: oi.SecretHeader, Secret: secretpkg.New(secret), BasePath: oi.BasePath}
 		pctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
-		sv.Ops = s.prober.ProbeTarget(pctx, target, oi.Adapter, oi.Mode)
+		sv.Ops = s.prober.ProbeTarget(pctx, project, target, oi.Adapter, oi.Mode)
 		cancel()
 	}
 
