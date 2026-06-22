@@ -41,6 +41,28 @@ func TestValidateMemLimit(t *testing.T) {
 	}
 }
 
+// stop_grace_period must be a valid positive duration; bad/zero/negative are rejected
+// early, a valid duration and the unset case pass.
+func TestValidateStopGracePeriod(t *testing.T) {
+	set := func(v string) *Definition {
+		d := base()
+		web := d.Spec.Compose.Services["web"]
+		web.StopGracePeriod = v
+		d.Spec.Compose.Services["web"] = web
+		return d
+	}
+	for _, bad := range []string{"60", "soon", "0s", "-5s"} {
+		if err := Validate(set(bad), "/run/app", compose.Env{}, nil); err == nil || !strings.Contains(err.Error(), "stop_grace_period") {
+			t.Errorf("stop_grace_period %q must be rejected, got %v", bad, err)
+		}
+	}
+	for _, ok := range []string{"60s", "1m30s", "500ms", "1h", ""} {
+		if err := Validate(set(ok), "/run/app", compose.Env{}, nil); err != nil {
+			t.Errorf("valid stop_grace_period %q rejected: %v", ok, err)
+		}
+	}
+}
+
 func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
 	d := base()
 	raw, err := ComposeBytes(d)

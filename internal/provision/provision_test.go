@@ -47,6 +47,22 @@ func TestGenerateMemLimit(t *testing.T) {
 	}
 }
 
+// stop_grace_period is emitted into the generated compose; unset omits the key.
+func TestGenerateStopGracePeriod(t *testing.T) {
+	spec := sampleSpec()
+	spec.Services[0].StopGracePeriod = "60s"
+	out, err := Generate(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "stop_grace_period: 60s") {
+		t.Errorf("generated compose missing stop_grace_period:\n%s", out)
+	}
+	if bare, _ := Generate(sampleSpec()); strings.Contains(string(bare), "stop_grace_period") {
+		t.Errorf("a service with no stop_grace_period must omit the key:\n%s", bare)
+	}
+}
+
 // The generated compose is safe by construction AND passes the §5.6 chokepoint.
 func TestGenerateProducesSafeComposeThatPassesValidator(t *testing.T) {
 	out, err := Generate(sampleSpec())

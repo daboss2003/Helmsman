@@ -105,6 +105,10 @@ type Service struct {
 	// MemReservation is the optional soft reservation. Both empty → unbounded (host RAM), as today.
 	MemLimit       string `yaml:"mem_limit,omitempty"`
 	MemReservation string `yaml:"mem_reservation,omitempty"`
+	// StopGracePeriod widens the SIGTERM→SIGKILL window on stop (scale-down / redeploy)
+	// from docker's 10s default, so the app can drain long in-flight requests, e.g. "60s",
+	// "1m30s". Empty = docker default. Pairs with the app's graceful-shutdown hooks.
+	StopGracePeriod string `yaml:"stop_grace_period,omitempty"`
 }
 
 // EnvValue is a per-service env var: a literal value XOR a `{secret: NAME}` reference.

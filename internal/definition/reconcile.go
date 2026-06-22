@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/daboss2003/Helmsman/internal/builder"
 	"github.com/daboss2003/Helmsman/internal/compose"
@@ -26,6 +27,20 @@ func validMemSize(field, v string) error {
 	return fmt.Errorf("%s %q is not a valid size (e.g. 512m, 1g)", field, v)
 }
 
+// validDuration checks a compose duration string (stop_grace_period): a Go-style
+// duration that must be positive, e.g. "60s", "1m30s", "500ms". Empty is allowed
+// (optional → docker default). Rejected early instead of failing at `docker compose up`.
+func validDuration(field, v string) error {
+	if v == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fmt.Errorf("%s %q is not a valid duration (e.g. 60s, 1m30s)", field, v)
+	}
+	return nil
+}
+
 // reconcile.go is the shared validation core (plan §7.7): a definition is fanned out
 // into the EXISTING typed sub-structs and run through the SAME chokepoints the
 // dashboard uses — §5.6 (compose) and §6.2 (edge) — so the CLI/dashboard/repo are
@@ -42,7 +57,7 @@ func toProvisionSpec(d *Definition) provision.Spec {
 		s := provision.Service{
 			Name:    name,
 			Command: svc.Command, Healthcheck: svc.Healthcheck, Restart: svc.Restart, DependsOn: svc.DependsOn,
-			MemLimit: svc.MemLimit, MemReservation: svc.MemReservation,
+			MemLimit: svc.MemLimit, MemReservation: svc.MemReservation, StopGracePeriod: svc.StopGracePeriod,
 		}
 		if svc.Build != nil {
 			// Helmsman generates the Dockerfile into the run dir at deploy; the compose
@@ -118,6 +133,9 @@ func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []st
 			return err
 		}
 		if err := validMemSize("service "+name+" mem_reservation", svc.MemReservation); err != nil {
+			return err
+		}
+		if err := validDuration("service "+name+" stop_grace_period", svc.StopGracePeriod); err != nil {
 			return err
 		}
 	}

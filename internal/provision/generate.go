@@ -17,17 +17,18 @@ type composeFile struct {
 }
 
 type composeService struct {
-	Image          string         `yaml:"image,omitempty"`
-	Build          *composeBuild  `yaml:"build,omitempty"`
-	Restart        string         `yaml:"restart,omitempty"`
-	Ports          []string       `yaml:"ports,omitempty"`
-	Volumes        []string       `yaml:"volumes,omitempty"`
-	Environment    []string       `yaml:"environment,omitempty"`
-	Command        []string       `yaml:"command,omitempty"`
-	Healthcheck    *composeHealth `yaml:"healthcheck,omitempty"`
-	DependsOn      []string       `yaml:"depends_on,omitempty"`
-	MemLimit       string         `yaml:"mem_limit,omitempty"`
-	MemReservation string         `yaml:"mem_reservation,omitempty"`
+	Image           string         `yaml:"image,omitempty"`
+	Build           *composeBuild  `yaml:"build,omitempty"`
+	Restart         string         `yaml:"restart,omitempty"`
+	Ports           []string       `yaml:"ports,omitempty"`
+	Volumes         []string       `yaml:"volumes,omitempty"`
+	Environment     []string       `yaml:"environment,omitempty"`
+	Command         []string       `yaml:"command,omitempty"`
+	Healthcheck     *composeHealth `yaml:"healthcheck,omitempty"`
+	DependsOn       []string       `yaml:"depends_on,omitempty"`
+	MemLimit        string         `yaml:"mem_limit,omitempty"`
+	MemReservation  string         `yaml:"mem_reservation,omitempty"`
+	StopGracePeriod string         `yaml:"stop_grace_period,omitempty"`
 }
 
 // composeBuild is the generated `build:` directive — Helmsman builds the service's
@@ -57,7 +58,7 @@ func Generate(spec Spec) ([]byte, error) {
 	namedVols := map[string]nullYAML{}
 
 	for _, svc := range spec.Services {
-		cs := composeService{Restart: svc.Restart, DependsOn: svc.DependsOn, MemLimit: svc.MemLimit, MemReservation: svc.MemReservation}
+		cs := composeService{Restart: svc.Restart, DependsOn: svc.DependsOn, MemLimit: svc.MemLimit, MemReservation: svc.MemReservation, StopGracePeriod: svc.StopGracePeriod}
 		if svc.Build != nil {
 			cs.Build = &composeBuild{Context: svc.Build.Context, Dockerfile: svc.Build.Dockerfile}
 		} else {

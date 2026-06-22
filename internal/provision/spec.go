@@ -72,6 +72,9 @@ type Service struct {
 	// mem trigger per-service. Validated in the definition layer; allow-listed in compose.
 	MemLimit       string `json:"mem_limit,omitempty"`
 	MemReservation string `json:"mem_reservation,omitempty"`
+	// StopGracePeriod is a compose duration ("60s", "1m30s"); empty omits the key. Widens
+	// the SIGTERM→SIGKILL drain window on stop. Validated in the definition layer.
+	StopGracePeriod string `json:"stop_grace_period,omitempty"`
 }
 
 // Build marks a service whose image Helmsman BUILDS from a generated Dockerfile.
