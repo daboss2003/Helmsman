@@ -5,7 +5,7 @@
   <p class="muted">Every app Helmsman manages. Open one to view logs and start, stop, restart, or redeploy it.</p>
 
   <section class="panel">
-    <h2><span>All apps {{if .AppsRows}}<span class="muted">({{len .AppsRows}})</span>{{end}}</span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
+    <h2><span>All apps {{if .AppsRows}}<span class="muted">({{len .AppsRows}})</span>{{end}}</span> <a href="/git/new" class="btn btn-sm btn-primary">+ New app</a></h2>
     {{if .AppsRows}}
     <table class="grid">
       <thead><tr><th>App</th><th>Status</th><th>Services</th><th>Source</th><th></th></tr></thead>
@@ -26,7 +26,7 @@
       </tbody>
     </table>
     {{else}}
-    <p class="muted">No apps yet. Create one with <a href="/apps/new">New app</a> or <a href="/git/new">connect a repo</a>.</p>
+    <p class="muted">No apps yet. <a href="/git/new">Connect a repo</a> — Helmsman reads its <code>helmsman.yaml</code> (and scaffolds a starter if it has none) and deploys it.</p>
     {{end}}
   </section>
 </main>

@@ -27,11 +27,11 @@ You'll arrive at the **Overview** — your server's CPU, memory, and disk, with 
 
 ## Add an app
 
-Click **New app** and fill in the form: the image to run, the port it listens on, volumes, and environment values. Helmsman generates the Compose definition from your input.
+Click **New app** and **connect a Git repo**. Your app is defined by a `helmsman.yaml` at the repo root — the single source of truth: the services to run (each pulling an `image:` or built from your code via `build:`), ports, env (secret *names*; you set their values in the dashboard), volumes, edge routes, and scaling. If the repo has no `helmsman.yaml`, Helmsman scaffolds a starter from your detected stack so the first deploy just works; commit a real one for full control. The connect page shows a starter example to copy.
 
-Click **Validate** to preview, then **Deploy**. The deploy runs live in the page, and the app then appears on your Overview with its health, logs, and controls.
+Helmsman generates and owns the Compose and Dockerfile from that file — you never write either. Once connected, **Deploy** runs live in the page, and the app appears on your Overview with its health, logs, and controls. To change the app, edit `helmsman.yaml` and deploy again; the dashboard stays read-only for the app's *shape* (but you set secret values and run/restart/scale there).
 
-Your app should listen on an internal port such as `8080`. Helmsman owns ports 80 and 443 and routes public traffic to your app.
+Your app should listen on an internal port such as `8080`. Helmsman owns ports 80 and 443 and routes public traffic to your app via an edge route.
 
 ## Add a secret
 

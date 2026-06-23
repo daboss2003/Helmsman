@@ -29,9 +29,12 @@
     {{template "overview" .}}
   </div>
 
+  {{/* Legacy form-provisioned apps. The single-service "New app" form was retired (apps
+       are now defined by a repo's helmsman.yaml), so this panel only appears when older
+       form-created apps still exist — to deploy/remove them while you migrate to a repo. */}}
+  {{if .Provisioned}}
   <section class="panel">
-    <h2><span>Provisioned apps <span class="muted">(form-generated or imported)</span></span> <a href="/apps/new" class="btn btn-sm btn-primary">+ New app</a></h2>
-    {{if .Provisioned}}
+    <h2><span>Provisioned apps <span class="muted">(legacy — form-created; migrate to a repo)</span></span></h2>
     <table class="grid">
       <thead><tr><th>App</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
@@ -51,8 +54,8 @@
         {{end}}
       </tbody>
     </table>
-    {{else}}<p class="muted">No provisioned apps yet. <a href="/apps/new">Create one →</a></p>{{end}}
   </section>
+  {{end}}
 
   <pre id="deploy-output" class="stream" hidden></pre>
 </main>

@@ -418,9 +418,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/cert-bindings/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleCertBindingDelete))))
 	// App provisioning wizard (M8, modes 1 & 2). validate is a dry preview;
 	// commit/deploy are §0-gated write-plane actions.
-	mux.HandleFunc("GET /apps/new", s.requireAuth(s.withCSRFToken(s.handleProvisionNew)))
-	mux.HandleFunc("POST /apps/new/validate", capBody(1<<20, s.requireAuth(s.requireCSRF(s.handleProvisionValidate))))
-	mux.HandleFunc("POST /apps/new/commit", capBody(1<<20, s.requireAuth(s.requireCSRF(s.handleProvisionCommit))))
+	// "New app" is now the repo-connect flow: GET /apps/new redirects to /git/new (the
+	// single-service provision FORM was retired — a repo's helmsman.yaml is the source of
+	// truth). The deploy/delete lifecycle routes stay for any legacy provisioned apps.
+	mux.HandleFunc("GET /apps/new", s.requireAuth(s.handleProvisionNew))
 	mux.HandleFunc("POST /apps/{project}/provision-deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleProvisionDeploy))))
 	mux.HandleFunc("POST /apps/{project}/provision-delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleProvisionDelete))))
 	// Setup-script sandbox (M9, Mode 3 — OFF by default, hard-gated). The run is

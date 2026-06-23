@@ -139,7 +139,36 @@ X-Helmsman-Signature: hex(HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;nonce&gt;")
       <p class="muted">Helmsman reads a <code>helmsman.yaml</code> from your repo and generates the
         compose (and the Dockerfile, from each service's <code>build:</code>). If the repo has no
         <code>helmsman.yaml</code>, Helmsman scaffolds a sensible default from the detected stack. You never
-        commit a <code>docker-compose.yml</code>.</p>
+        commit a <code>docker-compose.yml</code>. <strong>The <code>helmsman.yaml</code> in your repo is the
+        single source of truth</strong> — edit it there and deploy; the dashboard shows it (and lets you set
+        secret values + run/restart/scale), but the app's shape lives in the file.</p>
+      <details class="accordion">
+        <summary>Starter <code>helmsman.yaml</code> — copy into your repo root</summary>
+        <pre class="stream mono">apiVersion: helmsman/v1
+kind: App
+metadata:
+  slug: myapp                # lowercase; the app's name
+spec:
+  compose:
+    services:
+      api:
+        build:               # build from THIS repo (omit + use `image:` to pull instead)
+          language: auto     # auto | node | python | go | ruby | php | static
+        ports:
+          - internal: 3000
+        env:
+          LOG_LEVEL: info
+          JWT_SECRET: { secret: JWT_SECRET }   # value set in the dashboard, never in YAML
+      cache:
+        image: redis:7       # an off-the-shelf image service
+  secrets:
+    - name: JWT_SECRET       # declare the NAME here; set its VALUE in the dashboard
+  edge:
+    routes:
+      - hostname: myapp.example.com
+        service: api
+        port: 3000           # Helmsman terminates TLS and proxies to api:3000</pre>
+      </details>
       <label class="check"><input type="checkbox" name="auto_deploy" {{if .AutoDeploy}}checked{{end}}> Auto-deploy on webhook (default off)</label>
       <fieldset>
         <legend>Credentials</legend>
