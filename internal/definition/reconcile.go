@@ -1,6 +1,7 @@
 package definition
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -206,4 +207,41 @@ func DiffPlan(current, desired *Definition) (Plan, error) {
 	}
 	sort.Strings(changes)
 	return Plan{Changes: changes}, nil
+}
+
+// flattenDef marshals a definition to canonical JSON and flattens it to path→json-leaf
+// (objects recurse; arrays/scalars are whole leaves). An empty/absent value has no
+// entry. Used by DiffPlan to compute field-level changes between two definitions.
+func flattenDef(d *Definition) (map[string]string, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	flattenJSON("", v, out)
+	return out, nil
+}
+
+func flattenJSON(prefix string, v any, out map[string]string) {
+	if v == nil {
+		return // a null (e.g. a nil pointer field) is ABSENT, not a leaf — so a nil
+		// pointer and an unset object compare equal (no phantom path).
+	}
+	if m, ok := v.(map[string]any); ok && len(m) > 0 {
+		for k, val := range m {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
+			}
+			flattenJSON(p, val, out)
+		}
+		return
+	}
+	// arrays, scalars, and empty objects are whole leaves.
+	b, _ := json.Marshal(v)
+	out[prefix] = string(b)
 }

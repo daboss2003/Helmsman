@@ -6,7 +6,7 @@
 
 **Run your apps on your own server — automatic HTTPS, live monitoring, and one clean dashboard — without the DevOps grind.**
 
-Helmsman is a single small binary you install on a Linux server that has Docker. It owns the public edge (Caddy + automatic HTTPS), watches your apps' health, and gives you a dashboard and CLI to deploy and manage everything — so a plain server becomes a place you can ship to in minutes. You configure apps *in the tool*; you never hand-edit a proxy config or run `certbot`.
+Helmsman is a single small binary you install on a Linux server that has Docker. It owns the public edge (Caddy + automatic HTTPS), watches your apps' health, and gives you a dashboard and CLI to deploy and manage everything — so a plain server becomes a place you can ship to in minutes. Each app is defined by a `helmsman.yaml` in its Git repo: you describe the services, domains, and config there, connect the repo, and Helmsman runs it — generating and owning the Compose file and Dockerfile for you. You never hand-write either, hand-edit a proxy config, or run `certbot`.
 
 Think of it as your own small Heroku or Netlify, running on a server you own. It's **secure by default**, and built around one rule: *hosting Helmsman should never be the thing that gets your server hacked.*
 
@@ -14,8 +14,8 @@ Think of it as your own small Heroku or Netlify, running on a server you own. It
 
 - **Automatic HTTPS** — give an app a domain and Helmsman issues and renews the certificate and routes traffic to it. No proxy to run, no certbot.
 - **A real dashboard** — health for every app and the host (with live CPU/memory/disk charts), logs, and start / stop / restart / redeploy per app or service.
-- **Safe deploys** — from a guided form or straight from a Git repo. Every change is checked before it goes live, with automatic rollback on failure.
-- **Deploy from Git, one click** — connect a repo (including one-click **Connect with GitHub**, which installs a read-only deploy key for you). Helmsman watches for new commits and shows you what changed; you click Deploy.
+- **Safe deploys** — straight from a Git repo's `helmsman.yaml`. Every change is checked before it goes live, with automatic rollback on failure.
+- **Deploy from Git, one click** — connect a repo (including one-click **Connect with GitHub**, which installs a read-only deploy key for you). Helmsman watches for new commits and shows you what changed; you click Deploy. Access is fetch-only — Helmsman never pushes to your repo.
 - **Secrets, done right** — passwords and API keys are stored encrypted and referenced by name, never sitting in plain text in your files, repo, or logs.
 - **Incidents in one place** — open alerts, unhealthy apps, and recent failures roll up onto a single screen.
 - **Alerting** — optional email / webhook / Slack / Discord / Telegram, with quiet hours and an external dead-man's switch. Off until you turn it on.
@@ -47,16 +47,16 @@ A matching `.rpm` and standalone binaries are on every [release](https://github.
 
 1. **[Install it](./docs/installation.md)** and generate your login + master key over SSH.
 2. Open the dashboard at your `admin.hostname`.
-3. **[Deploy your first app](./docs/first-steps.md)** — add it from a form or connect a repo, set its secrets, and give it a domain.
+3. **[Deploy your first app](./docs/first-steps.md)** — connect its Git repo (its `helmsman.yaml` defines the app), set its secrets, and give it a domain.
 
-After install, you work entirely in the dashboard.
+After install, you work entirely in the dashboard. To change an app's structure, edit its `helmsman.yaml` and deploy — see [The `helmsman.yaml` file](./docs/definition-file.md).
 
 ## What you can do in the dashboard
 
 - **Overview & Apps** — every app's status at a glance; open one to see services, logs, and lifecycle controls.
 - **Repository & updates** — for repo-backed apps: what changed, and Deploy / Redeploy.
-- **Edge & TLS** — give an app a domain; Helmsman handles the certificate and routing.
-- **Env & secrets, config files** — manage an app's environment and templated config.
+- **Edge & TLS** — see the routes declared in an app's `helmsman.yaml`; Helmsman handles the certificate and routing.
+- **Env & secrets** — set your apps' secret values and non-secret env (the `helmsman.yaml` declares secret *names*; the values live encrypted, never in the file). Config files and cert bindings are defined in the file and shown read-only here.
 - **Incidents & Alerts** — see what needs you, and configure how you're notified.
 - **Audit log, API tokens, Backups** — review privileged actions, manage machine tokens, and snapshot your setup.
 
@@ -68,7 +68,7 @@ The dashboard is the day-to-day surface. The CLI is for installation and the occ
 |---|---|
 | `helmsman serve` | Run the dashboard + managed edge. |
 | `helmsman gen-key` · `hash-password` · `gen-totp` · `verify-key` | Generate the master key, password hash, and 2FA secret over SSH (the root of trust). |
-| `helmsman validate` · `init --from-compose` | Check a `helmsman.yaml`, or scaffold one from a compose file (read-only, CI-safe). |
+| `helmsman validate` · `init` | Check a `helmsman.yaml`, or scaffold a starter one (read-only, CI-safe). |
 | `helmsman secret import` | Import an existing `.env` into an app's encrypted store. |
 | `helmsman token mint` · `list` · `revoke` | Manage scoped API tokens. |
 | `helmsman restore` | Restore Helmsman's database from an encrypted backup. |

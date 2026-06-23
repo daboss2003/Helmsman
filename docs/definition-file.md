@@ -1,15 +1,18 @@
 # `helmsman.yaml` — Definition File Reference
 
-The **definition file** (`helmsman.yaml`) is the declarative source of truth for an app. You describe your **stack** — one or more services, each either pulling an image or built from your repo, plus env, secrets (by reference), config files, cert bindings, edge routes, scaling, and GitOps behaviour — and **Helmsman generates and owns the `docker-compose.yml` and the Dockerfile**. You never hand-write a compose file or a Dockerfile.
+The **definition file** (`helmsman.yaml`) lives in your app's Git repo and is the **single source of truth** for the app. You describe your **stack** — one or more services, each either pulling an image or built from your repo, plus env, secrets (by reference), config files, cert bindings, edge routes, scaling, and GitOps behaviour — and **Helmsman generates and owns the `docker-compose.yml` and the Dockerfile**. You never hand-write a compose file or a Dockerfile.
 
-There are two ways to author it, and they are **the same trust path**, not two:
+**To create an app you connect its repo.** There is no dashboard "New app" form; "New app" is the **connect-a-repo** flow. If the repo has no `helmsman.yaml` yet, Helmsman scaffolds a starter from the detected stack so the first deploy works — commit a real one when you want full control.
 
-- The **dashboard** edits it through forms.
-- You **commit it to your repo**; when Helmsman deploys that repo it reads the `helmsman.yaml`, generates the compose, and rolls it out.
+**The dashboard is read-only for app structure.** Services, edge routes, config files, cert bindings, and ops structure are all read from this file; the dashboard *shows* the deployed config but does not author it. To change any of them, **edit `helmsman.yaml` and deploy.** The narrow exceptions — things that are operational rather than structural — stay in the dashboard:
 
-Both are thin front-ends onto the **one validator** that judges every generated compose. The definition file is a new front *door*, never a new trust *path* — nothing in it reaches `docker compose` unvalidated.
+- **secret VALUES** (the env page; this file declares secret *names* only),
+- **lifecycle ACTIONS** (deploy / restart / scale-now / pause-resume the queue / clear a self-heal circuit), and
+- the **auto-scaling policy** (operational tuning, set on the service page).
 
-> **See also:** [README](../README.md) · [Managed config files](./config-files-and-secrets.md) · [Cert bindings](./edge-and-tls.md) · [GitOps / repo-path apps](./gitops.md) · [Managed edge & routes](./edge-and-tls.md) · [Secrets](./config-files-and-secrets.md) · [Auto-scaling](./scaling-and-self-healing.md) · [Self-healing](./scaling-and-self-healing.md) · [CLI reference](./cli.md)
+Everything reaches the runtime through **one validator** — the same one whether you `helmsman validate` in CI or deploy. Nothing in this file reaches `docker compose` unvalidated. Helmsman's git access is **fetch-only**: it reads your repo at a pinned commit and **never pushes to it**.
+
+> **See also:** [README](../README.md) · [Managed config files](./config-files-and-secrets.md) · [Cert bindings](./edge-and-tls.md) · [GitOps](./gitops.md) · [Managed edge & routes](./edge-and-tls.md) · [Secrets](./config-files-and-secrets.md) · [Auto-scaling](./scaling-and-self-healing.md) · [Self-healing](./scaling-and-self-healing.md) · [CLI reference](./cli.md)
 
 ---
 
@@ -19,20 +22,24 @@ Both are thin front-ends onto the **one validator** that judges every generated 
 - [How parsing works (and what is rejected)](#how-parsing-works-and-what-is-rejected)
 - [The `spec` sections](#the-spec-sections)
   - [`compose`](#speccompose)
+  - [`setup`](#specsetup-an-advanced-setup-script)
   - [`secrets`](#specsecrets)
-  - [`config_files`](#specconfig_files)
-  - [`cert_bindings`](#speccert_bindings)
+  - [`config_files`](#config_files-per-service)
+  - [`secret_files`](#secret_files-per-service)
+  - [`cert_bindings`](#cert_bindings-per-service)
   - [`edge.routes`](#specedgeroutes)
+  - [`edge.l4_routes`](#specedgel4_routes-tcpudp-load-balancing)
   - [`scaling`](#specscaling)
   - [`self_healing`](#specself_healing)
-  - [`ops_interface`](#specops_interface)
+  - [`ops_interface`](#specops_interface--servicesnameops_interface)
   - [`git`](#specgit)
 - [The `{{hm.KEY}}` binding delimiter](#the-hmkey-binding-delimiter)
 - [Secrets are by reference only](#secrets-are-by-reference-only)
-- [Write-back & sync (split-plane ownership)](#write-back--sync-split-plane-ownership)
-- [The apply lifecycle](#the-apply-lifecycle)
-- [Worked example A — a stateful broker](#worked-example-a--a-stateful-broker)
+- [How a change is applied](#how-a-change-is-applied)
+- [Where your app's files live](#where-your-apps-files-live)
+- [Worked example A — a multi-service stack (API + broker)](#worked-example-a--a-multi-service-stack-api--broker)
 - [Worked example B — a stateless API](#worked-example-b--a-stateless-api)
+- [Complete minimal example](#complete-minimal-example)
 - [Field quick reference](#field-quick-reference)
 
 ---
@@ -45,17 +52,17 @@ Every definition file is a Kubernetes-style envelope:
 apiVersion: helmsman/v1     # exact-match, fail-closed
 kind: App                   # an app definition (the host-level definition uses kind: Host)
 metadata:
-  slug: my-app              # immutable after the first apply
+  slug: my-app              # immutable after the first deploy
 spec:
-  # ... the managed surface (see below)
+  # ... the whole app — services, secrets, edge, scaling, … (see below)
 ```
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `apiVersion` | string | yes | **Must be exactly `helmsman/v1`.** See the version gate below. |
 | `kind` | string | yes | `App` for an app. The host-level definition (`host.yaml`) uses `kind: Host` — see [the host file](./host-file.md). |
-| `metadata.slug` | string | yes | The app identity. `^[a-z][a-z0-9-]{1,30}$`. **Immutable after the first apply** — it becomes the project/run-dir name and the secret namespace key. Changing it is rejected, not silently re-homed. |
-| `spec` | object | yes | The managed surface. Each section is a *projection* onto an existing Helmsman artifact (see [The `spec` sections](#the-spec-sections)). |
+| `metadata.slug` | string | yes | The app identity. `^[a-z][a-z0-9-]{1,30}$`. **Immutable after the first deploy** — it becomes the project/run-dir name and the secret namespace key. Changing it is rejected, not silently re-homed. |
+| `spec` | object | yes | The whole app: services, secrets, edge routes, scaling, self-healing, ops, and GitOps (see [The `spec` sections](#the-spec-sections)). |
 
 ### The version gate is exact-match and fail-closed
 
@@ -70,7 +77,7 @@ spec:
 
 ## How parsing works (and what is rejected)
 
-`helmsman.yaml` is the canonical name. The loader also accepts `.yml` and `.toml`, but **all three normalize through one canonical JSON intermediate** into a single typed `DefinitionV1`, and the file is always **re-marshalled to canonical YAML** on write-back. The format you author in is an input encoding, never the stored truth.
+`helmsman.yaml` is the expected name. The loader also accepts `.yml` and `.toml`, but **all three normalize through one JSON intermediate** into a single typed definition before anything is validated. The format you author in is an input encoding; the typed model is what every validator and generator sees.
 
 Hard rejections at parse time (fail-closed, every one is a stop, not a warning):
 
@@ -81,26 +88,29 @@ Hard rejections at parse time (fail-closed, every one is a stop, not a warning):
 | **Duplicate keys** | A duplicate is a parser-differential vector. Hard reject. |
 | **Implicitly-typed scalars that flip meaning** | Scalars are read as explicitly typed; a `yes`/`on`/`1` cannot quietly become a boolean. |
 | Wrong `apiVersion` | See the version gate above. |
-| A changed `metadata.slug` after first apply | The slug is immutable. |
+| A changed `metadata.slug` after first deploy | The slug is immutable. |
 
-After a clean parse, `${VAR}` / `.env` interpolation is **resolved first** (validating before interpolation is a known bypass), then the typed structs fan out into the existing validators. **Nothing reaches `docker compose` before §5.6 has seen the fully-resolved bytes.**
+After a clean parse, `${VAR}` / `.env` interpolation is **resolved first** (validating before interpolation is a known bypass), then the typed structs fan out into the validators. **Nothing reaches `docker compose` before the validator has seen the fully-resolved bytes.**
 
 ---
 
 ## The `spec` sections
 
-Each `spec` section is a **projection onto an existing artifact** — there are no new artifact types. Authoring a section in `helmsman.yaml` is exactly equivalent to filling in the corresponding dashboard panel; both feed the same typed sub-struct.
+`spec` is the whole app. Each section below is read from this file and reflected (read-only) in the dashboard.
 
 | Section | What it configures | Default if omitted |
 |---|---|---|
 | `compose` | your **stack** — the services Helmsman generates the compose from | **required** |
+| `setup` | an advanced per-app setup script | none |
 | `secrets` | secret **names** (declared here; values are set out-of-band) | empty |
 | `edge.routes` | public HTTPS routes (the managed edge) | empty (no public exposure) |
-| `scaling` | opt-in auto-scaling for a service | disabled |
+| `edge.l4_routes` | TCP/UDP stream listeners (the L4 load balancer) | empty |
+| `scaling` | opt-in auto-scaling, one policy per service | disabled |
+| `self_healing` | per-app tuning of the self-healing supervisor | built-in defaults |
+| `ops_interface` | an ops endpoint Helmsman probes for rich health/metrics | disabled |
 | `git` | GitOps behaviour (repo, ref, auto-deploy) | `auto_deploy: false` |
-| `setup` | an advanced per-app setup script | none |
 
-Per-service, you also declare `env`, `secret_files`, `config_files`, `cert_bindings`, `volumes`, and (for built services) `build` — all under `compose.services`, below.
+Per-service, you also declare `env`, `secret_files`, `config_files`, `cert_bindings`, `volumes`, `ops_interface`, and (for built services) `build` — all under `compose.services`, below.
 
 ### `spec.compose`
 
@@ -424,7 +434,7 @@ scaling:
 
 A deploy persists each policy (unset thresholds default to 80/40, with a positive breach window + down-lazy cooldowns); a policy that violates the controller contract (e.g. a <20-pt dead band) blocks the deploy. Omitted services are left as-is. Scaling a **non-HTTP** service additionally needs an [`l4_route`](#specedgel4_routes-tcpudp-load-balancing) + nginx (see that section).
 
-> **Dashboard ↔ file are the same source.** Editing a service's scaling in the dashboard **writes back into this `helmsman.yaml`** (the canonical definition) — so whether you edit the file or the dashboard, the policy lives in the one definition. For a repo-connected app a dashboard edit shows as drift vs the repo; download the updated file from the app page (or `GET /apps/<slug>/definition.yaml`) and commit it. (Edge/L4 routes round-trip the same way as that write-back lands.)
+> **Auto-scaling is a dashboard exception.** Unlike the rest of the structure, the scaling policy is **operational tuning you can also set on the service page** (a thresholds/min/max form) so you can react without a redeploy. The policy you author here is the starting point; what's live is whatever was last set. To capture the current policy back into your repo, download the deployed definition from the app page (`GET /apps/<slug>/definition.yaml`) and commit it — Helmsman never writes to your repo.
 
 | Field (per list entry) | Type | Default | Notes |
 |---|---|---|---|
@@ -490,20 +500,22 @@ ops_interface:
 | `mode` | enum | `auto` (default) \| `rich` \| `basic`. |
 | `adapter` | string | Response adapter (default `ops.v1`). |
 
-> **Dashboard ↔ file are the same source.** Editing the ops config in the dashboard **writes back into this `helmsman.yaml`** (the non-secret fields); the secret value stays in the encrypted store.
+> **The structure is read from this file; only the shared-secret VALUE is a dashboard input.** Set the secret value on the env page (or declare a secret and point `secret` at it). The endpoint, paths, headers, and mode come from `helmsman.yaml`.
 
 ### `spec.git`
 
-The GitOps fields (§7.6). **Fetch is automatic (read-plane); deploy is manual (write-plane, sha-pinned).** `auto_deploy` defaults to **false**.
+The GitOps fields. **Fetch is automatic (read-plane); deploy is manual (write-plane, sha-pinned).** Helmsman's git access is **fetch-only — it never pushes to your repo.** `auto_deploy` defaults to **false**.
 
 ```yaml
 git:
-  ref: refs/heads/main      # fully-qualified; the webhook never reads ref/sha from its payload
-  auto_deploy: false        # default false; opt-in only auto-clicks the SAME gated promote path
+  repo: https://github.com/acme/app.git   # optional; usually set by the connect-a-repo flow
+  ref: refs/heads/main                      # fully-qualified; the webhook never reads ref/sha from its payload
+  auto_deploy: false                        # default false; opt-in only auto-clicks the SAME gated promote path
 ```
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
+| `repo` | string | — | The repo URL. Normally established when you **connect the repo** in the dashboard (that flow also installs a read-only deploy key); set it here only if you author the file before connecting. |
 | `ref` | string | — | A **fully-qualified** git ref. Resolved server-side; a webhook is a trigger only and never reads the ref/sha/repo from its (attacker-influenced) payload. |
 | `auto_deploy` | bool | **`false`** | When `true`, a fetch auto-clicks the **same** gated promote path — fail-closed to `update_blocked` + a page on any validation/gate failure, never an unguarded build. |
 
@@ -545,7 +557,7 @@ Every resolved value is scrubbed: **NUL is always rejected**, and **CR/LF is rej
 
 ## Secrets are by reference only
 
-**The definition file is never secret-bearing.** Because of that, `canonical.yaml` is stored `0640`, and the file is **safe to commit to a public repo**.
+**The definition file is never secret-bearing.** Because of that, the file is **safe to commit to a public repo** — it carries secret *names*, never values.
 
 The rules, all enforced:
 
@@ -559,80 +571,39 @@ The rules, all enforced:
    …into the AES-256-GCM store under the master key.
 5. **The literal-secret lint runs over every value.** A pasted secret — PEM/key material, a token shape, long base64 — in a non-secret-bearing position is **hard-rejected** with a pointer to use a `{ secret: NAME }` reference (and `{{hm.KEY}}` in a template) instead.
 
-> **The honest trade-off:** by-reference-only means the file alone cannot bootstrap a brand-new app end-to-end — you must provision the secret values out-of-band before (or interleaved with) the first apply. That is the deliberate cost of a file you can commit publicly and that can never carry a credential, never leak across apps, and never put a plaintext secret in your git history.
+> **The honest trade-off:** by-reference-only means the file alone cannot bootstrap a brand-new app end-to-end — you must provision the secret values out-of-band before (or interleaved with) the first deploy. That is the deliberate cost of a file you can commit publicly and that can never carry a credential, never leak across apps, and never put a plaintext secret in your git history.
 
 ---
 
-## Write-back & sync (split-plane ownership)
+## How a change is applied
 
-The definition file is **both** something the dashboard writes and something you can author in your repo. Reconciling those two writers is done with **split-plane ownership + a field-level 3-way merge** — **last-writer-wins is explicitly rejected.**
+**The repo file is the source; the dashboard reflects it.** To change app structure you edit `helmsman.yaml`, push, and deploy. Helmsman **fetches** your repo (read-only — it never pushes back), and an explicit, **sha-pinned Deploy** is what advances the live app. A push by itself only marks an update *available*; nothing goes live until you deploy (unless you opt into [`git.auto_deploy`](#specgit), which auto-clicks the **same** gated deploy path).
 
-### The four planes
-
-| Plane | Path / role | Ownership |
-|---|---|---|
-| **repo `helmsman.yaml`** | in your connected repo | **desired intent, read-only to Helmsman.** Helmsman **fetches, never pushes** — it holds no git write credential. |
-| **`canonical.yaml`** | `/var/lib/helmsman/apps/<slug>/definition/`, `0640`, HMAC-tracked | **last successfully applied = the live source of truth.** |
-| **`working.yaml`** | same dir | dashboard pending edits (never live until applied). |
-| **`base.yaml`** | same dir | the **3-way ancestor** for the merge. |
-
-A repo definition is adopted **exactly like compose**: read from the **pinned commit tree** via `cat-file`, and it becomes canonical **only through the sha-pinned, §0-gated promote** — **never on fetch.**
-
-### The 3-way merge and the def-state FSM
-
-Per field, against `base`:
-
-- one side changed → take it.
-- **both sides changed the same field → a `def_conflict` per-field review.** **Never an auto-merge, never a silent clobber.**
-
-Crucially, even a **non-conflicting repo-side change still requires explicit operator acknowledgement** — a dashboard apply never silently folds in attacker-committed repo changes (e.g. flipping `auto_deploy`, widening `scaling.max`, adding a route).
-
-The def-state FSM mirrors the GitOps FSM (§7.6):
+Whatever triggers it, a deploy runs the **one reconciler** — there is no second path that does more:
 
 ```
-up_to_date
-  ├─ def_update_available   (repo changed; needs acknowledgement)
-  ├─ def_conflict           (both planes changed the same field; per-field review)
-  ├─ def_review_required    (force-push / history rewrite on the def's ref)
-  ├─ applying
-  └─ update_blocked         (a validation/gate failure; stays on the prior def_version)
-```
-
-`def_state` lives on the `apps` row; every applied version is recorded in the HMAC-protected `definition_versions` table (`def_sha256`, `resolved_sha256`, `source`, `parent_version_id`, `promoted_commit`). `resolved_sha256` catches a **reference target changing even when the def bytes didn't** — e.g. the repo file behind a `config_files` `repo:` reference was edited.
-
-### Rollback & the iron escape hatch
-
-- A **failed deploy auto-rolls-back** the whole app to its prior definition — there is no half-applied state (see the lifecycle below).
-- You can **roll back to an earlier version from the dashboard**.
-- The bottom-of-everything recovery floor is **`helmsman restore --from <archive.hmbk> --force`** (run with the service stopped), which restores Helmsman's whole database from an encrypted backup. See [Backup & recovery](./backup-and-recovery.md).
-
----
-
-## The apply lifecycle
-
-A **dashboard save or a Git deploy** runs the **one reconciler** — one chokepoint, no second trust path:
-
-```
-parse → typed DefinitionV1
+parse → typed definition
   → resolve ${VAR}/.env FIRST
-  → fan out into the existing typed sub-structs
-  → §5.6 allowlist validator
-  → §6.2 edge conflict gate         (edge.routes re-marshalled; fail-to-save on shadow/admin/TLS/PKI/:80:443/XFF)
+  → fan out into the typed sub-structs
+  → allowlist validator
+  → edge conflict gate              (edge.routes re-rendered; fail-to-save on shadow/admin/TLS/PKI/:80:443/XFF)
   → secret-literal lint
   → verify required secrets provisioned
-  → §0 resource gate + host-capacity guard
-  → diff vs SQLite
-  → gated write-plane apply, in dependency order:
+  → resource gate + host-capacity guard
+  → diff vs the live state
+  → gated apply, in dependency order:
         env  →  render config files  →  cert-sync (deploy waits)  →  compose up  →  edge route re-render LAST
-  → on ANY step failure: auto-rollback the WHOLE app to the prior def_version  (no partial apply)
+  → on ANY step failure: auto-rollback the WHOLE app to its prior definition  (no partial apply)
 ```
 
 Properties to rely on:
 
 - **Idempotent.** A deploy with no changes produces an **empty plan = no-op**.
-- **Ordered.** Env first, edge route re-render last (behind the §6.2 atomic-apply + negative-from-internet probe). Cert-sync makes the deploy wait until the cert files exist.
-- **All-or-nothing.** Any step failing rolls the **entire app** back to the prior `def_version`. There is no half-applied state.
-- **Checkable ahead of time.** `helmsman validate` runs the **exact same §5.6 validator** read-only, so you can verify a `helmsman.yaml` in CI before it ever reaches the write plane. Whatever triggers a deploy, the typed reconcile request goes through the one chokepoint — **authority decides who may invoke; it never widens what a deploy may do.**
+- **Ordered.** Env first, edge route re-render last. Cert-sync makes the deploy wait until the cert files exist.
+- **All-or-nothing.** Any step failing rolls the **entire app** back to its prior definition. There is no half-applied state.
+- **Checkable ahead of time.** `helmsman validate` runs the **exact same validator** read-only, so you can verify a `helmsman.yaml` in CI before it ever reaches the write plane — a file that validates there is one a deploy accepts.
+
+You can **download the deployed definition** at any time from the app page (`GET /apps/<slug>/definition.yaml`). That is how you capture a dashboard-set [auto-scaling](#specscaling) policy back into your repo so the file and the live app agree — Helmsman never writes to your repo for you.
 
 ### The CLI surface
 
@@ -677,7 +648,7 @@ the broker's cert.
 apiVersion: helmsman/v1            # exact-match; an unknown version is rejected, never best-effort parsed
 kind: App
 metadata:
-  slug: credlock                   # immutable after first apply
+  slug: credlock                   # immutable after first deploy
 
 spec:
   compose:
@@ -744,7 +715,7 @@ A stateless HTTP API: an edge route, an **opt-in scaling policy**, and a healthc
 apiVersion: helmsman/v1
 kind: App
 metadata:
-  slug: web-api                    # immutable after first apply
+  slug: web-api                    # immutable after first deploy
 
 spec:
   compose:
@@ -788,9 +759,30 @@ spec:
     auto_deploy: false            # default; a push fetches only — deploy stays a manual, sha-pinned promote
 ```
 
-This API is a legitimate scaling candidate because every C1–C7 condition holds: it is an edge HTTP upstream with a known internal port, publishes no fixed host port (replicas are internal-port-only), holds no exclusive RW volume, is not stateful, carries no deploy-time *identity* placeholder (a *shared* `SHARED_AUTH_TOKEN` is fine — a per-node cookie would not be), honors a stateless restart contract, and opted in. Compare with [example A](#worked-example-a--a-stateful-broker), where the broker is stateful and scaling is therefore not even authored.
+This API is a legitimate scaling candidate because every C1–C7 condition holds: it is an edge HTTP upstream with a known internal port, publishes no fixed host port (replicas are internal-port-only), holds no exclusive RW volume, is not stateful, carries no deploy-time *identity* placeholder (a *shared* `SHARED_AUTH_TOKEN` is fine — a per-node cookie would not be), honors a stateless restart contract, and opted in. Compare with [example A](#worked-example-a--a-multi-service-stack-api--broker), where the broker is stateful and scaling is therefore not even authored.
 
-> **Self-healing** is configured per app in the dashboard (not a `helmsman.yaml` key) — see [Scaling & self-healing](./scaling-and-self-healing.md). The **App Ops Interface** IS a definition key: set `ops_interface` per service (or app-level) — see [App Ops Interface](./app-ops-interface.md).
+> **Self-healing** is tuned with the [`spec.self_healing`](#specself_healing) block in this file (there is no separate dashboard editor; every service is supervised on a conservative default if you omit it) — see [Scaling & self-healing](./scaling-and-self-healing.md). The **App Ops Interface** is also a definition key: set `ops_interface` per service (or app-level) — see [App Ops Interface](./app-ops-interface.md).
+
+---
+
+## Complete minimal example
+
+The smallest valid `helmsman.yaml` — one image-based service, no public route. Drop this in your repo, connect the repo, and deploy:
+
+```yaml
+apiVersion: helmsman/v1
+kind: App
+metadata:
+  slug: hello
+spec:
+  compose:
+    services:
+      web:
+        image: nginx:1.27
+        ports: [{ internal: 80 }]   # internal-only; add an edge.route to expose it publicly
+```
+
+`source: generated` is the default, so you can omit it. To expose `web` over HTTPS, add an [`edge.route`](#specedgeroutes); to build from your repo instead of pulling an image, replace `image:` with a [`build:`](#build--helmsman-generates-the-dockerfile) block. Run `helmsman validate` (read-only, safe in CI) before you commit.
 
 ---
 
@@ -805,14 +797,25 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.compose.services.<name>.image` \| `.build` | string \| object | exactly one | — |
 | `…services.<name>.build.language` | enum (auto/node/python/go/ruby/php/static/generic) | no | `auto` |
 | `…services.<name>.build.dir` | string (repo-relative subdir) | no | `.` |
+| `…services.<name>.build.version` / `.install` / `.build` | string (one line each) | no | — |
+| `…services.<name>.build.start` | exec array | no | — |
+| `…services.<name>.build.base` | string (generic only — required there) | conditional | — |
+| `…services.<name>.build.packages[]` / `.env` / `.run_as_nonroot` | list / map / bool | no | `[]` / — / `true` |
 | `…services.<name>.ports[]` | `{internal, publish, public, protocol, published}` | no | — |
 | `…services.<name>.ports[].protocol` | `tcp` \| `udp` | no | `tcp` |
 | `…services.<name>.ports[].published` | int (host port) | no | = `internal` |
 | `…services.<name>.env.<KEY>` | literal \| `{secret: NAME}` | no | — |
 | `…services.<name>.secret_files[]` | string (a declared secret name) | no | — |
-| `…services.<name>.config_files[]` | `{repo\|template, mount}` | no | — |
+| `…services.<name>.config_files[]` | `{repo\|template, mount, bindings}` | no | — |
+| `…services.<name>.config_files[].bindings.<KEY>` | literal \| `{secret\|env\|app\|cert: ARG}` | no | — |
 | `…services.<name>.cert_bindings[]` | `{hostname, mount}` | no | — |
 | `…services.<name>.volumes[]` | `{name\|source, target, read_only}` | no | — |
+| `…services.<name>.command` / `.healthcheck` | exec array | no | — |
+| `…services.<name>.restart` | enum (`no`/`always`/`on-failure`/`unless-stopped`) | no | docker default |
+| `…services.<name>.depends_on[]` | list of sibling service names | no | — |
+| `…services.<name>.mem_limit` / `.mem_reservation` | size string (`768m`, `1g`) | no | unbounded |
+| `…services.<name>.stop_grace_period` | duration string (`60s`, `1m30s`) | no | docker 10s |
+| `…services.<name>.ops_interface` | object (see `spec.ops_interface`) | no | — |
 | `spec.secrets[].name` | string | yes (per entry) | — |
 | `spec.secrets[].generate` | string (`hex:N`\|`base64:N`\|`password:N`\|`rsa:BITS`\|`ed25519`) | no | — |
 | `spec.edge.routes[].hostname` | string | yes | — |
@@ -837,11 +840,24 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 | `spec.scaling[].per_replica_cpu_milli` | int | no | — |
 | `spec.scaling[].breach_for_secs` | int | no | `60` |
 | `spec.scaling[].cooldown_up_secs` / `.cooldown_down_secs` | int | no | `60` / `300` |
+| `spec.self_healing` | object (all fields optional; 0 = keep default) | no | built-in defaults |
+| `spec.self_healing.sustain_ticks` / `.attempt_cap` / `.stabilize_ticks` / `.oom_strike_cap` / `.window_seconds` | int | no | built-in |
+| `spec.self_healing.backoff_base_secs` / `.backoff_max_secs` | int (`max >= base`) | no | built-in |
+| `spec.self_healing.redeploy_enabled` | bool | no | `false` |
+| `spec.ops_interface` / `spec.compose.services.<name>.ops_interface` | object | no | disabled |
+| `spec.ops_interface.enabled` | bool | no | `false` |
+| `spec.ops_interface.base_url` | string (origin only, never loopback) | when enabled | — |
+| `spec.ops_interface.base_path` / `.secret_header` / `.secret` / `.adapter` | string | no | — / — / — / `ops.v1` |
+| `spec.ops_interface.mode` | `auto` \| `rich` \| `basic` | no | `auto` |
+| `spec.git.repo` | string (repo URL; set by connect-a-repo) | no | — |
 | `spec.git.ref` | string (fully-qualified) | no | — |
 | `spec.git.auto_deploy` | bool | no | **`false`** |
+| `spec.setup.script` | string | with `setup` | — |
+| `spec.setup.trigger` | `never` \| `on_demand` \| `on_first_deploy` \| `before_each_deploy` | no | `never` |
+| `spec.setup.produces[]` | list (`env:NAME` / `file:PATH`) | no | — |
 
 > Unknown keys anywhere are a **hard reject** (`additionalProperties: false`). When in doubt, run `helmsman validate` — it is read-plane and safe on any host.
 
 ---
 
-**Related docs:** [README](../README.md) · [Managed config files](./config-files-and-secrets.md) · [Cert bindings](./edge-and-tls.md) · [GitOps / repo-path apps](./gitops.md) · [Managed edge & routes](./edge-and-tls.md) · [Secrets](./config-files-and-secrets.md) · [Auto-scaling](./scaling-and-self-healing.md) · [Self-healing](./scaling-and-self-healing.md) · [CLI reference](./cli.md)
+**Related docs:** [README](../README.md) · [Managed config files](./config-files-and-secrets.md) · [Cert bindings](./edge-and-tls.md) · [GitOps](./gitops.md) · [Managed edge & routes](./edge-and-tls.md) · [Secrets](./config-files-and-secrets.md) · [Auto-scaling](./scaling-and-self-healing.md) · [Self-healing](./scaling-and-self-healing.md) · [CLI reference](./cli.md)

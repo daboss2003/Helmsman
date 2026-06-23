@@ -91,6 +91,8 @@ Helmsman deliberately splits its state across three locations with three differe
 │    apps  app_routes  edge_config_versions  definition_versions  deploys        │
 │    env_blobs(*_enc)  captured_secrets(*_enc)  alert_channels(*_enc)            │
 │    ops_snapshot  host_metrics  container_metrics  sessions  events (audit)      │
+│    (definition_versions = the history of the deployed helmsman.yaml — a read    │
+│     record of what was last applied, NOT an editable copy)                      │
 │                                                                                 │
 │    *_enc columns are AES-256-GCM under the master key. Losing the key bricks    │
 │    all ciphertext — back up config and DB SEPARATELY, offsite. Logs are file    │
@@ -99,14 +101,17 @@ Helmsman deliberately splits its state across three locations with three differe
         │
         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  /var/lib/helmsman/apps/<slug>/     — per-app working tree                      │
+│  /var/lib/helmsman/apps/<slug>/     — per-app working tree (Helmsman-owned)     │
 │  ───────────────────────────────────────────────────────────────────────────  │
-│    run_dir/        the validated compose, --env-file, rendered config files,    │
-│                    bind mounts (all confined HERE — canonicalize-then-Rel)      │
-│    definition/     canonical.yaml (0640, last applied = live truth)            │
-│                    working.yaml (dashboard pending edits, never live)          │
-│                    base.yaml    (the 3-way merge ancestor)                      │
-│                    versions/    (definition history)                           │
+│    run_dir/        the GENERATED compose + Dockerfile(s), the 0600 --env-file,  │
+│                    rendered config/secret files, synced certs, bind mounts —    │
+│                    all confined HERE (canonicalize-then-Rel). Regenerated from  │
+│                    the repo's helmsman.yaml on every deploy.                     │
+│                                                                                 │
+│  The helmsman.yaml ITSELF lives in your Git repo (the source of truth), never   │
+│  here. /var/lib/helmsman/git/<slug>.git is the bare object store of fetched     │
+│  commits; the last-deployed YAML is recorded for history/rollback in the SQLite │
+│  definition_versions table — a read record, not an editable file.               │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -118,16 +123,16 @@ The `config.yaml` also holds all the **safety tuning** — the scaling caps, sel
 
 Configuration is split across **three tiers** by *security boundary*, not by tidiness:
 
-| Tier | File | Holds | Who writes |
+| Tier | Where | Holds | Source |
 |---|---|---|---|
 | **1 — security / identity** | `/etc/helmsman/config.yaml` (`0600 root`) | master key, IP allowlist, bind, `edge.mode`, `acme_email`, the safety tuning | **SSH / root only** |
-| **2 — server-wide ops** | `/var/lib/helmsman/host.yaml` (`0640`) + `host/{canonical,working,base}.yaml` + the `host_versions` table | the app registry, global defaults, server-wide alerting, cross-app ordering | dashboard + CLI |
-| **3 — one app** | `helmsman.yaml` / `canonical.yaml` under `/var/lib/helmsman/apps/<slug>/` | that app's managed surface | dashboard + CLI + repo |
+| **2 — server-wide ops** | the `kind: Host` `helmsman.yaml` (the host definition) | the app registry, global defaults, server-wide alerting, cross-app ordering | the host definition file |
+| **3 — one app** | the app's `helmsman.yaml`, in its Git repo | that app's managed surface (services, edge routes, config files, ops) | the repo file |
 
-Tiers 2 and 3 are dashboard-writable **precisely because they are structurally incapable of
-expressing a Tier-1 field** (a `master key`/`allowlist`/`bind`/`edge.mode` key anywhere in a host or
-app spec is an `additionalProperties:false` hard reject). The web plane can never reach the root of
-trust. See [host-file.md](./host-file.md) for the full host definition.
+Tiers 2 and 3 are *structurally incapable of expressing a Tier-1 field* — a
+`master key`/`allowlist`/`bind`/`edge.mode` key anywhere in a host or app spec is an
+`additionalProperties:false` hard reject. So even though they describe what gets deployed, they can
+never reach the root of trust. See [host-file.md](./host-file.md) for the full host definition.
 
 > **The honest trade-off.** This split means there is no web password reset and no web key rotation. If you lose `config.yaml`, every ciphertext column is permanently unreadable — there is no recovery path by design, because a recovery path would be an attack path. Back up the config (the key) and the database **separately and offsite**, and use `helmsman verify-key` to catch a key/DB mismatch *before* the next write corrupts data.
 
@@ -174,16 +179,17 @@ Note the asymmetry: the **edge is part of the baseline, not gated**. On an under
 
 ## 5. How a `docker compose` action flows through the §5.6 chokepoint
 
-**Everything** that reaches `docker compose` — whether it was generated from a form, produced by a setup script, read from a git repo, or authored in a `helmsman.yaml` — passes through **one** validator. This single chokepoint is the heart of the write-path safety story.
+**Everything** that reaches `docker compose` — the compose Helmsman *generates* from a `helmsman.yaml` (read from your Git repo, or scaffolded for a first deploy), a materialized config file, or a replayed version on rollback — passes through **one** validator. This single chokepoint is the heart of the write-path safety story.
 
 ```
-   form gen ─┐
-   paste ────┤
-   setup ────┼──►  §5.6 ALLOWLIST VALIDATOR (the ONE chokepoint)  ──►  docker compose
-   repo ─────┤        1. resolve ${VAR} / .env / extends / x-anchors  FIRST          (static argv,
-   apply ────┘        2. reject any UNKNOWN top-level/service key                      never a shell,
-                      3. reject the dangerous set (privileged, cap_add, host           never interpolated,
-                         binds of / /var/run/docker.sock /etc /proc, *:host            always -- terminated)
+   helmsman.yaml ──► GENERATED compose ─┐
+   scaffolded default ──────────────────┤
+   materialized config files ───────────┼──►  §5.6 ALLOWLIST VALIDATOR  ──►  docker compose
+   rollback (replayed version) ─────────┘    (the ONE chokepoint)          (static argv,
+                      1. resolve ${VAR} / .env / extends / x-anchors  FIRST          never a shell,
+                      2. reject any UNKNOWN top-level/service key                      never interpolated,
+                      3. reject the dangerous set (privileged, cap_add, host           always -- terminated)
+                         binds of / /var/run/docker.sock /etc /proc, *:host
                          namespaces, security_opt unconfined, devices, sysctls …)
                       4. confine every bind mount UNDER the app's run_dir
                          (canonicalize-then-Rel; reject .. / absolute / symlink escape)
@@ -210,12 +216,12 @@ The rule is symmetric: **apps can't define the edge, and the edge can't be route
 
 ---
 
-## 6. One reconciler, many front doors
+## 6. One reconciler, one source
 
-The write plane has one front door — the **dashboard** (and the **Git deploys** it triggers) — funnelling into **exactly one reconciler.** The `helmsman validate` CLI runs that *same* validator read-only, so the chokepoint is identical whether you're deploying or just checking a file in CI. This is a core design principle, not an implementation detail.
+The source of an app's structure is its **`helmsman.yaml`, in its Git repo** — the single source of truth. A deploy reads that file at a pinned commit, generates the compose + Dockerfile from it, and funnels through **exactly one reconciler.** A deploy is *triggered* from the dashboard (or by a Git push, via fetch→deploy), but the dashboard doesn't author the structure — it deploys the repo file. The `helmsman validate` CLI runs that *same* validator read-only, so the chokepoint is identical whether you're deploying or just checking a file in CI. This is a core design principle, not an implementation detail.
 
 ```
-   Dashboard / Git deploy          helmsman validate (SSH / CI, read-only)
+   Deploy (reads the repo helmsman.yaml)   helmsman validate (SSH / CI, read-only)
         │                                   │
         │  typed reconcile request          │  same validator, no write
         └─────────────────┬─────────────────┘
@@ -231,17 +237,19 @@ The write plane has one front door — the **dashboard** (and the **Git deploys*
         │   → gated write-plane apply in dependency order:    │
         │       env → render configs → cert-sync (block on    │
         │       required) → compose up → edge route re-render │
+        │   → reconcile the projections (edge/L4 routes,      │
+        │       scaling, self-healing, ops) FROM the file     │
         │   → auto-rollback the WHOLE app on any step failure │
         └────────────────────────────────────────────────────┘
 ```
 
-The dashboard and CLI produce the *same* typed reconcile request and pass the *same* chokepoints: §5.6, the §6.2 edge-conflict gate, the secure-by-default baseline, the host-capacity guard, and the fail-closed posture. The **only** thing the CLI skips is the *web transport* gates (IP allowlist, session, CSRF) — because it isn't on the web; it's an SSH session that already holds the master key.
+A deploy and the CLI produce the *same* typed reconcile request from the *same* `helmsman.yaml` and pass the *same* chokepoints: §5.6, the §6.2 edge-conflict gate, the secure-by-default baseline, the host-capacity guard, and the fail-closed posture. The **only** thing the CLI skips is the *web transport* gates (IP allowlist, session, CSRF) — because it isn't on the web; it's an SSH session that already holds the master key.
 
 The trust model behind this is precise:
 
 > SSH is the highest tier. An operator who can edit the root-owned config *already* holds the master key, so `helmsman secret import` grants nothing new — which is exactly *why* the CLI may write secrets but **no web route ever reads the key, allowlist, or bind address.** Authority decides *who* may invoke; it never widens *what* a deploy may do. A hostile or typo'd definition is still run through the same fail-closed validation as anything else.
 
-A new authoring surface — the declarative `helmsman.yaml` definition file — is therefore a new front *door*, never a new trust *path*. It inherits every invariant (run_dir confinement, edge-port denial, secret-never-in-browser, marshalled-from-typed-structs, fail-closed) and adds **zero** new bytes reaching `docker compose`. Its `edge.routes` block is parsed into the typed edge model and re-marshalled — read-and-render, never run verbatim. See [the definition-file doc](./definition-file.md) for the split-plane ownership and field-level 3-way merge.
+The `helmsman.yaml` definition file is the authoring surface, and it is a front *door*, never a new trust *path*. It inherits every invariant (run_dir confinement, edge-port denial, secret-never-in-browser, marshalled-from-typed-structs, fail-closed) and adds **zero** new bytes reaching `docker compose`. Its `edge.routes` block is parsed into the typed edge model and re-marshalled — read-and-render, never run verbatim. The dashboard then shows the deployed config read-only; it never edits the file or writes structure back to your repo (Helmsman's Git access is fetch-only). See [the definition-file doc](./definition-file.md) for the full field reference and the shared reconciler.
 
 ---
 
@@ -303,8 +311,10 @@ Core fans the same App Ops Interface out to agents. The v1 boundaries that make 
         └───┬────────┬───┘            └───────────┴──────────┘
             │        │                          ▲
         SQLite   /var/lib/helmsman/      real /var/run/docker.sock
-       (cipher-  apps/<slug>/            (root-equivalent — never
-        text)    run_dir+definition       in Helmsman's mount set)
+       (cipher-  apps/<slug>/run_dir     (root-equivalent — never
+        text +   (GENERATED compose,      in Helmsman's mount set)
+        YAML      env, configs, certs);
+        history)  git/<slug>.git (commits)
             ▲
             │ master key (in-mem only)
         /etc/helmsman/config.yaml  0600 root:root  — SSH only

@@ -13,7 +13,7 @@ The host file (`kind: Host`) is an optional, server-level definition where you s
 - **Shared defaults** — values that apply to every app unless the app overrides them (for example, common labels or sensible resource defaults).
 - **Which apps live on this server**, and the **order to deploy them** — so a database comes up before the app that depends on it.
 
-Like the per-app file, the dashboard keeps this in sync; you can also keep it in version control and let the dashboard manage it.
+Like the per-app file, the host file is the source of truth: you keep it in version control, and the dashboard reads it (it shows the deployed server settings, and is read-only for them).
 
 ## Where settings live (and what the dashboard can change)
 
@@ -23,7 +23,7 @@ Helmsman keeps settings in three layers, by how sensitive they are:
 2. **Server settings** — the host-wide defaults and coordination above.
 3. **App settings** — everything about an individual app: its image, env, secrets, routes, scaling, and so on.
 
-You manage layers 2 and 3 in the dashboard (or in their definition files). Layer 1 stays SSH-only on purpose. Settings combine in order — a built-in default, then a server default, then the app's own value — with the most specific winning, and the same safety checks apply no matter which layer a value came from.
+Layers 2 and 3 are defined in their definition files (the host file and each app's `helmsman.yaml`); the dashboard reflects them read-only, except the operational things it deliberately owns — secret values, lifecycle actions, and the auto-scaling policy. Layer 1 stays SSH-only on purpose. Settings combine in order — a built-in default, then a server default, then the app's own value — with the most specific winning, and the same safety checks apply no matter which layer a value came from.
 
 ## Acknowledging changes
 

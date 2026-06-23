@@ -35,22 +35,28 @@ Your app should listen on an internal port such as `8080`. Helmsman owns ports 8
 
 ## Add a secret
 
-Open your app and go to **Env**. Add non-secret values as plain settings, and passwords or API keys as **secrets** — these are encrypted and injected into the app at runtime. Reference a secret from your config by name, and Helmsman supplies the value when the app runs.
+Your `helmsman.yaml` declares secret *names* (under `spec.secrets`, and where each is used); you set their *values* in the dashboard — one of the few things that lives there, not in the file (a value never belongs in a file you commit). Open your app, go to **Env**, add non-secret values as plain settings and passwords or API keys as **secrets** — these are encrypted and injected into the app at runtime. The app references each secret by name, and Helmsman supplies the value when the app runs.
 
 ## Give it a domain
 
-Open **Edge** and add a route:
+A domain is an **edge route** in your `helmsman.yaml`. Add one under `spec.edge.routes`:
 
-- **Domain** — the public address, e.g. `app.example.com` (point its DNS at your server).
-- **Service & port** — the service to route to and its internal port, e.g. `web` on `8080`.
+```yaml
+spec:
+  edge:
+    routes:
+      - hostname: app.example.com   # the public address — point its DNS at your server
+        service: web                # the service to route to
+        port: 8080                  # its internal port
+```
 
-Save it. Helmsman issues a TLS certificate for the domain and configures the routing. Within moments, `https://app.example.com` is live.
+Commit and deploy. Helmsman issues a TLS certificate for the domain and configures the routing. Within moments, `https://app.example.com` is live. The dashboard's **Edge** page shows the deployed routes (read-only — to change them, edit the file and deploy). See [Edge & TLS](./edge-and-tls.md) for the full route fields.
 
 ## Deploy from a Git repo
 
 To deploy from a repository, you have two options.
 
-**Connect with GitHub.** If GitHub is configured (see [Deploy from a Git repo](./gitops.md)), click **Connect with GitHub**, authorize, and choose a repo from the list. Helmsman creates a deploy key for it.
+**Connect with GitHub.** If GitHub is configured (see [Deploy from a Git repo](./gitops.md)), click **Connect with GitHub**, authorize, and choose a repo from the list. Helmsman installs a read-only deploy key for it — its access is fetch-only, so it never pushes to your repo.
 
 **Connect any repo.** Click **Connect repo** and provide the URL, branch, and — for a private repo — a key or token. Helmsman reads the `helmsman.yaml` in your repo (and scaffolds a starter one if it's missing) — you don't commit a compose file.
 
@@ -72,7 +78,7 @@ You've deployed an app, added a secret, and put it online. From here:
 
 ### Describing an app in a file
 
-What you configure in the dashboard is saved to a per-app `helmsman.yaml`. You can also write this file yourself and keep it in version control — the dashboard keeps it in sync. A minimal example:
+Your app **is** its `helmsman.yaml` — the single source of truth, committed at the root of your repo. You write it (or start from the scaffold Helmsman generates on the first deploy) and keep it in version control; Helmsman reads it on deploy and generates the Compose file and Dockerfile from it. A minimal example:
 
 ```yaml
 apiVersion: helmsman/v1

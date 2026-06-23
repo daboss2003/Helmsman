@@ -19,7 +19,9 @@ In the dashboard, click **Connect repo**. Two ways in:
 
 Credentials are stored encrypted and never appear in the UI or logs.
 
-Your repo carries a **`helmsman.yaml`** (see [the definition file](./definition-file.md)) describing the app — its services, build, env, and routes. Helmsman reads it, **generates the `docker-compose.yml` and any Dockerfiles**, and deploys — you never commit a compose file. If the repo has no `helmsman.yaml`, Helmsman scaffolds a sensible default from the stack it detects (e.g. a Node or Go project).
+Your repo carries a **`helmsman.yaml`** (see [the definition file](./definition-file.md)) describing the app — its services, build, env, edge routes, config files, and cert bindings. **That file is the single source of truth for the app's structure.** Helmsman reads it, **generates the `docker-compose.yml` and any Dockerfiles**, and deploys — you never commit a compose file or a Dockerfile. If the repo has no `helmsman.yaml`, Helmsman scaffolds a sensible default from the stack it detects (e.g. a Node or Go project) so the first deploy still works; commit a real `helmsman.yaml` when you want full control.
+
+To change the app's structure, **edit `helmsman.yaml` and deploy** — the dashboard then reflects the new config. The dashboard is **read-only for structure** (services, routes, config files, cert bindings); the only things you set in the dashboard are the ones the file deliberately doesn't carry: **secret values** (the file declares secret *names* only), **lifecycle actions** (deploy / restart / scale-now), and the per-service **auto-scaling policy**.
 
 ## How updates work
 
@@ -36,6 +38,7 @@ You'll find this on the app's page (a **Repository & updates** panel) and on the
 - **Nothing deploys until you click** (unless you explicitly turn on auto-deploy). A push to your repo can't trigger a surprise build on your server.
 - **Deploys are pinned to the reviewed commit** — what you saw in the diff is exactly what runs.
 - **Fetching can't run code.** Helmsman only downloads commits in the background; building and running happen only on the deploy you trigger, and only when the server has the resources for it.
+- **Access is fetch-only.** Helmsman reads your repo (with a read-only deploy key over the GitHub flow, or the deploy key / token you supply) and **never pushes to it.** The repo file stays the source of truth; the dashboard reflects what was deployed.
 - **Touching a repo is treated as untrusted.** Helmsman generates the compose from your `helmsman.yaml` and validates it before running anything, and a force-push / rewritten history is flagged for you to review rather than deployed silently.
 
 ## Connect with GitHub — one-time setup

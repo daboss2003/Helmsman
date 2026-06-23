@@ -24,7 +24,7 @@ sudo systemctl restart helmsman
 
 > **Restart, not reload.** The alerting engine starts at boot, so `systemctl reload` won't turn it on — you must `systemctl restart helmsman`. (See [editing the config file](./installation.md#editing-the-config-file-reload-vs-restart).)
 
-Everything else is managed on the **Alerts** page in the dashboard — there's a form for each part, no files or config to hand-edit. Open problems also appear on the **Incidents** screen.
+Everything else is managed on the **Alerts** page in the dashboard — there's a form for each part, no files or config to hand-edit. Alerting is **not** part of any app's `helmsman.yaml`: channels and rules are platform-level and live in the dashboard, and channel credentials (SMTP passwords, webhook secrets, bot tokens) are stored **encrypted at rest** — they are never rendered back into a form or written to a file. Open problems also appear on the **Incidents** screen.
 
 ## What it watches
 

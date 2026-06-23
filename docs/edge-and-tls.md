@@ -167,7 +167,13 @@ abuse class:
 
 ## Per-app reverse proxy: routes & upstreams
 
-Routes are stored declaratively in Helmsman's database and reconciled idempotently. The schema is
+**Routes are declared in the app's `helmsman.yaml`** — under `spec.edge.routes` — which is the single
+source of truth. To add, change, or remove a public route you edit that file and deploy; there is no
+"add a route" form. On deploy, Helmsman reconciles the declared set onto the edge (replace-by-app, so
+the file's set is exactly what's live) and renders the proxy document. The dashboard's **Edge routes**
+page is **read-only**: it shows the deployed routes, not an editor.
+
+Internally, the reconciled set is held in Helmsman's database and applied idempotently. The schema is
 additive:
 
 ```text

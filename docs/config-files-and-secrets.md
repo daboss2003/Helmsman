@@ -12,6 +12,8 @@ Helmsman gives an app three ways to receive configuration — env vars, file-mou
 
 Env vars, file-mounted secrets, and templated config files are three distinct things with different storage, rendering behavior, and hygiene rules.
 
+> **What lives where.** The *structure* of all three — which services get which env keys, `secret_files`, `config_files`, `cert_bindings`, and the `{{hm.*}}` bindings — is declared in your repo's `helmsman.yaml`, the single source of truth, and is **read-only in the dashboard** (it shows what was deployed; to change it, edit the file and deploy). The one thing that is **not** in the YAML and **is** set in the dashboard is a **secret VALUE**: the YAML declares secret *names* only, and you provision the actual encrypted values on the env page (or with `helmsman secret import` over SSH). Helmsman's git access is fetch-only — it reads `helmsman.yaml`, never writes it back.
+
 | Kind | Holds | Helmsman renders it? | At rest | Mounted as |
 |---|---|---|---|---|
 | **env** | `KEY: value` pairs | No | Encrypted env blob | `0600 --env-file` |
@@ -110,11 +112,11 @@ At save time, a lint scans non-secret-bearing bodies and **rejects** material th
 
 This catches the most common mistake (pasting a key into the template) before it can be rendered or mounted.
 
-### Lifecycle: re-rendered every deploy, drift detected
+### Lifecycle: re-rendered every deploy, host-edits detected
 
 - Materialization happens **before `up`, host-side**: resolve every binding → render → write atomically → record `rendered_sha256` → bind-mount read-only.
-- Files are **re-rendered on every redeploy**, so there is no stale drift from an old render.
-- A host hand-edit is **detected** by SHA mismatch and surfaced as *"host-edited, will be overwritten."* Detection only — Helmsman never auto-merges a hand edit.
+- Files are **re-rendered on every redeploy** from the current `helmsman.yaml`, so there is never a stale render left over from an old deploy.
+- A host hand-edit of a rendered file is **detected** by SHA mismatch and surfaced as *"host-edited, will be overwritten."* Detection only — Helmsman never auto-merges a hand edit.
 
 ---
 

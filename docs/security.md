@@ -80,7 +80,7 @@ Crucially, the webhook is **fetch-only and trigger-only**: it performs a `git fe
 
 ## 3. The §5.6 validator — one allowlist chokepoint
 
-**Everything** that reaches `docker compose` — whether form-generated, script-produced, or authored in a `helmsman.yaml` — passes through **one** validator. There is exactly one chokepoint, and it is an **allowlist, not a denylist**. The dashboard and the Git deploys it triggers funnel into it, and `helmsman validate` runs that very same validator read-only: a new authoring surface is a new *front door*, never a new *trust path*.
+**Everything** that reaches `docker compose` — the compose Helmsman **generates** from a `helmsman.yaml`, a setup-script's output, or a scaffolded starter — passes through **one** validator. There is exactly one chokepoint, and it is an **allowlist, not a denylist**. The dashboard deploys (and the Git fetches they act on) funnel into it, and `helmsman validate` runs that very same validator read-only: a new front-end is a new *front door*, never a new *trust path*.
 
 The validator does its work in this order, and the order is load-bearing:
 
@@ -170,7 +170,7 @@ The threat model ranks the secrets by blast radius, which is how mitigations are
 | A3 | The `docker.sock` / `docker compose` write path | Root-equivalent on the host ([§9](#9-residual-risk-the-honest-part)). |
 | A4 | The encrypted store (ciphertext) | Useless without A1. |
 | A5 | Edge / ACME private keys | TLS impersonation for managed hostnames. |
-| A6 | The operator session | The most-privileged live session — hence the strict diff-preview output-encoding. |
+| A6 | The operator session | The most-privileged live session — hence the strict output-encoding on all dashboard-rendered content. |
 
 ---
 
@@ -403,7 +403,7 @@ These ten principles are the spine the rest of the model hangs on:
 7. **The resource gate is a safety property** — write plane, builds, and the setup sandbox gated on ≥ 1 GB; per-plane memory caps; one-docker-child semaphore; no plane can OOM-kill the control plane.
 8. **Everything privileged is audited and recoverable** — append-only events; the `Redacted` type; POST/no-store reveal; rehearsed key-rotation + one-command binary rollback.
 9. **Safety by containment, not by assuming bug-freeness** — assume the binary *will* be exploited and make it survivable; §15 is a **recurring** gate.
-10. **One reconciler, many front-ends** — the dashboard, the CLI, and SSH produce the *same* typed reconcile request through the *same* chokepoint. A new authoring surface is a new front *door*, never a new trust *path*.
+10. **The `helmsman.yaml` in your repo is the single source of truth; the dashboard is read-only for app structure** — services, edge routes, config files, and cert bindings are defined in the committed file and changed only by editing it and deploying. The dashboard *shows* the deployed config and stays writable only for **secret values** (the env page; the YAML declares names, never values), **lifecycle actions** (deploy / restart / scale-now / queue pause-resume / clear self-heal circuit), and the **auto-scaling policy** (operational tuning on the service page). Helmsman's git access is **fetch-only** — it never pushes to your repo, and there is no dashboard write-back to a stored definition copy. Every path that reaches `docker compose` — dashboard deploy, CLI, or SSH — funnels through the *same* chokepoint; a new front-end is a new front *door*, never a new trust *path*.
 
 ---
 

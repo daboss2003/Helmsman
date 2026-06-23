@@ -18,7 +18,9 @@ Auto-scaling adjusts how many copies (**replicas**) of a service run, based on l
 
 **You're alerted if it can't scale up.** If it declines to scale because the server is constrained, it can alert you — that's your cue the box needs more resources.
 
-You configure min/max replicas, per-replica memory and CPU, and the up/down thresholds on the app's **Auto-scaling** panel.
+You configure min/max replicas, per-replica memory and CPU, and the up/down thresholds on the service's **Auto-scaling** panel. **The auto-scaling policy is an exception to the read-only dashboard** — it is operational tuning you set live, per service, without a redeploy.
+
+> The same policy can also be expressed in the app's `helmsman.yaml` under [`spec.scaling`](./definition-file.md#specscaling) (one entry per service), so it lives with the rest of the app's definition. A deploy applies what the file declares; the dashboard panel is for tuning it afterward. Either way the policy lands in the same place — there is no separate "canonical" copy to keep in sync.
 
 > Never enable this for a database, message broker, or anything that owns data — those are meant to run as a single instance.
 
@@ -31,3 +33,5 @@ When it **can't** recover a service after trying, it stops retrying (to avoid a 
 **Planned downtime:** if you're taking a service down on purpose, mark it as expected-down for a window so the supervisor doesn't fight you trying to bring it back.
 
 Self-healing is conservative for the same reason auto-scaling is: a recovery action that needs to recreate a container runs only when there's room, so healing one app can't knock over the server.
+
+Every service is supervised with a conservative built-in default; you don't turn it on per service. To tune the ladder for an app — the anti-flap window, attempt cap, back-off, and the opt-in rung-3 redeploy — declare [`spec.self_healing`](./definition-file.md#specself_healing) in its `helmsman.yaml` and deploy (omitted fields keep the default). The only dashboard self-healing **action** is **clear & retry** on the Incidents screen, which resets a service whose circuit has opened.

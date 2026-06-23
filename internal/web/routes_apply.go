@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/daboss2003/Helmsman/internal/definition"
@@ -153,20 +152,6 @@ func selfHealPolicy(sh *definition.SelfHealing) selfheal.Policy {
 	}
 	p.RedeployEnabled = sh.RedeployEnabled
 	return p
-}
-
-// defDriftedFromRepo reports whether the canonical was last written by the dashboard
-// (so it's ahead of the repo's helmsman.yaml). The next repo deploy writes a
-// "git deploy" version and clears it. Only meaningful for repo-connected apps.
-func (s *Server) defDriftedFromRepo(project string) bool {
-	if s.defStore == nil {
-		return false
-	}
-	vers, err := s.defStore.List(project)
-	if err != nil || len(vers) == 0 {
-		return false
-	}
-	return strings.HasPrefix(vers[0].Note, "dashboard:")
 }
 
 // applyRoutes reconciles an app's edge (L7) + L4 routes FROM the canonical definition

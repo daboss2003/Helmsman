@@ -7,6 +7,16 @@ import (
 	"github.com/daboss2003/Helmsman/internal/compose"
 )
 
+// base parses the canonical goodDef fixture into a Definition — the shared starting
+// point for the definition tests in this package.
+func base() *Definition {
+	d, err := Parse([]byte(goodDef))
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
 func TestValidateGeneratedHappyPath(t *testing.T) {
 	d := base() // generated web service + edge route → web
 	if err := Validate(d, "/run/app", compose.Env{}, nil); err != nil {

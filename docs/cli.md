@@ -2,10 +2,10 @@
 
 The `helmsman` binary is both the long-running server (the dashboard + managed edge) **and** a small set of operator commands you run over SSH on the host. This page documents every command and its real flags.
 
-> **Helmsman is dashboard-first.** Apps, secrets, edge routes, repos, scaling, and alerts are all managed in the dashboard. The CLI is deliberately small and exists for three things:
+> **An app is defined by its `helmsman.yaml`.** That file — in the app's Git repo — is the single source of truth for its structure: services, build, edge routes, config files, and cert bindings. You create an app by **connecting its repo**; Helmsman fetches the file, generates the compose, and deploys it. The dashboard *reflects* that deployed config (read-only for structure) and is where you set the few operational things the file deliberately doesn't carry: **secret values**, **lifecycle actions** (deploy / restart / scale-now), and the **auto-scaling policy**. The CLI is deliberately small and exists for three things:
 >
 > 1. **The install-time root of trust** — `gen-key`, `hash-password`, `gen-totp`, `verify-key`. These credentials and keys must be generated over SSH and pasted into the root-owned config; there is no web route that reads or writes them.
-> 2. **Authoring helpers** — `validate` (same checks as the dashboard, no DB, safe in CI), `init` (scaffold a `helmsman.yaml`), and `secret import` (load a `.env` into an app's encrypted store).
+> 2. **Authoring helpers** — `validate` (the same checks a deploy runs, no DB, safe in CI), `init` (scaffold a `helmsman.yaml`), and `secret import` (load a `.env` into an app's encrypted store).
 > 3. **Disaster recovery** — `restore` rebuilds the database from an encrypted backup with the service stopped.
 >
 > Backups themselves are written by the **running server** (under `<data_dir>/backups/`). There is no `helmsman backup` command — the CLI only restores.
@@ -107,12 +107,12 @@ $ sudo helmsman setup --yes          # applies the plan above
 
 ### `helmsman validate`
 
-- **Purpose:** parse and validate a `helmsman.yaml` through the **same §5.6/§6.2 chokepoints** an apply uses — with **no database** and **no write plane**. Read-only and safe to run in CI.
+- **Purpose:** parse and validate a `helmsman.yaml` through the **same §5.6/§6.2 chokepoints** a deploy runs — with **no database** and **no write plane**. Read-only and safe to run in CI.
 - **Usage:** `helmsman validate [--from helmsman.yaml] [--run-dir DIR]`
 - **Flags:**
   - `--from <path>` — the definition file (default `helmsman.yaml`).
   - `--run-dir <dir>` — the app run directory bind mounts must stay under (optional; lets the binds-confinement check run as it would on the host).
-- **Notes:** this is the CLI/dashboard **parity** guarantee — a definition that validates here is one the dashboard would accept, because both run the one reconciler. A sibling `.env` next to the file is used to resolve `${VAR}` references during validation. Both `kind: App` and `kind: Host` files are accepted.
+- **Notes:** this is the CLI/deploy **parity** guarantee — a `helmsman.yaml` that validates here is one Helmsman would accept on deploy, because both run the one reconciler. Run it in CI so a bad commit fails before you ever click **Deploy**. A sibling `.env` next to the file is used to resolve `${VAR}` references during validation. Both `kind: App` and `kind: Host` files are accepted.
 
 ```console
 $ helmsman validate --from helmsman.yaml
