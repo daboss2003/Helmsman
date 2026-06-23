@@ -1,54 +1,43 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/daboss2003/Helmsman/internal/edge"
 )
 
-func TestEdgeRouteSaveAndList(t *testing.T) {
+// Edge routes are READ-ONLY in the dashboard: they come from the deployed helmsman.yaml
+// (projected into the edge route store on deploy) and the page lists them with no
+// add/delete form. The route validation (control-plane ports, wildcards) is enforced by
+// edge.ValidateRoute on the store/deploy path (tested in internal/edge), not via a form.
+func TestEdgeRoutesReadOnly(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
-	sess, csrf := e.authed(t)
-	cookies := []*http.Cookie{sess, csrf}
-	hdr := map[string]string{"Origin": "https://example.com"}
-
-	f := url.Values{"hostname": {"app.example.com"}, "upstream": {"myapp-web:8080"}, "upstream_scheme": {"http"}, "hsts": {"on"}, "enabled": {"on"}, "csrf_token": {csrf.Value}}
-	if resp := e.req(t, "POST", "/edge/routes", "127.0.0.1:1", hdr, cookies, f); resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("route save = %d, want 303", resp.StatusCode)
+	sess, _ := e.authed(t)
+	cookies := []*http.Cookie{sess}
+	if err := e.srv.edgeRoutes.Save(context.Background(), edge.Route{AppID: "shop", Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true}); err != nil {
+		t.Fatal(err)
 	}
 	page := readBody(e.req(t, "GET", "/edge", "127.0.0.1:1", nil, cookies, nil))
-	if !strings.Contains(page, "app.example.com") || !strings.Contains(page, "myapp-web:8080") {
-		t.Error("route not listed on the edge page")
+	if !strings.Contains(page, "app.example.com") || !strings.Contains(page, "web:8080") {
+		t.Error("deployed route not listed on the edge page")
+	}
+	if strings.Contains(page, `action="/edge/routes"`) || strings.Contains(page, "Save route") {
+		t.Error("edge page must be read-only (no write form)")
 	}
 }
 
-// A control-plane upstream is rejected at the route store (422), never persisted.
-func TestEdgeRouteRejectsControlPlaneUpstream(t *testing.T) {
+// The dashboard write path is gone: POST /edge/routes is no longer registered.
+func TestEdgeRouteWriteRemoved(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
 	hdr := map[string]string{"Origin": "https://example.com"}
-
-	for _, up := range []string{"127.0.0.1:9000", "edge:2019", "host:2375"} {
-		f := url.Values{"hostname": {"x.example.com"}, "upstream": {up}, "upstream_scheme": {"http"}, "enabled": {"on"}, "csrf_token": {csrf.Value}}
-		if resp := e.req(t, "POST", "/edge/routes", "127.0.0.1:1", hdr, cookies, f); resp.StatusCode != http.StatusUnprocessableEntity {
-			t.Errorf("upstream %q = %d, want 422", up, resp.StatusCode)
-		}
-	}
-	if rts, _ := e.srv.edgeRoutes.List(); len(rts) != 0 {
-		t.Error("an unsafe route must never be persisted")
-	}
-}
-
-// A wildcard/non-FQDN hostname (catch-all) is rejected.
-func TestEdgeRouteRejectsWildcard(t *testing.T) {
-	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
-	sess, csrf := e.authed(t)
-	cookies := []*http.Cookie{sess, csrf}
-	hdr := map[string]string{"Origin": "https://example.com"}
-	f := url.Values{"hostname": {"*.example.com"}, "upstream": {"web:80"}, "upstream_scheme": {"http"}, "enabled": {"on"}, "csrf_token": {csrf.Value}}
-	if resp := e.req(t, "POST", "/edge/routes", "127.0.0.1:1", hdr, cookies, f); resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Errorf("wildcard host = %d, want 422", resp.StatusCode)
+	resp := e.req(t, "POST", "/edge/routes", "127.0.0.1:1", hdr, cookies, url.Values{"csrf_token": {csrf.Value}})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("POST /edge/routes = %d, want 404 (route retired — edit helmsman.yaml)", resp.StatusCode)
 	}
 }

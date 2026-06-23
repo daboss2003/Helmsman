@@ -450,8 +450,8 @@ func (s *Server) Handler() http.Handler {
 	// Managed edge (M11): per-app public routes (Caddy/ACME). The whole config is
 	// re-rendered + pushed on every change; the operator never edits Caddy.
 	mux.HandleFunc("GET /edge", s.requireAuth(s.withCSRFToken(s.handleEdge)))
-	mux.HandleFunc("POST /edge/routes", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleEdgeRouteSave))))
-	mux.HandleFunc("POST /edge/routes/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleEdgeRouteDelete))))
+	// Edge routes are READ-ONLY in the dashboard — declared in the app's helmsman.yaml
+	// (source of truth) and reconciled on deploy. No POST /edge/routes write-back.
 	// Alerting (M10): channels + rules + open alerts. Read-and-notify only.
 	mux.HandleFunc("GET /alerts", s.requireAuth(s.withCSRFToken(s.handleAlerts)))
 	mux.HandleFunc("POST /alerts/channels", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleAlertChannelSave))))

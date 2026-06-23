@@ -237,6 +237,13 @@ details.accordion > summary:hover { color: var(--primary); }
 .health-unhealthy { color: var(--error); font-weight: 600; }
 .health-starting { color: var(--warn); }
 
+/* Read-only notice banner (config pages whose source of truth is the repo helmsman.yaml). */
+.notice {
+  background: var(--surface-2); border: 1px solid var(--border-2); border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md); padding: 0.7rem 0.95rem; margin: 0.9rem 0; color: var(--muted); font-size: 0.9rem;
+}
+.notice code { color: var(--fg); }
+
 /* Service-health grid (overview) — a prominent, live health panel: one cell per service,
    coloured by its container HEALTHCHECK state. Updates in place via the polled fragment. */
 .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.8rem; margin-top: 0.3rem; }

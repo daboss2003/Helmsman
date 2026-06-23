@@ -3,17 +3,18 @@
 <main class="wrap">
 {{with .Edge}}
   <h1>Edge routes</h1>
-  <p class="muted">Helmsman owns the public edge (HTTPS + automatic certificates). You add a route —
-    a hostname → an app's internal endpoint — and Helmsman renders and applies the whole edge config
-    for you. The edge can never reach the control plane (control-plane ports are refused).</p>
-  {{if .Reason}}<div class="error" role="alert">Edge not owned on this host: {{.Reason}}. Routes are saved and apply once the edge is up.</div>{{end}}
-  {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
+  <p class="muted">Helmsman owns the public edge (HTTPS + automatic certificates) and renders the whole
+    edge config from your apps' <code>helmsman.yaml</code>. Routes are declared per app under
+    <code>spec.edge.routes</code> — a hostname → an app service:port — and applied on deploy. The edge can
+    never reach the control plane (control-plane ports are refused).</p>
+  <div class="notice">Read-only — edit routes in your app's <code>helmsman.yaml</code> (<code>spec.edge.routes</code>) and deploy. This page shows the routes from the last deploy.</div>
+  {{if .Reason}}<div class="error" role="alert">Edge not owned on this host: {{.Reason}}. Routes apply once the edge is up.</div>{{end}}
 
   <section class="panel">
     <h2>Routes</h2>
     {{if .Routes}}
     <table class="grid">
-      <thead><tr><th>Hostname</th><th>Path</th><th>→ Upstream</th><th>HSTS</th><th>On</th><th></th></tr></thead>
+      <thead><tr><th>Hostname</th><th>Path</th><th>→ Upstream</th><th>HSTS</th><th>On</th></tr></thead>
       <tbody>
         {{range .Routes}}
         <tr>
@@ -22,36 +23,11 @@
           <td class="mono">{{.UpstreamScheme}}://{{.Upstream}}</td>
           <td>{{if .HSTS}}yes{{else}}no{{end}}</td>
           <td>{{if .Enabled}}yes{{else}}no{{end}}</td>
-          <td>
-            <form method="post" action="/edge/routes/delete" class="inline" data-confirm="Delete route {{.Hostname}}?">
-              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="id" value="{{.ID}}">
-              <button type="submit" class="link">delete</button>
-            </form>
-          </td>
         </tr>
         {{end}}
       </tbody>
     </table>
-    {{else}}<p class="muted">No routes yet — a fresh edge proxies to nothing and exposes no admin surface.</p>{{end}}
-
-    <form method="post" action="/edge/routes" class="stack mt1">
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <label>App id <span class="muted">(the owning app)</span> <input type="text" name="app_id" autocomplete="off"></label>
-      <label>Hostname <span class="muted">(public FQDN; no wildcards)</span>
-        <input type="text" name="hostname" placeholder="app.example.com" required></label>
-      <label>Upstream <span class="muted">(the app's internal endpoint host:port — never a control-plane port)</span>
-        <input type="text" name="upstream" placeholder="myapp-web:8080" required></label>
-      <label>Upstream scheme
-        <select name="upstream_scheme"><option value="http">http</option><option value="https">https</option></select></label>
-      <label>Path prefix <span class="muted">(optional, e.g. /api)</span> <input type="text" name="path_prefix" autocomplete="off"></label>
-      <label class="check"><input type="checkbox" name="hsts" checked> HSTS</label>
-      <label class="check"><input type="checkbox" name="security_headers" checked> Security headers</label>
-      <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
-      <button type="submit">Save route</button>
-    </form>
-    <p class="muted mt1">Helmsman generates and owns the entire edge (Caddy) configuration from these
-      settings — there is no Caddy file to edit and nothing to manage by hand. Everything originates from your
-      Helmsman configuration.</p>
+    {{else}}<p class="muted">No routes deployed yet — declare them under <code>spec.edge.routes</code> in your app's <code>helmsman.yaml</code> and deploy.</p>{{end}}
   </section>
 {{end}}
 </main>
