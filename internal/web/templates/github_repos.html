@@ -4,7 +4,10 @@
   <p><a href="/git/new">← Connect a repository</a></p>
   <h1>Pick a repository</h1>
   <p class="muted">Connected to GitHub as <strong>{{.GitHubLogin}}</strong>.
-    Choose a repo and Helmsman installs a read-only deploy key and starts watching it for new commits.
+    Pick a repo and Helmsman reads its <code>helmsman.yaml</code>, installs a read-only deploy key, and
+    starts watching it. <strong>The app's name comes from the file's <code>metadata.slug</code></strong>.
+    If the repo has several helmsman files (e.g. <code>helmsman.staging.yaml</code> / <code>helmsman.prod.yaml</code>),
+    you'll pick which one next — each is its own app.
     <form method="post" action="/github/disconnect" class="inline" data-confirm="Disconnect GitHub? Existing repos keep working.">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <button type="submit" class="link">Disconnect</button>
@@ -14,19 +17,19 @@
   {{if .GitHubRepos}}
   <section class="panel">
     <table class="grid">
-      <thead><tr><th>Repository</th><th>Visibility</th><th>App name</th><th>Compose path</th><th></th></tr></thead>
+      <thead><tr><th>Repository</th><th>Visibility</th><th>Branch</th><th></th></tr></thead>
       <tbody>
         {{range .GitHubRepos}}
         <tr>
           <td class="mono">{{.FullName}}</td>
           <td>{{if .Private}}<span class="pill">private</span>{{else}}<span class="pill pill-ok">public</span>{{end}}</td>
-          <td colspan="3">
-            <form method="post" action="/github/connect-repo" class="row">
+          <td class="mono">{{.DefaultBranch}}</td>
+          <td>
+            <form method="post" action="/github/connect-repo" class="inline">
               <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <input type="hidden" name="full_name" value="{{.FullName}}">
               <input type="hidden" name="branch" value="{{.DefaultBranch}}">
-              <input type="text" name="slug" placeholder="app name (a-z0-9-)" required>
-              <button type="submit" class="btn btn-primary btn-sm">Connect</button>
+              <button type="submit" class="btn btn-primary btn-sm">Connect →</button>
             </form>
           </td>
         </tr>

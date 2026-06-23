@@ -19,6 +19,8 @@ In the dashboard, click **Connect repo**. Two ways in:
 
 Credentials are stored encrypted and never appear in the UI or logs.
 
+Either way, **you don't type an app name** — Helmsman reads the repo's helmsman file(s) and takes the app's slug from `metadata.slug`. If the repo has [more than one helmsman file](#several-apps-from-one-repo), you pick which one to deploy next. (Only the scaffold case — a repo with *no* `helmsman.yaml` — asks you for a name.)
+
 Your repo carries a **`helmsman.yaml`** (see [the definition file](./definition-file.md)) describing the app — its services, build, env, edge routes, config files, and cert bindings. **That file is the single source of truth for the app's structure.** Helmsman reads it, **generates the `docker-compose.yml` and any Dockerfiles**, and deploys — you never commit a compose file or a Dockerfile. If the repo has no `helmsman.yaml`, Helmsman scaffolds a sensible default from the stack it detects (e.g. a Node or Go project) so the first deploy still works; commit a real `helmsman.yaml` when you want full control.
 
 ### Several apps from one repo

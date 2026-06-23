@@ -62,6 +62,32 @@ func TestDiscoveryFlashSingleUseAndExpiry(t *testing.T) {
 	}
 }
 
+// buildCandidates offers each distinct, valid slug once and skips the rest with a
+// reason: a missing/invalid slug, or a duplicate of one an earlier file already claimed.
+func TestBuildCandidatesDedupAndSkip(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	cands, skipped := e.srv.buildCandidates([]discoveredFile{
+		{Path: "helmsman.yaml", Slug: "app"},
+		{Path: "helmsman.staging.yaml", Slug: "app"}, // duplicate slug → skipped
+		{Path: "helmsman.broken.yaml", Slug: ""},     // invalid slug → skipped
+		{Path: "helmsman.prod.yaml", Slug: "app-prod"},
+	})
+	if len(cands) != 2 {
+		t.Fatalf("creatable candidates = %d, want 2 (%+v)", len(cands), cands)
+	}
+	if cands[0].Label != "default" {
+		t.Errorf("default must sort first, got %q", cands[0].Label)
+	}
+	if len(skipped) != 2 {
+		t.Fatalf("skipped = %d, want 2 (%+v)", len(skipped), skipped)
+	}
+	for _, s := range skipped {
+		if !s.Invalid || s.Reason == "" {
+			t.Errorf("skipped candidate must be Invalid with a reason: %+v", s)
+		}
+	}
+}
+
 func TestPeekMetadata(t *testing.T) {
 	slug, name := definition.PeekMetadata([]byte("apiVersion: helmsman/v1\nkind: App\nmetadata:\n  slug: shop\n  name: My Shop\n"))
 	if slug != "shop" || name != "My Shop" {

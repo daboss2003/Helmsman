@@ -179,6 +179,18 @@ func (r *Repo) LsFiles(ctx context.Context, sha string) ([]string, error) {
 	return names, nil
 }
 
+// LsTreeRoot lists the names directly under the commit's ROOT tree (NOT recursive),
+// so callers that only care about top-level files (e.g. the helmsman*.yaml discovery)
+// never depend on a capped full-tree walk that could drop a root entry behind 5000
+// nested files. Bounded by the number of root entries (and the shared output cap).
+func (r *Repo) LsTreeRoot(ctx context.Context, sha string) ([]string, error) {
+	out, errb, err := r.run(ctx, nil, "ls-tree", "--full-tree", "--name-only", "-z", sha)
+	if err != nil {
+		return nil, classifyErr(errb, err)
+	}
+	return splitNUL(out), nil
+}
+
 // SetDeployedRef pins the deployed commit so gc can never prune it (rollback
 // stays valid).
 func (r *Repo) SetDeployedRef(ctx context.Context, sha string) error {

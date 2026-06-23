@@ -28,7 +28,8 @@
       <code>http://localhost:9000/github/callback</code> over an SSH tunnel (no public domain needed),
       or <code>https://&lt;admin.hostname&gt;/github/callback</code> once you've set an admin domain. Then add
       <code>github.client_id</code> + <code>github.client_secret</code> to <code>/etc/helmsman/config.yaml</code>
-      and <code>systemctl reload helmsman</code> — the <strong>Connect with GitHub</strong> button appears here.
+      and <code>systemctl restart helmsman</code> (GitHub credentials are read only at startup, so a reload won't
+      pick them up) — the <strong>Connect with GitHub</strong> button appears here.
       See the GitOps guide.</p>
   </section>
   <p class="muted small">Or connect any Git repository by URL below.</p>

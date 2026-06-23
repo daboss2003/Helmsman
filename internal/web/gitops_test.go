@@ -251,6 +251,32 @@ func TestDeployReadsConfiguredHelmsmanVariant(t *testing.T) {
 	}
 }
 
+// Fail-closed: an app connected to a NAMED variant whose file is missing at the commit
+// must error — NOT silently scaffold a generic app and overwrite the operator's config.
+func TestDeployMissingVariantFailsClosed(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	// The object store has ONLY helmsman.yaml, but the app is connected to a variant.
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoHelmsmanYAML)
+	if err := e.srv.gitStore.Save(context.Background(), gitstore.SaveInput{
+		Project: slug, RepoURL: "https://nonexistent.invalid/o/r.git", Ref: "refs/heads/main",
+		BuildPolicy: "never", HelmsmanFile: "helmsman.prod.yaml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.gitStore.SetFetchResult(context.Background(), slug, sha, 1, "update_available")
+	cfg, _, _ := e.srv.gitStore.Get(slug)
+
+	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("expected a fail-closed 'missing' error for the absent variant, got %v", err)
+	}
+	if _, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml")); rerr == nil {
+		t.Error("a missing variant must NOT scaffold a generic app (no compose should be generated)")
+	}
+}
+
 // A repo's own .dockerignore is preserved; Helmsman MERGES .helmsman into it (it does
 // not overwrite the operator's entries).
 func TestDeployMergesRepoDockerignore(t *testing.T) {

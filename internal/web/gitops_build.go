@@ -114,7 +114,16 @@ func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, sl
 		d.Metadata.Slug = slug
 		return d, false, nil
 	}
-	// No helmsman file — scaffold a single build service from the detected stack.
+	// The CatFile failed (the file is absent, or it's a symlink/gitlink/wrong mode).
+	// Scaffolding a generic default is the right "connect a repo that has no config
+	// yet" behavior ONLY for the plain helmsman.yaml. An app explicitly connected to a
+	// NAMED variant (helmsman.prod.yaml, …) exists BECAUSE of that file — if it's gone
+	// at the deployed commit, fail closed rather than silently replacing the operator's
+	// real config with a guessed single-service app under the same slug.
+	if helmsmanFile != "helmsman.yaml" {
+		return nil, false, fmt.Errorf("the helmsman file %q this app was connected to is missing (or not a regular file) at %s — restore it in the repo, or reconnect the app to a different file", helmsmanFile, shortSha(sha))
+	}
+	// No helmsman.yaml — scaffold a single build service from the detected stack.
 	files, err := repo.LsFiles(ctx, sha)
 	if err != nil {
 		return nil, false, fmt.Errorf("list repo files: %w", err)

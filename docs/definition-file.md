@@ -62,8 +62,10 @@ spec:
 |---|---|---|---|
 | `apiVersion` | string | yes | **Must be exactly `helmsman/v1`.** See the version gate below. |
 | `kind` | string | yes | `App` for an app. The host-level definition (`host.yaml`) uses `kind: Host` — see [the host file](./host-file.md). |
-| `metadata.slug` | string | yes | The app identity. `^[a-z][a-z0-9-]{1,30}$`. **Immutable after the first deploy** — it becomes the project/run-dir name and the secret namespace key. Changing it is rejected, not silently re-homed. |
+| `metadata.slug` | string | yes | The app identity. `^[a-z][a-z0-9-]{1,30}$`. **Fixed at connect** — the slug is read from the file you connect and becomes the project/run-dir name and secret namespace key. It never changes afterwards: editing `metadata.slug` in the repo is **ignored** on later deploys (the connect-time slug always wins), so a repo can't rename or re-home an app — and can't hijack another app's slug. |
 | `spec` | object | yes | The whole app: services, secrets, edge routes, scaling, self-healing, ops, and GitOps (see [The `spec` sections](#the-spec-sections)). |
+
+> **One repo, several apps.** A repo can hold more than one helmsman file — the plain `helmsman.yaml` plus named variants like `helmsman.staging.yaml` and `helmsman.prod.yaml` — and **each file is deployed as its own app**, identified by its own `metadata.slug`. When you connect such a repo, Helmsman lets you pick which file to deploy (the plain `helmsman.yaml` is the default; variants are labelled by the text between `helmsman.` and `.yaml`); connect again to add another. Give each variant a **distinct slug** (e.g. `myapp-staging`, `myapp-prod`). If you only ever have one `helmsman.yaml`, nothing changes. See [Deploy from Git → Several apps from one repo](./gitops.md#several-apps-from-one-repo).
 
 ### The version gate is exact-match and fail-closed
 
@@ -89,7 +91,7 @@ Hard rejections at parse time (fail-closed, every one is a stop, not a warning):
 | **Duplicate keys** | A duplicate is a parser-differential vector. Hard reject. |
 | **Implicitly-typed scalars that flip meaning** | Scalars are read as explicitly typed; a `yes`/`on`/`1` cannot quietly become a boolean. |
 | Wrong `apiVersion` | See the version gate above. |
-| A changed `metadata.slug` after first deploy | The slug is immutable. |
+| A changed `metadata.slug` after connect | Ignored — the connect-time slug always wins (the app is never renamed or re-homed by an edit to the file). |
 
 After a clean parse, `${VAR}` / `.env` interpolation is **resolved first** (validating before interpolation is a known bypass), then the typed structs fan out into the validators. **Nothing reaches `docker compose` before the validator has seen the fully-resolved bytes.**
 

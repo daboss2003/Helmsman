@@ -45,7 +45,8 @@ type discoveryCandidate struct {
 	Name    string
 	Label   string // variant label: "default" for helmsman.yaml, else the middle text
 	Exists  bool   // an app with this slug is already connected → "Open" instead of "Create"
-	Invalid bool   // file has no usable metadata.slug (surfaced as skipped, never creatable)
+	Invalid bool   // not creatable (surfaced as skipped)
+	Reason  string // why it was skipped (when Invalid)
 }
 
 // discoveryView drives templates/git_choose.html.
@@ -68,6 +69,12 @@ type discoveryStash struct {
 	credKind   string
 	knownHosts string
 	autoDeploy bool
+	// GitHub-picker mode: finalize installs a fresh deploy key (the OAuth token is
+	// re-read from the DB at finalize, never stashed) instead of saving a pasted cred.
+	github     bool
+	ghOwner    string
+	ghName     string
+	ghBranch   string
 	candidates []discoveryCandidate
 	exp        time.Time
 }
@@ -132,11 +139,16 @@ func helmsmanVariantLabel(path string) string {
 // the chosen slug. Read-plane only (no checkout, nothing runs).
 func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string, creds git.Creds) ([]discoveredFile, error) {
 	dir := filepath.Join(s.cfg.DataDir, "git-discovery", crypto.RandomToken(12))
+	// Create + schedule cleanup BEFORE git.Open so the scratch dir is removed even if
+	// Open fails after it has already MkdirAll'd the path.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
 	repo, err := git.Open(dir)
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(dir)
 
 	fctx, cancel := context.WithTimeout(ctx, gitFetchTimeout)
 	defer cancel()
@@ -144,7 +156,10 @@ func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string,
 	if err != nil {
 		return nil, err // already classified by the git layer
 	}
-	names, err := repo.LsFiles(ctx, sha)
+	// Only the ROOT tree (not a recursive walk) — a repo with thousands of nested files
+	// can't push a root-level helmsman*.yaml past a cap, and an attacker can't force a
+	// huge recursive listing here.
+	names, err := repo.LsTreeRoot(ctx, sha)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +167,9 @@ func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string,
 	for _, name := range names {
 		if strings.Contains(name, "/") || !gitstore.ValidHelmsmanFile(name) {
 			continue // root-level helmsman*.yaml only
+		}
+		if len(out) >= maxHelmsmanFiles {
+			break // bound the per-connect CatFile/parse fan-out (DoS guard)
 		}
 		b, cerr := repo.CatFile(ctx, sha, name)
 		if cerr != nil {
@@ -161,6 +179,18 @@ func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string,
 		out = append(out, discoveredFile{Path: name, Slug: slug, Name: dispName})
 	}
 	return out, nil
+}
+
+// maxHelmsmanFiles bounds how many root-level helmsman*.yaml files one connect will
+// read+parse — a real repo has a handful; the cap stops a hostile repo from forcing
+// thousands of git subprocesses + YAML parses under the shared git lock.
+const maxHelmsmanFiles = 50
+
+// sweepDiscoveryScratch best-effort removes any leftover discovery scratch dirs at
+// startup. Each is single-use and removed on its own path, but a hard crash mid-
+// discovery could orphan one under DataDir/git-discovery; clear the whole tree.
+func (s *Server) sweepDiscoveryScratch() {
+	_ = os.RemoveAll(filepath.Join(s.cfg.DataDir, "git-discovery"))
 }
 
 // handleGitConnect is the POST target of the "connect a repository" form. It runs
@@ -221,19 +251,7 @@ func (s *Server) handleGitConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var candidates, skipped []discoveryCandidate
-	for _, f := range files {
-		c := discoveryCandidate{Path: f.Path, Slug: f.Slug, Name: f.Name, Label: helmsmanVariantLabel(f.Path)}
-		if !connectSlugRe.MatchString(f.Slug) {
-			c.Invalid = true
-			skipped = append(skipped, c)
-			continue
-		}
-		_, exists, _ := s.gitStore.Get(f.Slug)
-		c.Exists = exists
-		candidates = append(candidates, c)
-	}
-	sortCandidates(candidates)
+	candidates, skipped := s.buildCandidates(files)
 
 	switch {
 	case len(candidates) == 1 && len(skipped) == 0:
@@ -306,6 +324,10 @@ func (s *Server) handleGitChoose(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/apps/"+cand.Slug+"/git", http.StatusSeeOther)
 		return
 	}
+	if st.github {
+		s.finishGitHubConnect(w, r, cand.Slug, st.ghOwner, st.ghName, st.ghBranch, cand.Path)
+		return
+	}
 	s.finishConnect(w, r, cand.Slug, st.repoURL, st.ref, cand.Path, st.cred, st.credKind, st.knownHosts, st.autoDeploy)
 }
 
@@ -333,12 +355,8 @@ func (s *Server) finishConnect(w http.ResponseWriter, r *http.Request, slug, rep
 		return
 	}
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "git_connect", Target: slug, Outcome: audit.OK, Level: audit.Security, Detail: helmsmanFile})
-
-	// Best-effort initial fetch so the git page immediately shows a deployable commit.
-	if s.gitDeploy.TryAcquire() {
-		_, _, _ = s.doFetch(r.Context(), slug)
-		s.gitDeploy.Release()
-	}
+	// Land on the git page; the operator clicks "Fetch now" to stage a commit (matching
+	// the established flow — connect never auto-fetches).
 	http.Redirect(w, r, "/apps/"+slug+"/git", http.StatusSeeOther)
 }
 
@@ -352,6 +370,32 @@ func (s *Server) renderConnectError(w http.ResponseWriter, r *http.Request, msg 
 		Error:         msg,
 		Git:           &gitView{Configured: false, BuildPolicy: "never", Ref: "refs/heads/main", ComposePath: "docker-compose.yml"},
 	})
+}
+
+// buildCandidates turns discovered files into the creatable candidates (sorted, default
+// first) and the skipped ones (with a reason). A file is skipped when its metadata.slug
+// is missing/invalid, or when an EARLIER file already claimed the same slug — only one
+// app can hold a slug, so a duplicate isn't offered as a second "Create".
+func (s *Server) buildCandidates(files []discoveredFile) (candidates, skipped []discoveryCandidate) {
+	seen := map[string]bool{}
+	for _, f := range files {
+		c := discoveryCandidate{Path: f.Path, Slug: f.Slug, Name: f.Name, Label: helmsmanVariantLabel(f.Path)}
+		switch {
+		case !connectSlugRe.MatchString(f.Slug):
+			c.Invalid, c.Reason = true, "no valid metadata.slug"
+			skipped = append(skipped, c)
+		case seen[f.Slug]:
+			c.Invalid, c.Reason = true, "duplicate slug — give each file a distinct metadata.slug"
+			skipped = append(skipped, c)
+		default:
+			seen[f.Slug] = true
+			_, exists, _ := s.gitStore.Get(f.Slug)
+			c.Exists = exists
+			candidates = append(candidates, c)
+		}
+	}
+	sortCandidates(candidates)
+	return candidates, skipped
 }
 
 // sortCandidates puts the plain helmsman.yaml ("default") first, then the rest

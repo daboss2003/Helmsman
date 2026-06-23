@@ -42,11 +42,11 @@
 
   {{if .Skipped}}
   <section class="panel">
-    <h2>Skipped <span class="muted">(no usable <code>metadata.slug</code>)</span></h2>
-    <p class="muted">These helmsman files were found but can't be deployed until they declare a valid
-      <code>metadata.slug</code> (lowercase, e.g. <code>slug: myapp</code>).</p>
+    <h2>Skipped</h2>
+    <p class="muted">These helmsman files were found but can't be deployed as-is. Give each a valid, distinct
+      <code>metadata.slug</code> (lowercase, e.g. <code>slug: myapp</code>) and reconnect.</p>
     <ul>
-      {{range .Skipped}}<li class="mono">{{.Path}}</li>{{end}}
+      {{range .Skipped}}<li class="mono">{{.Path}} <span class="muted">— {{.Reason}}</span></li>{{end}}
     </ul>
   </section>
   {{end}}

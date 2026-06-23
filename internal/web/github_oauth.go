@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/Helmsman/internal/git"
 	"github.com/daboss2003/Helmsman/internal/github"
 	"github.com/daboss2003/Helmsman/internal/gitstore"
 )
@@ -150,9 +151,12 @@ func (s *Server) handleGitHubRepos(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleGitHubConnectRepo (POST, auth+CSRF) installs a deploy key on the chosen repo
-// and saves it as a new app — the one click that replaces all the manual key/URL
-// plumbing.
+// handleGitHubConnectRepo (POST, auth+CSRF) is the one-click connect for a picked repo.
+// Like the manual flow, the app's slug comes from the repo's helmsman file(s) — so it
+// runs discovery first (over HTTPS with the OAuth token, since the per-slug deploy key
+// isn't installed until the slug is known) and then: 0 files → scaffold (slug derived
+// from the repo name); 1 → connect; >1 → the chooser (one app per file). The read-only
+// deploy key is installed at finalize, named per the chosen slug.
 func (s *Server) handleGitHubConnectRepo(w http.ResponseWriter, r *http.Request) {
 	if !s.githubEnabled() {
 		notFound(w)
@@ -162,17 +166,76 @@ func (s *Server) handleGitHubConnectRepo(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	slug := strings.TrimSpace(r.PostFormValue("slug"))
 	fullName := strings.TrimSpace(r.PostFormValue("full_name"))
 	branch := strings.TrimSpace(r.PostFormValue("branch"))
 	if branch == "" {
 		branch = "main"
 	}
 	owner, name, ok := splitFullName(fullName)
-	if !ok || !provisionSlugRe.MatchString(slug) {
-		http.Error(w, "invalid repository or app name", http.StatusBadRequest)
+	if !ok {
+		http.Error(w, "invalid repository", http.StatusBadRequest)
 		return
 	}
+	conn, ok, err := s.gitStore.GitHubConn(r.Context())
+	if err != nil || !ok {
+		http.Redirect(w, r, "/git/new", http.StatusSeeOther)
+		return
+	}
+
+	// Discover helmsman files using the OAuth token over HTTPS.
+	repoURL := "https://github.com/" + owner + "/" + name + ".git"
+	if !s.gitDeploy.TryAcquire() {
+		http.Error(w, "a git operation is already in progress; try again shortly", http.StatusConflict)
+		return
+	}
+	files, derr := s.discoverHelmsmanFiles(r.Context(), repoURL, "refs/heads/"+branch, git.Creds{Token: conn.Token})
+	s.gitDeploy.Release()
+	if derr != nil {
+		http.Error(w, "could not read the repository from github: "+derr.Error(), http.StatusBadGateway)
+		return
+	}
+
+	candidates, skipped := s.buildCandidates(files)
+
+	switch {
+	case len(candidates) == 1 && len(skipped) == 0:
+		c := candidates[0]
+		if c.Exists {
+			http.Redirect(w, r, "/apps/"+c.Slug+"/git", http.StatusSeeOther)
+			return
+		}
+		s.finishGitHubConnect(w, r, c.Slug, owner, name, branch, c.Path)
+	case len(candidates) >= 1:
+		handle := s.discoFlash.put(&discoveryStash{
+			github: true, ghOwner: owner, ghName: name, ghBranch: branch, candidates: candidates,
+		})
+		s.render(w, r, "git_choose.html", tmplData{
+			Title:     "Choose a configuration",
+			CSRFToken: CSRFToken(r.Context()),
+			Username:  sessionUser(r),
+			Discovery: &discoveryView{Handle: handle, RepoURL: fullName, Ref: "refs/heads/" + branch, Candidates: candidates, Skipped: skipped},
+		})
+	case len(skipped) >= 1:
+		http.Error(w, "found helmsman files but none has a valid metadata.slug — add one (lowercase, e.g. slug: myapp) and reconnect", http.StatusUnprocessableEntity)
+	default:
+		slug := deriveSlug(name)
+		if slug == "" {
+			http.Error(w, "this repository has no helmsman.yaml and its name can't be used as an app slug — add a helmsman.yaml with metadata.slug and reconnect", http.StatusUnprocessableEntity)
+			return
+		}
+		if _, exists, _ := s.gitStore.Get(slug); exists {
+			http.Redirect(w, r, "/apps/"+slug+"/git", http.StatusSeeOther)
+			return
+		}
+		s.finishGitHubConnect(w, r, slug, owner, name, branch, "helmsman.yaml")
+	}
+}
+
+// finishGitHubConnect installs a fresh read-only deploy key (named per the slug) on the
+// repo via the OAuth token, then saves the app with that key as its SSH credential and
+// the chosen helmsman file. The OAuth token is re-read from the DB here (never carried
+// through the chooser). Idempotent: an already-present key (ErrKeyExists) is fine.
+func (s *Server) finishGitHubConnect(w http.ResponseWriter, r *http.Request, slug, owner, name, branch, helmsmanFile string) {
 	if s.cfg.IsProtectedProject(slug) {
 		http.Error(w, "protected project", http.StatusForbidden)
 		return
@@ -182,32 +245,64 @@ func (s *Server) handleGitHubConnectRepo(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/git/new", http.StatusSeeOther)
 		return
 	}
-	// Generate a fresh read-only deploy key and install it on the repo.
 	key, err := github.GenerateDeployKey("helmsman:" + slug)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := s.githubClient.CreateDeployKey(r.Context(), conn.Token, owner, name, "helmsman:"+slug, key.PublicLine); err != nil && err != github.ErrKeyExists {
+	if err := s.githubClient.CreateDeployKey(r.Context(), conn.Token, owner, name, "helmsman:"+slug, key.PublicLine); err != nil {
+		// We mint a FRESH key per connect, so a 422 (ErrKeyExists) can't mean "this exact
+		// key is already installed" — it means a DIFFERENT key already holds the title
+		// "helmsman:<slug>" (an orphan from a deleted app, or another Helmsman using the
+		// same slug). Our key was NOT installed, so fail loudly instead of saving a
+		// credential that can never fetch.
+		if err == github.ErrKeyExists {
+			http.Error(w, "a deploy key named \"helmsman:"+slug+"\" already exists on this repository — remove it on GitHub (it may be left over from a deleted app, or this slug is connected from another Helmsman instance), then reconnect", http.StatusConflict)
+			return
+		}
 		s.log.Warn("github create deploy key failed", "err", err)
 		http.Error(w, "could not install the deploy key on github", http.StatusBadGateway)
 		return
 	}
-	kh := github.KnownHosts
 	in := gitstore.SaveInput{
-		Project:    slug,
-		RepoURL:    "git@github.com:" + owner + "/" + name + ".git",
-		Ref:        "refs/heads/" + branch,
-		NewCred:    &key.PrivatePEM,
-		CredKind:   "ssh",
-		KnownHosts: kh,
+		Project:      slug,
+		RepoURL:      "git@github.com:" + owner + "/" + name + ".git",
+		Ref:          "refs/heads/" + branch,
+		HelmsmanFile: helmsmanFile,
+		NewCred:      &key.PrivatePEM,
+		CredKind:     "ssh",
+		KnownHosts:   github.KnownHosts,
 	}
 	if err := s.gitStore.Save(r.Context(), in); err != nil {
 		http.Error(w, "repository config rejected: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "github_connect_repo", Target: slug, Outcome: audit.OK, Level: audit.Security, Detail: fullName})
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "github_connect_repo", Target: slug, Outcome: audit.OK, Level: audit.Security, Detail: owner + "/" + name + " (" + helmsmanFile + ")"})
 	http.Redirect(w, r, "/apps/"+slug+"/git", http.StatusSeeOther)
+}
+
+// deriveSlug turns a GitHub repo name into a valid app slug for the scaffold case
+// (a repo with no helmsman.yaml). Returns "" if it can't be made valid.
+func deriveSlug(repoName string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, c := range strings.ToLower(strings.TrimSpace(repoName)) {
+		switch {
+		case (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'):
+			b.WriteRune(c)
+			prevDash = false
+		case c == '-' || c == '_' || c == '.' || c == ' ':
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if !provisionSlugRe.MatchString(out) {
+		return ""
+	}
+	return out
 }
 
 // handleGitHubDisconnect (POST, auth+CSRF) forgets the OAuth token. Existing per-repo

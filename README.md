@@ -16,6 +16,7 @@ Think of it as your own small Heroku or Netlify, running on a server you own. It
 - **A real dashboard** — health for every app and the host (with live CPU/memory/disk charts), logs, and start / stop / restart / redeploy per app or service.
 - **Safe deploys** — straight from a Git repo's `helmsman.yaml`. Every change is checked before it goes live, with automatic rollback on failure.
 - **Deploy from Git, one click** — connect a repo (including one-click **Connect with GitHub**, which installs a read-only deploy key for you). Helmsman watches for new commits and shows you what changed; you click Deploy. Access is fetch-only — Helmsman never pushes to your repo.
+- **Several apps from one repo** — keep `helmsman.yaml` plus variants like `helmsman.staging.yaml` and `helmsman.prod.yaml` in the same repo, and Helmsman deploys **each as its own app** (you pick which on connect). One `helmsman.yaml`? Nothing changes.
 - **Secrets, done right** — passwords and API keys are stored encrypted and referenced by name, never sitting in plain text in your files, repo, or logs.
 - **Incidents in one place** — open alerts, unhealthy apps, and recent failures roll up onto a single screen.
 - **Alerting** — optional email / webhook / Slack / Discord / Telegram, with quiet hours and an external dead-man's switch. Off until you turn it on.
@@ -56,7 +57,7 @@ After install, you work entirely in the dashboard. To change an app's structure,
 - **Overview & Apps** — every app's status at a glance; open one to see services, logs, and lifecycle controls.
 - **Repository & updates** — for repo-backed apps: what changed, and Deploy / Redeploy.
 - **Edge & TLS** — see the routes declared in an app's `helmsman.yaml`; Helmsman handles the certificate and routing.
-- **Env & secrets** — set your apps' secret values and non-secret env (the `helmsman.yaml` declares secret *names*; the values live encrypted, never in the file). Config files and cert bindings are defined in the file and shown read-only here.
+- **Env & secrets** — set your apps' secret values and non-secret env (the `helmsman.yaml` declares secret *names*; the values live encrypted, never in the file). Config files and cert bindings are editable here too (and can be seeded from the file).
 - **Incidents & Alerts** — see what needs you, and configure how you're notified.
 - **Audit log, API tokens, Backups** — review privileged actions, manage machine tokens, and snapshot your setup.
 

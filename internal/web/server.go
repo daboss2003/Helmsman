@@ -214,6 +214,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		gitDeploy:     dockerexec.NewSemaphore(),
 		logStreams:    make(chan struct{}, maxConcurrentLogStreams),
 	}
+	s.sweepDiscoveryScratch() // clear any orphaned multi-file-connect scratch dirs from a prior run
 	sec, err := buildSecState(cfg)
 	if err != nil {
 		return nil, err
