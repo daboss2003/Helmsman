@@ -93,9 +93,23 @@ func (m *Manager) Create(ctx context.Context, username, peerIP, userAgent string
 	return rawID, nil
 }
 
-// Load returns the session for a raw cookie id, enforcing idle + absolute
-// timeouts against the non-regressing effective clock.
+// Load returns the session for a raw cookie id, enforcing idle + absolute timeouts
+// against the non-regressing effective clock, and ADVANCES last_seen — active use keeps
+// the session alive (this runs on every authed request via the session middleware).
 func (m *Manager) Load(ctx context.Context, rawID string) (*Session, error) {
+	return m.lookup(ctx, rawID, true)
+}
+
+// Peek is Load WITHOUT advancing last_seen — a read-only liveness check enforcing the
+// SAME idle + absolute expiry. It must not keep an idle session alive, so it's used by
+// the dashboard's focus-loss watchdog status probe (an unfocused tab polling "am I still
+// logged in?" must observe the idle-out, not postpone it).
+func (m *Manager) Peek(ctx context.Context, rawID string) (*Session, error) {
+	return m.lookup(ctx, rawID, false)
+}
+
+// lookup is the shared Load/Peek core. refresh advances last_seen on a hit.
+func (m *Manager) lookup(ctx context.Context, rawID string, refresh bool) (*Session, error) {
 	if rawID == "" {
 		return nil, ErrNotFound
 	}
@@ -124,12 +138,16 @@ func (m *Manager) Load(ctx context.Context, rawID string) (*Session, error) {
 		_ = m.deleteByHash(ctx, hashID(rawID))
 		return nil, ErrNotFound
 	}
-	_, _ = m.db.ExecContext(ctx, `UPDATE sessions SET last_seen_at = ? WHERE id_hash = ?`, now.Unix(), hashID(rawID))
+	seen := time.Unix(lastSeen, 0)
+	if refresh {
+		_, _ = m.db.ExecContext(ctx, `UPDATE sessions SET last_seen_at = ? WHERE id_hash = ?`, now.Unix(), hashID(rawID))
+		seen = now
+	}
 
 	return &Session{
 		Username:   username,
 		CreatedAt:  time.Unix(createdAt, 0),
-		LastSeenAt: now,
+		LastSeenAt: seen,
 	}, nil
 }
 

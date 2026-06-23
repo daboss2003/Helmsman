@@ -268,7 +268,11 @@ func applyDefaults(c *Config) {
 		c.Edge.ApplyProbeWindow = Duration(20 * time.Second)
 	}
 	if c.Session.IdleTimeout == 0 {
-		c.Session.IdleTimeout = Duration(30 * time.Minute)
+		// 10m: the dashboard only sends its keepalive (and live polls) WHILE focused, so a
+		// focused operator never idles out, but a dashboard left unfocused/abandoned logs
+		// out after 10m. Override via session.idle_timeout. The absolute cap below is the
+		// hard ceiling regardless of activity.
+		c.Session.IdleTimeout = Duration(10 * time.Minute)
 	}
 	if c.Session.AbsoluteTimeout == 0 {
 		c.Session.AbsoluteTimeout = Duration(12 * time.Hour)

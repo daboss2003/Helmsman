@@ -213,32 +213,82 @@
     }
   });
 
-  // pageVisible reports whether the tab is currently being looked at. All the live
-  // refreshers below skip work while hidden — there is no reason to fetch (or to
-  // wake the server's git poller) for a dashboard nobody is watching.
-  function pageVisible() { return document.visibilityState === "visible"; }
+  // dashFocused reports whether the dashboard is the thing the operator is actively
+  // looking at: the tab is visible AND the window has focus. All the live refreshers
+  // below skip work (and the keepalive ping below stops) while it's false — there is no
+  // reason to fetch for a dashboard nobody is watching, AND the stopped keepalive is what
+  // lets an unfocused/abandoned session idle out (see the focus-loss watchdog below).
+  function dashFocused() { return document.visibilityState === "visible" && document.hasFocus(); }
 
-  // onVisibleNow runs fn each time the tab becomes visible (and once now if it
-  // already is) — so returning to a backgrounded tab refreshes immediately rather
-  // than waiting out the interval with stale data on screen.
-  function onVisibleNow(fn) {
-    if (pageVisible()) fn();
-    document.addEventListener("visibilitychange", function () { if (pageVisible()) fn(); });
+  // onFocusedNow runs fn each time the dashboard regains focus (and once now if it
+  // already is) — so returning (a tab switch OR a window focus) refreshes immediately
+  // rather than waiting out the interval with stale data on screen.
+  function onFocusedNow(fn) {
+    var run = function () { if (dashFocused()) fn(); };
+    run();
+    document.addEventListener("visibilitychange", run);
+    window.addEventListener("focus", run);
   }
 
   // ---- focused-dashboard heartbeat ----
   // Helmsman never auto-deploys, so polling git when nobody is looking is wasted
-  // server work. The page pings /dash/ping on load and every ~40s WHILE visible
-  // (and immediately on regaining focus); the server's git poller only fetches
-  // within a short window after a ping. Hidden tab -> no pings -> no polling.
+  // server work. The page pings /dash/ping on load and every ~40s WHILE focused (and
+  // immediately on regaining focus); the server's git poller only fetches within a
+  // short window after a ping. Unfocused -> no pings -> no polling -> session idles out.
   (function heartbeat() {
     var ping = function () {
-      if (!pageVisible()) return;
+      if (!dashFocused()) return;
       fetch("/dash/ping", { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
         .catch(function () { /* transient; next tick */ });
     };
-    onVisibleNow(ping);
+    onFocusedNow(ping);
     setInterval(ping, 40000);
+  })();
+
+  // ---- focus-loss logout watchdog ----
+  // Security: if the dashboard is left unfocused (another tab/app/screen) for the
+  // session idle window, log out. The keepalive above only runs while focused, so the
+  // server-side session genuinely idles out on its own; this watchdog SURFACES that as a
+  // redirect to /login instead of leaving a stale page. It polls /session/status, which
+  // is NON-refreshing (server uses Peek there), so the probe never keeps the session
+  // alive — and a 204 (another tab is keeping it alive) means "don't redirect yet".
+  (function focusLogout() {
+    var layout = document.querySelector("[data-layout]");
+    if (!layout) return; // only the authed shell carries data-idle-ms
+    var idleMs = parseInt(layout.getAttribute("data-idle-ms") || "0", 10);
+    if (!idleMs || idleMs < 60000) return; // disabled / implausibly small
+    var lostAt = dashFocused() ? 0 : Date.now();
+    var checking = false;
+    var goLogin = function () { window.location.replace("/login"); };
+    var probe = function (onAlive) {
+      if (checking) return;
+      checking = true;
+      fetch(sessionStatusURL(), { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { if (r.status === 204) { if (onAlive) onAlive(); } else { goLogin(); } })
+        .catch(function () { goLogin(); }) // unreachable/redirected => treat as logged out
+        .finally(function () { checking = false; });
+    };
+    var onActive = function () {
+      // Returned to the dashboard: if we were away past the deadline, verify the session
+      // before trusting the page; otherwise just resume (the keepalive ping refreshes it).
+      if (lostAt && Date.now() - lostAt >= idleMs) { probe(null); }
+      lostAt = 0;
+    };
+    var onInactive = function () { if (!lostAt) lostAt = Date.now(); };
+    // One handler for every active/inactive signal — a focus event must be re-checked
+    // against dashFocused() (a hidden tab can receive a window-focus event without being
+    // the focused dashboard, which must NOT reset the idle countdown).
+    var sync = function () { dashFocused() ? onActive() : onInactive(); };
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+    setInterval(function () {
+      if (dashFocused()) { lostAt = 0; return; }
+      if (!lostAt) { lostAt = Date.now(); return; }
+      if (Date.now() - lostAt < idleMs) return;
+      probe(null); // past the deadline: 401 -> /login; 204 -> keep watching (don't reset)
+    }, 30000);
+    function sessionStatusURL() { return "/session/status"; }
   })();
 
   // Lightweight live refresh: any element with data-poll-url is periodically
@@ -250,14 +300,15 @@
     var ms = parseInt(el.getAttribute("data-poll-interval") || "5000", 10);
     if (!url || ms < 1000) return;
     var pull = function () {
-      if (!pageVisible()) return;
+      if (!dashFocused()) return;
       fetch(url, { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
         .then(function (r) { return r.ok ? r.text() : null; })
         .then(function (html) { if (html !== null) el.innerHTML = html; })
         .catch(function () { /* transient; try again next tick */ });
     };
     setInterval(pull, ms);
-    document.addEventListener("visibilitychange", function () { if (pageVisible()) pull(); });
+    document.addEventListener("visibilitychange", function () { if (dashFocused()) pull(); });
+    window.addEventListener("focus", function () { if (dashFocused()) pull(); });
   });
 
   // ---- shell: sidebar active link + mobile toggle + topbar title ----
@@ -359,7 +410,7 @@
   if (charts.length) {
     charts.forEach(setupChartHover);
     var refreshCharts = function () {
-      if (!pageVisible()) return;
+      if (!dashFocused()) return;
       fetch("/partials/metrics.json", { credentials: "same-origin", redirect: "error", headers: { "X-Requested-With": "fetch" } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
@@ -383,7 +434,7 @@
         })
         .catch(function () { /* transient */ });
     };
-    onVisibleNow(refreshCharts);
+    onFocusedNow(refreshCharts);
     setInterval(refreshCharts, 5000);
   }
 })();

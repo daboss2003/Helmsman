@@ -52,6 +52,42 @@ func TestIdleTimeout(t *testing.T) {
 	}
 }
 
+// Peek is a read-only liveness check: it returns a live session WITHOUT advancing
+// last_seen (so an unfocused tab polling it can't keep itself alive), but enforces the
+// same idle/absolute expiry as Load.
+func TestPeek(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	m := New(db, 30*time.Minute, 12*time.Hour)
+	raw, _ := m.Create(ctx, "operator", "127.0.0.1", "test")
+
+	// A still-valid but known last_seen: Peek must NOT advance it.
+	old := time.Now().Add(-5 * time.Minute).Unix()
+	_, _ = db.Exec(`UPDATE sessions SET last_seen_at = ?`, old)
+	if _, err := m.Peek(ctx, raw); err != nil {
+		t.Fatalf("Peek of a live session: %v", err)
+	}
+	var after int64
+	_ = db.QueryRow(`SELECT last_seen_at FROM sessions`).Scan(&after)
+	if after != old {
+		t.Errorf("Peek advanced last_seen %d -> %d (must be read-only)", old, after)
+	}
+	// Contrast: Load DOES advance it.
+	if _, err := m.Load(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.QueryRow(`SELECT last_seen_at FROM sessions`).Scan(&after)
+	if after == old {
+		t.Error("Load should have advanced last_seen")
+	}
+
+	// Peek still enforces idle expiry (forced far past the idle window -> gone).
+	_, _ = db.Exec(`UPDATE sessions SET last_seen_at = ?`, time.Now().Add(-time.Hour).Unix())
+	if _, err := m.Peek(ctx, raw); !errors.Is(err, ErrNotFound) {
+		t.Error("Peek must enforce idle expiry, not just read")
+	}
+}
+
 // The high-severity fix (review #1): a backward wall-clock step plus a restart
 // must NOT resurrect an already-expired session.
 func TestBackwardClockCannotResurrectSession(t *testing.T) {

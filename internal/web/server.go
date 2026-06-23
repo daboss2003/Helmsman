@@ -376,6 +376,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /partials/metrics.json", s.requireAuth(s.handleMetricsHistory))
 	// Focused-dashboard heartbeat — gates the git poller (only fetch while someone's looking).
 	mux.HandleFunc("GET /dash/ping", s.requireAuth(s.handleDashPing))
+	// Non-refreshing session liveness probe (auth-exempt: returns 204/401 itself, never
+	// 302). The focus-loss watchdog polls it to surface an idle-out as a redirect to /login.
+	// Literal pattern (not sessionStatusPath) so the authz-posture AST check can see it;
+	// the path string must stay equal to sessionStatusPath (asserted in a test).
+	mux.HandleFunc("GET /session/status", s.handleSessionStatus)
 	// The app's canonical helmsman.yaml (export dashboard edits back to your repo).
 	mux.HandleFunc("GET /apps/{project}/definition.yaml", s.requireAuth(s.handleDefinitionYAML))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))

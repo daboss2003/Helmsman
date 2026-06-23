@@ -151,7 +151,14 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(s.cookieName()); err == nil && c.Value != "" {
-			if sess, err := s.sessions.Load(r.Context(), c.Value); err == nil {
+			// The focus-loss watchdog's status probe must NOT advance last_seen — else an
+			// unfocused tab polling "am I still logged in?" would keep its own session
+			// alive forever. Peek there; Load (which refreshes) everywhere else.
+			load := s.sessions.Load
+			if r.URL.Path == sessionStatusPath {
+				load = s.sessions.Peek
+			}
+			if sess, err := load(r.Context(), c.Value); err == nil {
 				r = r.WithContext(withSession(r.Context(), sess))
 			} else if err == session.ErrNotFound {
 				// Stale/expired cookie: clear it so the browser stops sending it.

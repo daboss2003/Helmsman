@@ -68,7 +68,7 @@ This is possible because Helmsman is server-rendered (`html/template` + htmx + A
 
 ### 2.3 Auth and sessions
 
-`POST /login` takes username + password (+ optional TOTP). Username comparison is constant-time. There is **no public registration and no web password reset** — credentials are set over SSH (see [§4.1](#41-the-ssh-provisioned-config-root-of-trust)). Sessions are server-side opaque 256-bit ids, **stored hashed** and **rotated on login and on any privilege change**. The cookie uses the `__Host-` prefix (which mandates a subdomain deploy) or `__Secure-` + `Path=base_path`; config validation refuses an incompatible combination. Both idle and absolute timeouts apply.
+`POST /login` takes username + password (+ optional TOTP). Username comparison is constant-time. There is **no public registration and no web password reset** — credentials are set over SSH (see [§4.1](#41-the-ssh-provisioned-config-root-of-trust)). Sessions are server-side opaque 256-bit ids, **stored hashed** and **rotated on login and on any privilege change**. The cookie uses the `__Host-` prefix (which mandates a subdomain deploy) or `__Secure-` + `Path=base_path`; config validation refuses an incompatible combination. Both idle and absolute timeouts apply. The dashboard's keepalive runs **only while it is focused** (the tab is visible *and* the window has focus), so a dashboard left unfocused/abandoned stops refreshing and the session **idles out** server-side after `session.idle_timeout` (default **10m**); a client watchdog polls a non-refreshing `/session/status` and redirects to the login page when that happens. An active operator is never logged out (the keepalive holds the session); the absolute timeout is the hard ceiling regardless.
 
 ### 2.4 The webhook exemption
 

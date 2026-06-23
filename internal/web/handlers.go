@@ -15,23 +15,24 @@ import (
 
 // tmplData is the view model passed to every template render.
 type tmplData struct {
-	Title       string
-	CSRFToken   string
-	Username    string
-	Error       string
-	EdgeMode    string
-	Events      []eventRow
-	Snap        *monitor.Snapshot
-	OrderedApps []monitor.App     // operator app tiles in the saved order (M7); excludes managed infra
-	SystemApps  []monitor.App     // protected/managed projects (read-plane proxy) — read-only System tiles
-	Provisioned []provisionedView // provisioned apps incl. not-yet-deployed (M8)
-	App         *monitor.App
-	Project     string
-	Protected   bool         // the App is a Helmsman-managed/protected project — no app actions
-	BackURL     string       // breadcrumb target; the app home, or the repository page when not yet deployed
-	Svc         *serviceView // the per-service page model
-	OpsCfg      *ops.Config
-	OpsStatus   *ops.Status
+	Title         string
+	CSRFToken     string
+	Username      string
+	Error         string
+	EdgeMode      string
+	IdleTimeoutMs int64 // session idle window in ms → the client focus-loss logout watchdog
+	Events        []eventRow
+	Snap          *monitor.Snapshot
+	OrderedApps   []monitor.App     // operator app tiles in the saved order (M7); excludes managed infra
+	SystemApps    []monitor.App     // protected/managed projects (read-plane proxy) — read-only System tiles
+	Provisioned   []provisionedView // provisioned apps incl. not-yet-deployed (M8)
+	App           *monitor.App
+	Project       string
+	Protected     bool         // the App is a Helmsman-managed/protected project — no app actions
+	BackURL       string       // breadcrumb target; the app home, or the repository page when not yet deployed
+	Svc           *serviceView // the per-service page model
+	OpsCfg        *ops.Config
+	OpsStatus     *ops.Status
 
 	WriteDisabledReason string // non-empty when the §0 write-plane gate is closed
 
@@ -327,6 +328,9 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 	}
 	if data.EdgeMode == "" {
 		data.EdgeMode = string(s.cfg.Edge.Mode)
+	}
+	if data.IdleTimeoutMs == 0 {
+		data.IdleTimeoutMs = s.cfg.Session.IdleTimeout.D().Milliseconds()
 	}
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {

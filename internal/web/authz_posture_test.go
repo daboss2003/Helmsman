@@ -27,6 +27,7 @@ var authExempt = map[string]bool{
 	"GET /login":            true,
 	"POST /login":           true,
 	"POST /logout":          true,
+	"GET /session/status":   true, // non-refreshing liveness probe; returns 204/401 itself, no session data
 	"GET /static/theme.css": true,
 	"GET /static/":          true, // embedded asset FileServer (behind the allowlist)
 	// OAuth callback: a cross-site navigation back from github.com, so the Strict
