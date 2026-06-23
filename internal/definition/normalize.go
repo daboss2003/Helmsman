@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -43,6 +44,21 @@ func Kind(raw []byte) (string, error) {
 		return "", fmt.Errorf("invalid YAML: %w", err)
 	}
 	return env.Kind, nil
+}
+
+// PeekMetadata leniently reads metadata.slug + metadata.name from a helmsman file —
+// just enough to label a multi-file repo's chooser (which file → which app). It does
+// NOT validate the document; the slug it returns is re-checked by gitstore.Save (the
+// real gate) before any app is created, and the full hardened Parse runs at deploy.
+func PeekMetadata(raw []byte) (slug, name string) {
+	var m struct {
+		Metadata struct {
+			Slug string `yaml:"slug"`
+			Name string `yaml:"name"`
+		} `yaml:"metadata"`
+	}
+	_ = yaml.Unmarshal(raw, &m)
+	return strings.TrimSpace(m.Metadata.Slug), strings.TrimSpace(m.Metadata.Name)
 }
 
 // hardenAndDecode is the shared, type-agnostic parse pipeline for App + Host docs.

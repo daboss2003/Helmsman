@@ -52,6 +52,57 @@ func TestSaveGetRoundTrip(t *testing.T) {
 	}
 }
 
+// HelmsmanFile drives WHICH file in a multi-file repo is this app's definition. It
+// round-trips, defaults to helmsman.yaml on a fresh insert, and an empty value on a
+// later Save KEEPS the stored one (the basic edit form never round-trips it).
+func TestHelmsmanFileRoundTripAndKeep(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Fresh insert with no file → default helmsman.yaml.
+	if err := s.Save(ctx, SaveInput{Project: "plain", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _, _ := s.Get("plain"); c.HelmsmanFile != "helmsman.yaml" {
+		t.Errorf("default helmsman file = %q, want helmsman.yaml", c.HelmsmanFile)
+	}
+
+	// Insert with a variant.
+	if err := s.Save(ctx, SaveInput{Project: "stg", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never", HelmsmanFile: "helmsman.staging.yaml"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _, _ := s.Get("stg"); c.HelmsmanFile != "helmsman.staging.yaml" {
+		t.Fatalf("helmsman file = %q, want helmsman.staging.yaml", c.HelmsmanFile)
+	}
+	// A later edit that omits the file must KEEP the stored variant.
+	if err := s.Save(ctx, SaveInput{Project: "stg", RepoURL: "https://github.com/o/r2.git", Ref: "refs/heads/main", BuildPolicy: "never"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _, _ := s.Get("stg"); c.HelmsmanFile != "helmsman.staging.yaml" {
+		t.Errorf("after edit helmsman file = %q, want it KEPT as helmsman.staging.yaml", c.HelmsmanFile)
+	}
+
+	// A bogus file is rejected.
+	if err := s.Save(ctx, SaveInput{Project: "bad", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never", HelmsmanFile: "../etc/passwd"}); err == nil {
+		t.Error("expected rejection of a traversal helmsman file path")
+	}
+}
+
+func TestValidHelmsmanFile(t *testing.T) {
+	good := []string{"helmsman.yaml", "helmsman.yml", "helmsman.staging.yaml", "helmsman.prod.yml", "helmsman.us-east-1.yaml"}
+	bad := []string{"", "Helmsman.yaml", "helmsman.YAML", "compose.yaml", "dir/helmsman.yaml", "../helmsman.yaml", "helmsman.yaml.bak", "helmsman..yaml", "helmsman.staging.json"}
+	for _, g := range good {
+		if !ValidHelmsmanFile(g) {
+			t.Errorf("ValidHelmsmanFile(%q) = false, want true", g)
+		}
+	}
+	for _, b := range bad {
+		if ValidHelmsmanFile(b) {
+			t.Errorf("ValidHelmsmanFile(%q) = true, want false", b)
+		}
+	}
+}
+
 // Regression: List() must not deadlock. The DB pool is a single connection
 // (store.SetMaxOpenConns(1)); the old List() held the rows open while calling Get()
 // (a nested query), self-deadlocking and stranding the connection — which froze every

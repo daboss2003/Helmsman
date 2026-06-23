@@ -156,6 +156,7 @@ type Server struct {
 	webhookRL      *rateLimiter                  // per-token webhook rate limit
 	webhookSeen    *nonceCache                   // webhook replay (timestamp+nonce) defense
 	webhookFlash   *tokenFlash                   // one-time rotated-token hand-off (never in URL)
+	discoFlash     *discoveryFlash               // short-lived multi-file connect stash (creds never round-trip the browser)
 	gitDeploy      *dockerexec.Semaphore         // single-flight repo deploy (1 at a time)
 	logStreams     chan struct{}                 // concurrency cap on live log streams
 	sec            atomic.Pointer[secState]
@@ -209,6 +210,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 		webhookRL:     newRateLimiter(30, time.Minute),
 		webhookSeen:   newNonceCache(webhookNonceTTL),
 		webhookFlash:  newTokenFlash(2 * time.Minute),
+		discoFlash:    newDiscoveryFlash(5 * time.Minute),
 		gitDeploy:     dockerexec.NewSemaphore(),
 		logStreams:    make(chan struct{}, maxConcurrentLogStreams),
 	}
@@ -433,7 +435,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/setup/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSetupDelete))))
 	// Repo-path GitOps (M6).
 	mux.HandleFunc("GET /git/new", s.requireAuth(s.withCSRFToken(s.handleGitNew)))
-	mux.HandleFunc("POST /git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitSave))))
+	// Connect-new runs repo discovery (helmsman.yaml + variants → one app each); the
+	// chooser posts the picked file back to /git/choose. Editing an EXISTING app's repo
+	// config stays on /apps/{project}/git (handleGitSave) — no discovery, slug fixed.
+	mux.HandleFunc("POST /git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitConnect))))
+	mux.HandleFunc("POST /git/choose", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitChoose))))
 	mux.HandleFunc("GET /apps/{project}/git", s.requireAuth(s.withCSRFToken(s.handleGitGet)))
 	mux.HandleFunc("POST /apps/{project}/git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitSave))))
 	mux.HandleFunc("POST /apps/{project}/git/fetch", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleGitFetch))))

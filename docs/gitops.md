@@ -21,6 +21,12 @@ Credentials are stored encrypted and never appear in the UI or logs.
 
 Your repo carries a **`helmsman.yaml`** (see [the definition file](./definition-file.md)) describing the app — its services, build, env, edge routes, config files, and cert bindings. **That file is the single source of truth for the app's structure.** Helmsman reads it, **generates the `docker-compose.yml` and any Dockerfiles**, and deploys — you never commit a compose file or a Dockerfile. If the repo has no `helmsman.yaml`, Helmsman scaffolds a sensible default from the stack it detects (e.g. a Node or Go project) so the first deploy still works; commit a real `helmsman.yaml` when you want full control.
 
+### Several apps from one repo
+
+One repo can hold **several helmsman files** — the plain `helmsman.yaml` plus named variants like `helmsman.staging.yaml` and `helmsman.prod.yaml` — and **each one becomes its own deployed app**. When you connect a repo with more than one, Helmsman shows a **chooser**: the plain `helmsman.yaml` is the default, and variants are labelled by the text between `helmsman.` and `.yaml` (`staging`, `prod`, …). Pick one to deploy now; connect the repo again to add another.
+
+Each app's **identity (its slug) comes from that file's `metadata.slug`** — so give each variant a distinct slug (e.g. `myapp-staging`, `myapp-prod`). If the slug you pick already names a connected app, Helmsman just opens it instead of overwriting — connecting never silently repoints an existing app. (Editing a file's `metadata.slug` *after* connecting doesn't rename the app; the slug is fixed at connect.) If your repo only ever has one `helmsman.yaml`, none of this changes anything — you connect and deploy as usual.
+
 To change the app's *shape* — services and edge/L4 routes — **edit `helmsman.yaml` and deploy**; the dashboard then reflects it (read-only for those). The operational pieces are managed in the dashboard: **secret values** and **env** (the file declares secret *names* only), **config files** and **cert bindings** (editable in the dashboard; optionally seeded from the file), the per-service **auto-scaling policy**, and **lifecycle actions** (deploy / restart / scale-now).
 
 ## How updates work

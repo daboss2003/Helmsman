@@ -94,28 +94,34 @@ func (s *Server) configBindingResolver(project, service string, svc definition.S
 	}
 }
 
-// loadRepoDefinition reads the repo's helmsman.yaml at the pinned commit and parses it
-// (Helmsman generates the compose from it — the repo never supplies a compose). If the
-// repo has no helmsman.yaml, it scaffolds a default from the repo's detected stack so
-// "connect a repo" still works. The app's identity is its REGISTRATION slug, so the
-// parsed slug is overridden — a repo can't deploy itself under a different app's name.
-func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, slug string) (*definition.Definition, bool, error) {
-	if b, err := repo.CatFile(ctx, sha, "helmsman.yaml"); err == nil {
+// loadRepoDefinition reads this app's helmsman file at the pinned commit and parses it
+// (Helmsman generates the compose from it — the repo never supplies a compose). The file
+// is helmsman.yaml by default, or a variant (helmsman.staging.yaml / helmsman.prod.yaml)
+// when the repo holds several and this app instance was connected to one of them. If the
+// file is absent, it scaffolds a default from the repo's detected stack so "connect a
+// repo" still works. The app's identity is its REGISTRATION slug (chosen at connect from
+// the file's metadata.slug), so the parsed slug is overridden here — editing the file's
+// slug afterwards can't rename or hijack the app.
+func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, slug, helmsmanFile string) (*definition.Definition, bool, error) {
+	if helmsmanFile == "" {
+		helmsmanFile = "helmsman.yaml"
+	}
+	if b, err := repo.CatFile(ctx, sha, helmsmanFile); err == nil {
 		d, perr := definition.Parse(b)
 		if perr != nil {
-			return nil, false, fmt.Errorf("helmsman.yaml: %w", perr)
+			return nil, false, fmt.Errorf("%s: %w", helmsmanFile, perr)
 		}
 		d.Metadata.Slug = slug
 		return d, false, nil
 	}
-	// No helmsman.yaml — scaffold a single build service from the detected stack.
+	// No helmsman file — scaffold a single build service from the detected stack.
 	files, err := repo.LsFiles(ctx, sha)
 	if err != nil {
 		return nil, false, fmt.Errorf("list repo files: %w", err)
 	}
 	b, derr := builder.Resolve(builder.Spec{Language: "auto"}, topLevelSet(files))
 	if derr != nil {
-		return nil, false, fmt.Errorf("no helmsman.yaml in the repo and %w — add a helmsman.yaml", derr)
+		return nil, false, fmt.Errorf("no %s in the repo and %w — add a %s", helmsmanFile, derr, helmsmanFile)
 	}
 	d := &definition.Definition{
 		APIVersion: definition.APIVersion,

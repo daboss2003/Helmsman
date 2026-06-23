@@ -216,6 +216,41 @@ func TestDeployBuildServiceGeneratesDockerfile(t *testing.T) {
 	}
 }
 
+// Multi-instance: when an app is connected to a VARIANT helmsman file, the deploy
+// reads THAT file (cfg.HelmsmanFile), not the plain helmsman.yaml. The repo here has
+// both; the app points at helmsman.prod.yaml, so the generated compose must carry the
+// prod image (caddy), never the default's (nginx).
+func TestDeployReadsConfiguredHelmsmanVariant(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
+	slug := "shop"
+	prodYAML := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: caddy:2\n"
+	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
+		"helmsman.yaml":      repoHelmsmanYAML, // nginx:1.27 (the default — must be IGNORED)
+		"helmsman.prod.yaml": prodYAML,         // caddy:2   (this app's file)
+	})
+	if err := e.srv.gitStore.Save(context.Background(), gitstore.SaveInput{
+		Project: slug, RepoURL: "https://nonexistent.invalid/o/r.git", Ref: "refs/heads/main",
+		BuildPolicy: "never", HelmsmanFile: "helmsman.prod.yaml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.gitStore.SetFetchResult(context.Background(), slug, sha, 1, "update_available")
+	cfg, _, _ := e.srv.gitStore.Get(slug)
+
+	_ = e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
+	cmp, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml"))
+	if rerr != nil {
+		t.Fatalf("generated compose missing: %v", rerr)
+	}
+	if !strings.Contains(string(cmp), "caddy:2") {
+		t.Errorf("compose must come from helmsman.prod.yaml (caddy:2):\n%s", cmp)
+	}
+	if strings.Contains(string(cmp), "nginx") {
+		t.Errorf("the default helmsman.yaml (nginx) must be IGNORED when the app points at a variant:\n%s", cmp)
+	}
+}
+
 // A repo's own .dockerignore is preserved; Helmsman MERGES .helmsman into it (it does
 // not overwrite the operator's entries).
 func TestDeployMergesRepoDockerignore(t *testing.T) {

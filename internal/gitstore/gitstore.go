@@ -24,6 +24,15 @@ var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func validSlug(s string) bool { return slugRe.MatchString(s) }
 
+// helmsmanFileRe matches a root-level helmsman file: the plain helmsman.yaml or a
+// named variant like helmsman.staging.yaml / helmsman.prod.yaml (.yml accepted).
+// Root-level only — no path separators, so a stored value can never escape the repo
+// root or smuggle traversal into a CatFile path.
+var helmsmanFileRe = regexp.MustCompile(`^helmsman(\.[a-z0-9][a-z0-9-]*)?\.ya?ml$`)
+
+// ValidHelmsmanFile reports whether name is an acceptable per-app helmsman file.
+func ValidHelmsmanFile(name string) bool { return helmsmanFileRe.MatchString(name) }
+
 // Config is one repo app's GitOps configuration + state.
 type Config struct {
 	Project        string
@@ -31,6 +40,7 @@ type Config struct {
 	Ref            string
 	ComposePath    string
 	DockerfilePath string
+	HelmsmanFile   string // repo-relative helmsman file driving this app (default helmsman.yaml)
 	AutoDeploy     bool
 	BuildPolicy    string
 	CredKind       string // "" | token | ssh
@@ -59,6 +69,7 @@ type SaveInput struct {
 	Ref            string
 	ComposePath    string
 	DockerfilePath string
+	HelmsmanFile   string // "" keeps the stored value (or defaults to helmsman.yaml on insert)
 	AutoDeploy     bool
 	BuildPolicy    string
 	// NewCred tri-state: nil keeps, "" clears, value replaces.
@@ -92,6 +103,19 @@ func (s *Store) Save(ctx context.Context, in SaveInput) error {
 	if in.BuildPolicy != "never" && in.BuildPolicy != "on_missing" {
 		in.BuildPolicy = "never"
 	}
+	// Resolve the helmsman file driving this app: an empty value KEEPS the stored
+	// one (so the basic edit form never has to round-trip it), defaulting to the
+	// plain helmsman.yaml on a fresh insert. A provided value is validated to a
+	// root-level helmsman*.yaml — the connect/discovery flow is its only writer.
+	helmsmanFile := strings.TrimSpace(in.HelmsmanFile)
+	if helmsmanFile == "" {
+		_ = s.db.QueryRowContext(ctx, `SELECT helmsman_file_path FROM app_git WHERE project=?`, in.Project).Scan(&helmsmanFile)
+		if strings.TrimSpace(helmsmanFile) == "" {
+			helmsmanFile = "helmsman.yaml"
+		}
+	} else if !ValidHelmsmanFile(helmsmanFile) {
+		return errors.New("helmsman file must be a root-level helmsman*.yaml")
+	}
 	ad := b2i(in.AutoDeploy)
 
 	// Resolve credential ciphertext: keep / clear / replace.
@@ -119,14 +143,15 @@ func (s *Store) Save(ctx context.Context, in SaveInput) error {
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO app_git(project, repo_url, git_ref, compose_path, dockerfile_path, auto_deploy, build_policy, cred_kind, cred_enc, known_hosts_enc, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?)
+		`INSERT INTO app_git(project, repo_url, git_ref, compose_path, dockerfile_path, helmsman_file_path, auto_deploy, build_policy, cred_kind, cred_enc, known_hosts_enc, updated_at)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(project) DO UPDATE SET
 		   repo_url=excluded.repo_url, git_ref=excluded.git_ref, compose_path=excluded.compose_path,
-		   dockerfile_path=excluded.dockerfile_path, auto_deploy=excluded.auto_deploy, build_policy=excluded.build_policy,
+		   dockerfile_path=excluded.dockerfile_path, helmsman_file_path=excluded.helmsman_file_path,
+		   auto_deploy=excluded.auto_deploy, build_policy=excluded.build_policy,
 		   cred_kind=excluded.cred_kind, cred_enc=excluded.cred_enc, known_hosts_enc=excluded.known_hosts_enc, updated_at=excluded.updated_at`,
 		in.Project, strings.TrimSpace(in.RepoURL), in.Ref, strings.TrimSpace(in.ComposePath),
-		strings.TrimSpace(in.DockerfilePath), ad, in.BuildPolicy, credKind, credEnc, khEnc, time.Now().Unix())
+		strings.TrimSpace(in.DockerfilePath), helmsmanFile, ad, in.BuildPolicy, credKind, credEnc, khEnc, time.Now().Unix())
 	return err
 }
 
@@ -135,11 +160,11 @@ func (s *Store) Get(project string) (Config, bool, error) {
 	var c Config
 	var ad int
 	err := s.db.QueryRow(
-		`SELECT project, repo_url, git_ref, compose_path, dockerfile_path, auto_deploy, build_policy, cred_kind,
+		`SELECT project, repo_url, git_ref, compose_path, dockerfile_path, helmsman_file_path, auto_deploy, build_policy, cred_kind,
 		        deployed_commit, staged_commit, update_state, commits_behind, last_fetch_at, last_fetch_error,
 		        webhook_token_hash IS NOT NULL
 		 FROM app_git WHERE project=?`, project).Scan(
-		&c.Project, &c.RepoURL, &c.Ref, &c.ComposePath, &c.DockerfilePath, &ad, &c.BuildPolicy, &c.CredKind,
+		&c.Project, &c.RepoURL, &c.Ref, &c.ComposePath, &c.DockerfilePath, &c.HelmsmanFile, &ad, &c.BuildPolicy, &c.CredKind,
 		&c.DeployedCommit, &c.StagedCommit, &c.UpdateState, &c.CommitsBehind, &c.LastFetchAt, &c.LastFetchError, &c.HasWebhook)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Config{}, false, nil
@@ -159,7 +184,7 @@ func (s *Store) Get(project string) (Config, bool, error) {
 // hanging every subsequent request (session validation included).
 func (s *Store) List() ([]Config, error) {
 	rows, err := s.db.Query(
-		`SELECT project, repo_url, git_ref, compose_path, dockerfile_path, auto_deploy, build_policy, cred_kind,
+		`SELECT project, repo_url, git_ref, compose_path, dockerfile_path, helmsman_file_path, auto_deploy, build_policy, cred_kind,
 		        deployed_commit, staged_commit, update_state, commits_behind, last_fetch_at, last_fetch_error,
 		        webhook_token_hash IS NOT NULL
 		 FROM app_git ORDER BY project`)
@@ -172,7 +197,7 @@ func (s *Store) List() ([]Config, error) {
 		var c Config
 		var ad int
 		if err := rows.Scan(
-			&c.Project, &c.RepoURL, &c.Ref, &c.ComposePath, &c.DockerfilePath, &ad, &c.BuildPolicy, &c.CredKind,
+			&c.Project, &c.RepoURL, &c.Ref, &c.ComposePath, &c.DockerfilePath, &c.HelmsmanFile, &ad, &c.BuildPolicy, &c.CredKind,
 			&c.DeployedCommit, &c.StagedCommit, &c.UpdateState, &c.CommitsBehind, &c.LastFetchAt, &c.LastFetchError, &c.HasWebhook); err != nil {
 			return nil, err
 		}

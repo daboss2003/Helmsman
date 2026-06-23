@@ -1,0 +1,142 @@
+package web
+
+import (
+	"context"
+	"net/http"
+	"net/url"
+	"testing"
+	"time"
+
+	"github.com/daboss2003/Helmsman/internal/definition"
+	"github.com/daboss2003/Helmsman/internal/gitstore"
+)
+
+func TestHelmsmanVariantLabel(t *testing.T) {
+	cases := map[string]string{
+		"helmsman.yaml":         "default",
+		"helmsman.yml":          "default",
+		"helmsman.staging.yaml": "staging",
+		"helmsman.prod.yml":     "prod",
+		"helmsman.us-east.yaml": "us-east",
+	}
+	for in, want := range cases {
+		if got := helmsmanVariantLabel(in); got != want {
+			t.Errorf("helmsmanVariantLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSortCandidatesDefaultFirst(t *testing.T) {
+	c := []discoveryCandidate{
+		{Path: "helmsman.prod.yaml", Label: "prod"},
+		{Path: "helmsman.yaml", Label: "default"},
+		{Path: "helmsman.staging.yaml", Label: "staging"},
+	}
+	sortCandidates(c)
+	if c[0].Label != "default" {
+		t.Fatalf("default must sort first, got %q", c[0].Label)
+	}
+	if c[1].Label != "prod" || c[2].Label != "staging" {
+		t.Errorf("rest must be alpha by label, got %q then %q", c[1].Label, c[2].Label)
+	}
+}
+
+func TestDiscoveryFlashSingleUseAndExpiry(t *testing.T) {
+	f := newDiscoveryFlash(time.Hour)
+	h := f.put(&discoveryStash{repoURL: "https://x/y.git"})
+	if _, ok := f.take(h); !ok {
+		t.Fatal("first take must succeed")
+	}
+	if _, ok := f.take(h); ok {
+		t.Error("second take must fail (single-use)")
+	}
+
+	// An expired entry is not returned.
+	fe := newDiscoveryFlash(time.Hour)
+	h2 := fe.put(&discoveryStash{repoURL: "https://x/y.git"})
+	fe.mu.Lock()
+	fe.m[h2].exp = time.Now().Add(-time.Minute)
+	fe.mu.Unlock()
+	if _, ok := fe.take(h2); ok {
+		t.Error("expired entry must not be returned")
+	}
+}
+
+func TestPeekMetadata(t *testing.T) {
+	slug, name := definition.PeekMetadata([]byte("apiVersion: helmsman/v1\nkind: App\nmetadata:\n  slug: shop\n  name: My Shop\n"))
+	if slug != "shop" || name != "My Shop" {
+		t.Errorf("PeekMetadata = (%q, %q), want (shop, My Shop)", slug, name)
+	}
+	// Garbage / missing metadata yields empties, never a panic.
+	if s, n := definition.PeekMetadata([]byte("not: yaml: [")); s != "" || n != "" {
+		t.Errorf("PeekMetadata(garbage) = (%q, %q), want empties", s, n)
+	}
+}
+
+// handleGitChoose only acts on a path that was in the stashed candidate allow-list —
+// a forged/unknown path is rejected, never turned into a CatFile/app create.
+func TestGitChooseRejectsUnknownPath(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, csrf := e.authed(t)
+	hdr := map[string]string{"Origin": "https://example.com"}
+	handle := e.srv.discoFlash.put(&discoveryStash{
+		repoURL:    "https://github.com/o/r.git",
+		ref:        "refs/heads/main",
+		candidates: []discoveryCandidate{{Path: "helmsman.yaml", Slug: "newapp", Label: "default"}},
+	})
+	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", hdr, []*http.Cookie{sess, csrf},
+		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.evil.yaml"}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown selection = %d, want 400", resp.StatusCode)
+	}
+}
+
+// A valid choice for a brand-new slug creates the app and redirects to its git page.
+func TestGitChooseCreatesNewApp(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, csrf := e.authed(t)
+	hdr := map[string]string{"Origin": "https://example.com"}
+	handle := e.srv.discoFlash.put(&discoveryStash{
+		repoURL:    "https://github.com/o/r.git",
+		ref:        "refs/heads/main",
+		candidates: []discoveryCandidate{{Path: "helmsman.staging.yaml", Slug: "stg", Label: "staging"}},
+	})
+	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", hdr, []*http.Cookie{sess, csrf},
+		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.staging.yaml"}})
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/apps/stg/git" {
+		t.Fatalf("create = %d loc=%q, want 303 /apps/stg/git", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	cfg, ok, _ := e.srv.gitStore.Get("stg")
+	if !ok || cfg.HelmsmanFile != "helmsman.staging.yaml" || cfg.RepoURL != "https://github.com/o/r.git" {
+		t.Errorf("app not created with the variant file: %+v ok=%v", cfg, ok)
+	}
+}
+
+// Choosing a file whose slug already names an app REDIRECTS to it and must NOT
+// overwrite that app's existing config (the anti-overwrite / anti-hijack guard).
+func TestGitChooseExistingRedirectsWithoutOverwrite(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sess, csrf := e.authed(t)
+	hdr := map[string]string{"Origin": "https://example.com"}
+
+	// Pre-existing app "taken" connected to the ORIGINAL repo.
+	if err := e.srv.gitStore.Save(context.Background(), gitstore.SaveInput{
+		Project: "taken", RepoURL: "https://github.com/o/ORIGINAL.git", Ref: "refs/heads/main", BuildPolicy: "never",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handle := e.srv.discoFlash.put(&discoveryStash{
+		repoURL:    "https://github.com/o/ATTACKER.git",
+		ref:        "refs/heads/main",
+		candidates: []discoveryCandidate{{Path: "helmsman.yaml", Slug: "taken", Label: "default", Exists: true}},
+	})
+	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", hdr, []*http.Cookie{sess, csrf},
+		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.yaml"}})
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/apps/taken/git" {
+		t.Fatalf("existing = %d loc=%q, want 303 /apps/taken/git", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	cfg, _, _ := e.srv.gitStore.Get("taken")
+	if cfg.RepoURL != "https://github.com/o/ORIGINAL.git" {
+		t.Errorf("existing app was OVERWRITTEN: repo = %q, want the ORIGINAL", cfg.RepoURL)
+	}
+}

@@ -49,10 +49,11 @@ type tmplData struct {
 	ConfigServices  []string         // the app's service names (for the per-service add/update selects)
 	LegacyFiles     []configFileView // legacy app-level config files awaiting migration into the canonical
 
-	Git    *gitView
-	Setup  *setupView
-	Alerts *alertsView
-	Edge   *edgeView
+	Git       *gitView
+	Discovery *discoveryView // multi-file repo chooser (helmsman.yaml + variants → one app each)
+	Setup     *setupView
+	Alerts    *alertsView
+	Edge      *edgeView
 
 	// Apps list (table view).
 	AppsRows []appsRow

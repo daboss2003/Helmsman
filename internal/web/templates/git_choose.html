@@ -1,0 +1,55 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  {{with .Discovery}}
+  <p><a href="/git/new">← Connect a repository</a></p>
+  <h1>Choose a configuration</h1>
+  <p class="muted">This repository has more than one helmsman file. <strong>Each one is its own app
+    instance</strong> — pick the one to deploy now. The plain <code>helmsman.yaml</code> is the default;
+    variants are named by the text between <code>helmsman.</code> and <code>.yaml</code>. You can come back
+    and connect another one later.</p>
+  <p class="muted small mono">{{.RepoURL}} @ {{.Ref}}</p>
+  {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
+
+  <section class="panel">
+    <table class="grid">
+      <thead><tr><th>File</th><th>Instance</th><th>App slug</th><th></th></tr></thead>
+      <tbody>
+        {{range .Candidates}}
+        <tr>
+          <td class="mono">{{.Path}}</td>
+          <td><span class="badge">{{.Label}}</span>{{if .Name}} <span class="muted">{{.Name}}</span>{{end}}</td>
+          <td class="mono">{{.Slug}}</td>
+          <td>
+            <form method="post" action="/git/choose" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <input type="hidden" name="handle" value="{{$.Discovery.Handle}}">
+              <input type="hidden" name="path" value="{{.Path}}">
+              {{if .Exists}}
+              <button type="submit" class="btn btn-sm">Open {{.Slug}} →</button>
+              {{else}}
+              <button type="submit" class="btn btn-sm btn-primary">Create {{.Slug}} →</button>
+              {{end}}
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <p class="muted small">Already-connected apps show <strong>Open</strong> — choosing one takes you to it
+      rather than overwriting it.</p>
+  </section>
+
+  {{if .Skipped}}
+  <section class="panel">
+    <h2>Skipped <span class="muted">(no usable <code>metadata.slug</code>)</span></h2>
+    <p class="muted">These helmsman files were found but can't be deployed until they declare a valid
+      <code>metadata.slug</code> (lowercase, e.g. <code>slug: myapp</code>).</p>
+    <ul>
+      {{range .Skipped}}<li class="mono">{{.Path}}</li>{{end}}
+    </ul>
+  </section>
+  {{end}}
+  {{end}}
+</main>
+{{template "bottom" .}}

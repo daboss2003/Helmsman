@@ -128,20 +128,25 @@ X-Helmsman-Signature: hex(HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;nonce&gt;")
     <h2>{{if .Configured}}Edit configuration{{else}}Repository{{end}}</h2>
     <form method="post" action="{{if .Project}}/apps/{{pathEscape .Project}}/git{{else}}/git{{end}}" class="stack">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      {{if not .Project}}
-      <label>App slug <span class="muted">(lowercase; becomes the compose project name)</span>
-        <input type="text" name="project" placeholder="myapp" pattern="[a-z][a-z0-9-]{1,30}" required></label>
-      {{end}}
       <label>Repository URL <span class="muted">(https or ssh; no embedded credentials)</span>
         <input type="text" name="repo_url" value="{{.RepoURL}}" placeholder="https://github.com/org/repo.git" required></label>
       <label>Ref <span class="muted">(fully-qualified)</span>
         <input type="text" name="git_ref" value="{{.Ref}}" placeholder="refs/heads/main"></label>
+      {{if not .Project}}
       <p class="muted">Helmsman reads a <code>helmsman.yaml</code> from your repo and generates the
-        compose (and the Dockerfile, from each service's <code>build:</code>). If the repo has no
-        <code>helmsman.yaml</code>, Helmsman scaffolds a sensible default from the detected stack. You never
-        commit a <code>docker-compose.yml</code>. <strong>The <code>helmsman.yaml</code> in your repo is the
-        single source of truth</strong> — edit it there and deploy; the dashboard shows it (and lets you set
-        secret values + run/restart/scale), but the app's shape lives in the file.</p>
+        compose (and the Dockerfile, from each service's <code>build:</code>) — you never commit a
+        <code>docker-compose.yml</code>. <strong>The app's name (slug) comes from the file's
+        <code>metadata.slug</code></strong>, so there's nothing to type here. If your repo holds several
+        helmsman files — <code>helmsman.yaml</code> plus variants like <code>helmsman.staging.yaml</code> or
+        <code>helmsman.prod.yaml</code> — you'll pick which one to deploy next (each is its own app).</p>
+      <label>App name <span class="muted">(only if your repo has <em>no</em> helmsman.yaml — Helmsman scaffolds one)</span>
+        <input type="text" name="name" placeholder="myapp" pattern="[a-z][a-z0-9-]{1,30}"></label>
+      {{else}}
+      <p class="muted">Helmsman reads this app's helmsman file at the deployed commit and generates the
+        compose. <strong>The file in your repo is the single source of truth</strong> for the app's shape —
+        edit it there and deploy; the dashboard shows it (and lets you set secret values, config files, and
+        run/restart/scale).</p>
+      {{end}}
       <details class="accordion">
         <summary>Starter <code>helmsman.yaml</code> — copy into your repo root</summary>
         <pre class="stream mono">apiVersion: helmsman/v1
