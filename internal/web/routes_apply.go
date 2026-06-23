@@ -15,9 +15,10 @@ import (
 	"github.com/daboss2003/Helmsman/internal/selfheal"
 )
 
-// handleDefinitionYAML serves the app's canonical helmsman.yaml — "the file,
-// dashboard-updated last." For a repo-connected app that's drifted (last edited in
-// the dashboard), this is how the operator commits those edits back to the repo.
+// handleDefinitionYAML serves the app's stored definition as helmsman.yaml — what is
+// currently deployed, including any dashboard-set operational pieces (config files,
+// cert bindings, scaling, ops). Useful to export and commit into your repo; Helmsman
+// never pushes to the repo itself (git access is fetch-only).
 func (s *Server) handleDefinitionYAML(w http.ResponseWriter, r *http.Request) {
 	if s.defStore == nil {
 		http.Error(w, "definition store unavailable", http.StatusServiceUnavailable)
@@ -44,13 +45,13 @@ func (s *Server) handleDefinitionYAML(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(canon)
 }
 
-// applyDefinition makes def the app's CANONICAL helmsman.yaml (the single source of
-// truth) and reconciles every runtime projection from it. Both planes call it: a
-// deploy (file edit) and the dashboard editors (write-back), so the definition is
-// always "the file, whoever-edited-last." It re-validates the canonical form (the
-// same gate a committed file gets), persists it as a new version, then applies the
-// projections (edge/L4 routes, scaling). note records the writer (e.g. "git deploy:
-// <sha>" / "dashboard: scaling api") and drives drift detection vs the repo.
+// applyDefinition persists the app's definition and reconciles every runtime projection
+// from it. It is called by a deploy (the repo's helmsman.yaml is the source for the app's
+// shape — services, edge & L4 routes) AND by the dashboard editors for the OPERATIONAL
+// pieces that stay editable (config files, cert bindings, scaling, ops). It re-validates
+// the definition (the same gate a committed file gets), stores it as a new version, then
+// applies the projections (edge/L4 routes, scaling, self-healing, ops). note records the
+// writer (e.g. "git deploy: <sha>" / "dashboard: scaling api").
 func (s *Server) applyDefinition(ctx context.Context, project string, def *definition.Definition, note string) error {
 	if s.defStore != nil {
 		canon, err := definition.Canonical(def)
@@ -154,10 +155,10 @@ func selfHealPolicy(sh *definition.SelfHealing) selfheal.Policy {
 	return p
 }
 
-// applyRoutes reconciles an app's edge (L7) + L4 routes FROM the canonical definition
-// (the source of truth) — replace-by-project, so the canonical's set is exactly what's
-// live. The canonical is authoritative (both the deploy and dashboard write-back feed
-// it), so an empty set correctly clears the app's routes.
+// applyRoutes reconciles an app's edge (L7) + L4 routes FROM its deployed definition
+// (the repo's helmsman.yaml) — replace-by-project, so the file's set is exactly what's
+// live. Routes are READ-ONLY in the dashboard; only a deploy changes them, so an empty
+// set in the file correctly clears the app's routes.
 //
 // Persisting is fail-closed: a bad route or a cross-app listener/hostname collision
 // returns an error and blocks (the stores are transactional, so nothing half-applies).

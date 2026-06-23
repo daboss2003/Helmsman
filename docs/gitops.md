@@ -21,7 +21,7 @@ Credentials are stored encrypted and never appear in the UI or logs.
 
 Your repo carries a **`helmsman.yaml`** (see [the definition file](./definition-file.md)) describing the app — its services, build, env, edge routes, config files, and cert bindings. **That file is the single source of truth for the app's structure.** Helmsman reads it, **generates the `docker-compose.yml` and any Dockerfiles**, and deploys — you never commit a compose file or a Dockerfile. If the repo has no `helmsman.yaml`, Helmsman scaffolds a sensible default from the stack it detects (e.g. a Node or Go project) so the first deploy still works; commit a real `helmsman.yaml` when you want full control.
 
-To change the app's structure, **edit `helmsman.yaml` and deploy** — the dashboard then reflects the new config. The dashboard is **read-only for structure** (services, routes, config files, cert bindings); the only things you set in the dashboard are the ones the file deliberately doesn't carry: **secret values** (the file declares secret *names* only), **lifecycle actions** (deploy / restart / scale-now), and the per-service **auto-scaling policy**.
+To change the app's *shape* — services and edge/L4 routes — **edit `helmsman.yaml` and deploy**; the dashboard then reflects it (read-only for those). The operational pieces are managed in the dashboard: **secret values** and **env** (the file declares secret *names* only), **config files** and **cert bindings** (editable in the dashboard; optionally seeded from the file), the per-service **auto-scaling policy**, and **lifecycle actions** (deploy / restart / scale-now).
 
 ## How updates work
 

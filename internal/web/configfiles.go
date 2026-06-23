@@ -60,9 +60,9 @@ func (s *Server) handleConfigFilesGet(w http.ResponseWriter, r *http.Request) {
 	if snap := s.snapshot(); snap != nil {
 		app = snap.AppByProject(project)
 	}
-	// Canonical-first: an app with a helmsman.yaml authors config files + cert
-	// bindings PER SERVICE in the canonical (the source of truth). Legacy
-	// provisioned apps (no canonical) keep the app-level cfgStore editor.
+	// Per-service first: an app with a stored definition edits config files + cert
+	// bindings PER SERVICE (dashboard-editable; helmsman.yaml may also seed them).
+	// Legacy provisioned apps (no stored definition) keep the app-level cfgStore editor.
 	if def := s.currentDef(project); def != nil {
 		s.populateCanonicalConfig(&data, def, project)
 		s.render(w, r, "config_files.html", data)
@@ -122,8 +122,8 @@ func (s *Server) handleConfigFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "protected project", http.StatusForbidden)
 		return
 	}
-	// Canonical-first write-back: author the file into its service's config_files in
-	// the canonical helmsman.yaml, then reconcile. Falls back to the legacy cfgStore.
+	// Per-service edit: store the file under its service's config_files in the app's
+	// stored definition, then reconcile. Falls back to the legacy cfgStore.
 	if def := s.currentDef(project); def != nil {
 		s.saveCanonicalConfigFile(w, r, def, project)
 		return

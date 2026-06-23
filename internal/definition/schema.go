@@ -198,8 +198,8 @@ type ConfigFile struct {
 //   - { app: FIELD }          a safe app field (currently only `slug`)
 //   - { cert: HOSTNAME.field } a path to a SAME-service cert binding's tls.crt|key|ca
 //
-// This is the superset of the legacy dashboard binding sources, so the dashboard can
-// author the full capability into the canonical helmsman.yaml with nothing lost.
+// This is the superset of the legacy dashboard binding sources, so the dashboard's
+// config-file editor can express the full capability with nothing lost.
 type Binding struct {
 	Value  string
 	Secret string

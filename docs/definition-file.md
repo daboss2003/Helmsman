@@ -4,11 +4,12 @@ The **definition file** (`helmsman.yaml`) lives in your app's Git repo and is th
 
 **To create an app you connect its repo.** There is no dashboard "New app" form; "New app" is the **connect-a-repo** flow. If the repo has no `helmsman.yaml` yet, Helmsman scaffolds a starter from the detected stack so the first deploy works — commit a real one when you want full control.
 
-**The dashboard is read-only for app structure.** Services, edge routes, config files, cert bindings, and ops structure are all read from this file; the dashboard *shows* the deployed config but does not author it. To change any of them, **edit `helmsman.yaml` and deploy.** The narrow exceptions — things that are operational rather than structural — stay in the dashboard:
+**The dashboard is read-only for the app's deploy-time shape.** A service's image/build, ports, volumes, depends_on, and the **edge & L4 routes** are read from this file — the dashboard *shows* them and you change them by editing `helmsman.yaml` and deploying. The **operational** pieces stay editable in the dashboard (and config files, cert bindings, and scaling can also be declared here, where this file seeds them):
 
 - **secret VALUES** (the env page; this file declares secret *names* only),
-- **lifecycle ACTIONS** (deploy / restart / scale-now / pause-resume the queue / clear a self-heal circuit), and
-- the **auto-scaling policy** (operational tuning, set on the service page).
+- **config files** and **cert bindings** (you can edit them in the dashboard; declaring them here is optional),
+- the **auto-scaling policy** (operational tuning, set on the service page), and
+- **lifecycle ACTIONS** (deploy / restart / scale-now / pause-resume the queue / clear a self-heal circuit).
 
 Everything reaches the runtime through **one validator** — the same one whether you `helmsman validate` in CI or deploy. Nothing in this file reaches `docker compose` unvalidated. Helmsman's git access is **fetch-only**: it reads your repo at a pinned commit and **never pushes to it**.
 

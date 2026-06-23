@@ -381,7 +381,8 @@ func (s *Server) Handler() http.Handler {
 	// Literal pattern (not sessionStatusPath) so the authz-posture AST check can see it;
 	// the path string must stay equal to sessionStatusPath (asserted in a test).
 	mux.HandleFunc("GET /session/status", s.handleSessionStatus)
-	// The app's canonical helmsman.yaml (export dashboard edits back to your repo).
+	// Export the app's deployed definition as helmsman.yaml (to commit into your repo;
+	// Helmsman never pushes — git access is fetch-only).
 	mux.HandleFunc("GET /apps/{project}/definition.yaml", s.requireAuth(s.handleDefinitionYAML))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))
 	mux.HandleFunc("GET /partials/app/{project}", s.requireAuth(s.withCSRFToken(s.handleAppPartial)))

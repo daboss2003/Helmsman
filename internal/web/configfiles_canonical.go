@@ -12,11 +12,13 @@ import (
 	"github.com/daboss2003/Helmsman/internal/definition"
 )
 
-// configfiles_canonical.go is the write-back path for the config-files editor: an app
-// with a canonical helmsman.yaml authors config files + cert bindings PER SERVICE in
-// the canonical (the source of truth), exactly like the scaling/edge/ops editors. The
-// legacy app-level cfgStore editor (configfiles.go) stays for provisioned apps with no
-// canonical, and a one-time migration moves legacy rows into the canonical.
+// configfiles_canonical.go backs the config-files editor: config files + cert bindings
+// are dashboard-EDITABLE per service (persisted to the app's stored definition and
+// reconciled), like scaling and ops. They may also be declared in helmsman.yaml, which
+// seeds them on deploy. (Edge & L4 routes are NOT editable here — they come read-only
+// from the repo's helmsman.yaml.) The legacy app-level cfgStore editor (configfiles.go)
+// stays for provisioned apps with no stored definition; a one-time migration moves
+// legacy rows into the per-service model.
 
 // currentDef returns the app's canonical definition, or nil when there is none (no
 // definition store, a read error, or a legacy provisioned app) — in which case the
