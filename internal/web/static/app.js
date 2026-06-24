@@ -292,6 +292,28 @@
     window.addEventListener("focus", function () { if (dashFocused()) pull(); });
   });
 
+  // ---- kind-aware forms (alert channels + rules): show ONLY the fields that apply ----
+  // A `.kind-fields[data-kind="a b c"]` group is shown only when the form's
+  // [data-kind-toggle] select is one of its listed kinds; the hidden groups' inputs are
+  // DISABLED so they don't submit — a field name shared across kinds (e.g. `url`,
+  // `threshold`) therefore never sends the wrong kind's value.
+  (function kindFields() {
+    document.querySelectorAll("select[data-kind-toggle]").forEach(function (sel) {
+      var form = sel.closest("form");
+      if (!form) return;
+      function sync() {
+        form.querySelectorAll(".kind-fields").forEach(function (g) {
+          var kinds = (g.getAttribute("data-kind") || "").split(/\s+/);
+          var on = kinds.indexOf(sel.value) !== -1;
+          g.hidden = !on;
+          g.querySelectorAll("input, select, textarea").forEach(function (i) { i.disabled = !on; });
+        });
+      }
+      sel.addEventListener("change", sync);
+      sync();
+    });
+  })();
+
   // ---- shell: sidebar active link + mobile toggle + topbar title ----
   var layout = document.querySelector("[data-layout]");
   var toggle = document.querySelector("[data-menu-toggle]");

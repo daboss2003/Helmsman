@@ -342,6 +342,7 @@ button.link:hover { color: #c7d2fe; text-decoration: underline; }
 
 /* ============================= forms ============================= */
 .stack { display: grid; gap: 0.95rem; max-width: 560px; }
+.kind-fields { display: grid; gap: 0.95rem; }
 .kv-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
 .kv-row label { flex: 1 1 12rem; }
 .check { display: flex; align-items: center; gap: 0.5rem; flex-direction: row; }

@@ -52,9 +52,23 @@ Add one or more **channels** on the Alerts page. An alert goes to each one:
 | **Slack** | An incoming webhook URL. |
 | **Discord** | An incoming webhook URL. |
 | **Telegram** | A bot token and chat id. |
-| **ntfy** | A topic (and token, if your server needs one). |
+| **ntfy** | A server URL, a topic, and (optionally) a token for a protected topic/server. |
 
-After adding a channel, use **Send test** to confirm it works.
+The **Add a channel** form shows **only the fields for the kind you pick** — choose ntfy and you'll see just the ntfy fields, choose SMTP and you'll see just the mail fields. After adding a channel, use **Send test** to confirm it works.
+
+### Push to your phone with ntfy
+
+[ntfy](https://ntfy.sh) is the easiest way to get alerts as phone push notifications. To set it up:
+
+1. On the **Alerts** page → **Add a channel**, pick **ntfy** and fill in:
+   - **Server URL** — `https://ntfy.sh` (the free public service) or your own ntfy server.
+   - **Topic** — any name, e.g. `helmsman-alerts-7x2k9`. On public ntfy.sh a topic is *unauthenticated*, so **use a long, random name** (anyone who knows it can read it).
+   - **Token** — leave blank for public ntfy.sh; fill it only if your topic/server requires auth.
+2. Install the **ntfy app** (iOS/Android) and **subscribe to the same topic** (on a self-hosted server, subscribe to the full URL, e.g. `https://ntfy.example.com/<topic>`).
+3. Back in Helmsman, click **Send test** — you should get a push within a second or two.
+4. Add a **rule** (below) so real conditions actually fire to it.
+
+If you'd rather not rely on public ntfy.sh, you can self-host ntfy (a single small binary) and point the channel at it — see [the ntfy docs](https://docs.ntfy.sh/install/).
 
 Alerts are **deduplicated** — one problem is one page, not a flood — and they respect your **quiet hours**: non-critical alerts are held overnight, while critical ones always come through. Helmsman paces its own sending so a slow mail server or bot can never turn it into a spam-cannon.
 

@@ -61,32 +61,60 @@
     </table></div>
     {{else}}<p class="muted">No channels.</p>{{end}}
     <pre id="deploy-output" class="stream" hidden></pre>
+    <h3>Add a channel</h3>
     <form method="post" action="/alerts/channels" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <label>Name <input type="text" name="name" placeholder="ops-email" required></label>
+      <label>Name <input type="text" name="name" placeholder="ops push" required></label>
       <label>Kind
-        <select name="kind">
-          <option value="webhook">webhook</option><option value="smtp">smtp</option>
-          <option value="telegram">telegram</option><option value="slack">slack</option>
-          <option value="discord">discord</option><option value="ntfy">ntfy</option>
+        <select name="kind" data-kind-toggle>
+          <option value="ntfy">ntfy</option>
+          <option value="webhook">webhook</option>
+          <option value="slack">slack</option>
+          <option value="discord">discord</option>
+          <option value="telegram">telegram</option>
+          <option value="smtp">smtp (email)</option>
         </select></label>
-      <p class="muted">Fill only the fields for your kind:</p>
-      <label>URL <span class="muted">(webhook / ntfy base)</span> <input type="text" name="url" autocomplete="off"></label>
-      <label>Webhook URL <span class="muted">(slack / discord)</span> <input type="text" name="webhook_url" autocomplete="off"></label>
-      <label>Secret <span class="muted">(webhook HMAC)</span> <input type="password" name="secret" autocomplete="new-password"></label>
-      <label>ntfy topic <input type="text" name="topic" autocomplete="off"></label>
-      <label>ntfy/bot token <input type="password" name="token" autocomplete="new-password"></label>
-      <label>Telegram bot token <input type="password" name="bot_token" autocomplete="new-password"></label>
-      <label>Telegram chat id <input type="text" name="chat_id" autocomplete="off"></label>
-      <fieldset><legend>SMTP</legend>
-        <label>Host <input type="text" name="host" autocomplete="off"></label>
-        <label>Port <input type="text" name="port" placeholder="587"></label>
-        <label>Username <input type="text" name="username" autocomplete="off"></label>
-        <label>Password <input type="password" name="password" autocomplete="new-password"></label>
-        <label>From <input type="text" name="from" placeholder="alerts@example.com"></label>
-        <label>To <input type="text" name="to" placeholder="ops@example.com"></label>
-      </fieldset>
-      <button type="submit">Save channel</button>
+
+      <div class="kind-fields" data-kind="ntfy">
+        <label>Server URL <span class="muted">(public ntfy.sh, or your own server)</span>
+          <input type="text" name="url" autocomplete="off" placeholder="https://ntfy.sh"></label>
+        <label>Topic <span class="muted">(pick something unguessable on public ntfy.sh)</span>
+          <input type="text" name="topic" autocomplete="off" placeholder="helmsman-alerts-7x2k9"></label>
+        <label>Token <span class="muted">(optional — only for a protected topic/server)</span>
+          <input type="password" name="token" autocomplete="new-password"></label>
+      </div>
+
+      <div class="kind-fields" data-kind="webhook" hidden>
+        <label>URL <input type="text" name="url" autocomplete="off" disabled placeholder="https://example.com/hook"></label>
+        <label>HMAC secret <span class="muted">(optional; signs the payload)</span>
+          <input type="password" name="secret" autocomplete="new-password" disabled></label>
+      </div>
+
+      <div class="kind-fields" data-kind="slack" hidden>
+        <label>Slack incoming-webhook URL
+          <input type="text" name="webhook_url" autocomplete="off" disabled placeholder="https://hooks.slack.com/services/..."></label>
+      </div>
+
+      <div class="kind-fields" data-kind="discord" hidden>
+        <label>Discord webhook URL
+          <input type="text" name="webhook_url" autocomplete="off" disabled placeholder="https://discord.com/api/webhooks/..."></label>
+      </div>
+
+      <div class="kind-fields" data-kind="telegram" hidden>
+        <label>Bot token <input type="password" name="bot_token" autocomplete="new-password" disabled></label>
+        <label>Chat ID <input type="text" name="chat_id" autocomplete="off" disabled></label>
+      </div>
+
+      <div class="kind-fields" data-kind="smtp" hidden>
+        <label>Host <input type="text" name="host" autocomplete="off" disabled placeholder="smtp.example.com"></label>
+        <label>Port <input type="text" name="port" inputmode="numeric" disabled placeholder="587"></label>
+        <label>Username <input type="text" name="username" autocomplete="off" disabled></label>
+        <label>Password <input type="password" name="password" autocomplete="new-password" disabled></label>
+        <label>From <input type="text" name="from" disabled placeholder="alerts@example.com"></label>
+        <label>To <input type="text" name="to" disabled placeholder="ops@example.com"></label>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save channel</button>
     </form>
   </section>
 
@@ -112,23 +140,48 @@
       </tbody>
     </table></div>
     {{else}}<p class="muted">No rules.</p>{{end}}
+    <h3>Add a rule</h3>
     <form method="post" action="/alerts/rules" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <label>Name <input type="text" name="name" placeholder="host cpu high" required></label>
       <label>Kind
-        <select name="kind">
-          <option value="container_down">container_down</option>
-          <option value="host_cpu">host_cpu</option><option value="host_mem">host_mem</option><option value="host_disk">host_disk</option>
-          <option value="dep_down">dep_down</option><option value="restart_storm">restart_storm</option>
+        <select name="kind" data-kind-toggle>
+          <option value="container_down">container_down — a service is down</option>
+          <option value="host_cpu">host_cpu — host CPU over %</option>
+          <option value="host_mem">host_mem — host memory over %</option>
+          <option value="host_disk">host_disk — host disk over %</option>
+          <option value="dep_down">dep_down — a reported dependency is down</option>
+          <option value="restart_storm">restart_storm — a service keeps restarting</option>
         </select></label>
-      <label>Scope <span class="muted">(blank = all apps; or a project slug)</span> <input type="text" name="scope" autocomplete="off"></label>
-      <label>Threshold <span class="muted">(% for host_*, count for restart_storm)</span> <input type="text" name="threshold" placeholder="90"></label>
-      <label>For seconds <span class="muted">(sustain window)</span> <input type="text" name="for_seconds" placeholder="60"></label>
+
+      {{/* Scope applies only to the per-app kinds; host_* rules target the host. */}}
+      <div class="kind-fields" data-kind="container_down dep_down restart_storm">
+        <label>Scope <span class="muted">(blank = all apps; or one app's slug)</span>
+          <input type="text" name="scope" autocomplete="off"></label>
+      </div>
+      {{/* Threshold: a percentage for host_*, a restart count for restart_storm. */}}
+      <div class="kind-fields" data-kind="host_cpu host_mem host_disk" hidden>
+        <label>Threshold <span class="muted">(percent, e.g. 90)</span>
+          <input type="text" name="threshold" inputmode="numeric" disabled placeholder="90"></label>
+      </div>
+      <div class="kind-fields" data-kind="restart_storm" hidden>
+        <label>Threshold <span class="muted">(restart count, e.g. 5)</span>
+          <input type="text" name="threshold" inputmode="numeric" disabled placeholder="5"></label>
+      </div>
+
+      <label>For seconds <span class="muted">(must hold this long before alerting)</span>
+        <input type="text" name="for_seconds" inputmode="numeric" placeholder="60"></label>
       <label>Level <select name="level"><option value="warning">warning</option><option value="critical">critical</option></select></label>
-      <label>Channel id <span class="muted">(blank/0 = all enabled)</span> <input type="text" name="channel_id" placeholder="0"></label>
-      <label class="check"><input type="checkbox" name="defer" checked> Defer when the app self-alerts (liveness still covers)</label>
+      <label>Channel <span class="muted">(blank/0 = all enabled channels; or a channel id)</span>
+        <input type="text" name="channel_id" inputmode="numeric" placeholder="0"></label>
+
+      {{/* Defer is about an app that self-alerts; irrelevant for host_* rules. */}}
+      <div class="kind-fields" data-kind="container_down dep_down restart_storm">
+        <label class="check"><input type="checkbox" name="defer" checked> Defer when the app self-alerts (liveness still covers)</label>
+      </div>
+
       <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
-      <button type="submit">Save rule</button>
+      <button type="submit" class="btn btn-primary">Save rule</button>
     </form>
   </section>
 {{end}}
