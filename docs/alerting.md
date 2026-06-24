@@ -75,10 +75,24 @@ If you'd rather not rely on public ntfy.sh, you can self-host ntfy (a single sma
 If you don't want to use public ntfy.sh **or** run ntfy yourself, pick **ntfy (Helmsman-hosted)** when adding a channel. Helmsman runs its own private ntfy for you:
 
 - You give it a **hostname** (a DNS name pointed at this server, e.g. `ntfy.example.com`) and a **topic**.
-- Helmsman starts a locked-down ntfy container, **exposes it through the managed edge with automatic HTTPS**, and generates two tokens: a **write** token it publishes with (kept server-side) and a **read-only** token for you.
-- The Channels page then shows your **subscribe URL + read-only token**. In the ntfy app, add that server, set the token, and subscribe to the topic. The read-only token can only **receive** alerts — never publish — so it's safe on your phone. iOS gets instant push via ntfy.sh's free relay (which only ever sees an opaque topic hash, never your messages).
+- Helmsman starts a locked-down ntfy container, **exposes it through the managed edge with automatic HTTPS**, and creates a read-only **subscriber account** (username `phone` + a generated password). Helmsman publishes with its own write token, kept server-side; the subscriber account can only **receive**, never publish.
+- The **Channels** page then shows your **Server URL, Topic, Username, and Password**.
 
-Requirements: the **managed edge must be enabled** (Helmsman needs it to expose ntfy over HTTPS) and the hostname's **DNS must point at this server** (so the edge can get a certificate). The ntfy server is **only run once you configure this channel** — deleting the channel stops and removes it.
+Because the server is locked down, **you must sign in before you can subscribe** — if you skip this, the ntfy app shows a misleading *"WebSocket not supported / the server may not support WebSocket connections"* error (that means *not signed in*, not a real WebSocket problem).
+
+**ntfy Android app:**
+
+1. Open the app → **⋮ menu → Settings → Manage users → Add user**.
+2. Enter the **Service URL** (the Server URL from the Channels page, e.g. `https://ntfy.example.com`), the **Username** (`phone`), and the **Password**. Save.
+3. Back on the main screen, tap **+** to add a subscription, enter the **Topic**, choose **Use another server** and enter the same Server URL, then **Subscribe**. The app uses the credentials you just added.
+
+**Web UI or iOS:** open the **Server URL** in a browser (or add it in the iOS app), click **Sign in**, enter the username + password, then subscribe to the topic.
+
+> Order matters: **add the user first, then subscribe.** Subscribing before the credentials exist is what triggers the "WebSocket not supported" error.
+
+iOS gets instant push via ntfy.sh's free relay (which only ever sees an opaque topic hash, never your messages).
+
+Requirements: the **managed edge must be enabled** (Helmsman needs it to expose ntfy over HTTPS) and the hostname's **DNS must point at this server** (so the edge can get a certificate). The ntfy server is **only run once you configure this channel** — deleting the channel stops and removes it. (If you set this up before v0.3.46, delete the channel and re-add it to switch to the username+password account.)
 
 Alerts are **deduplicated** — one problem is one page, not a flood — and they respect your **quiet hours**: non-critical alerts are held overnight, while critical ones always come through. Helmsman paces its own sending so a slow mail server or bot can never turn it into a spam-cannon.
 
