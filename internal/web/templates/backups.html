@@ -18,7 +18,7 @@
     {{if not .BackupEnabled}}
     <p class="muted">Backups are unavailable (no encryption key configured).</p>
     {{else if .BackupRows}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Created (UTC)</th><th>Size</th><th>Checksum</th><th></th></tr></thead>
       <tbody>
         {{range .BackupRows}}
@@ -37,7 +37,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}
     <p class="muted">No backups yet. Click <strong>Back up now</strong> to take your first snapshot.</p>
     {{end}}

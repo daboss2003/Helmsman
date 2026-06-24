@@ -37,6 +37,10 @@
 }
 
 * { box-sizing: border-box; }
+/* The `hidden` attribute must always win. Author rules that set `display` (e.g.
+   .btn, .stream-close) otherwise override the UA `[hidden]{display:none}`, which left
+   JS-dismissed panels and their Close buttons stuck on screen after use. */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -218,11 +222,17 @@ section.panel > h2 .pill { font-weight: 600; }
 .tile-system { background: var(--surface); border-style: dashed; }
 
 /* ============================= tables ============================= */
+/* Every .grid table is wrapped in .table-scroll: the wrapper owns the available width
+   and scrolls HORIZONTALLY, while cells never wrap — so an IP, sha, or token stays on
+   one line and you scroll left/right instead of a column squishing into many lines.
+   width:100% keeps the table filling the wrapper when its content fits; when the
+   nowrap content is wider, the table grows past 100% and the wrapper scrolls. */
+.table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .grid, table.grid { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }
-/* overflow-wrap:anywhere lets a long unbroken token (an API key / secret) wrap and
-   shrink its column instead of widening the whole page (it affects min-content width,
-   unlike break-word). normal words are unaffected. */
-.grid th, .grid td { text-align: left; padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.grid th, .grid td { text-align: left; padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+/* opt-in for free-text columns (audit detail, commit subjects): wrap within a sane
+   width instead of forcing the whole table wide. */
+.grid td.wrap-cell, .grid th.wrap-cell { white-space: normal; overflow-wrap: anywhere; min-width: 14rem; max-width: 32rem; }
 .grid thead th { color: var(--muted); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .grid tbody tr:hover { background: rgba(255,255,255,0.02); }
 .grid tbody tr:last-child td { border-bottom: 0; }
@@ -231,8 +241,28 @@ section.panel > h2 .pill { font-weight: 600; }
 details.accordion > summary { cursor: pointer; font-weight: 600; padding: 0.45rem 0; list-style-position: inside; user-select: none; }
 details.accordion > summary:hover { color: var(--primary); }
 .row-ok td:first-child, .row-down td:first-child { font-weight: 600; }
-.out-deny td { color: var(--error); }
-.lvl-security td:nth-child(7) { color: var(--security); font-weight: 600; }
+/* A tall scroller (audit log): scroll vertically with a sticky header, and still scroll
+   horizontally when rows are wide. */
+.table-tall { max-height: 72vh; overflow-y: auto; }
+.table-tall thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); box-shadow: inset 0 -1px 0 var(--border); }
+.grid td.empty { text-align: center; color: var(--muted); padding: 2.5rem 0.8rem; }
+/* a compact inline token for an action/identifier in a dense table */
+.chip { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 6px; background: var(--surface-2);
+  border: 1px solid var(--border); color: var(--fg); font-size: 0.82em; white-space: nowrap; }
+.badge-muted { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+
+/* ============================= filter toolbar ============================= */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.85rem 1rem; margin: 1rem 0; }
+.toolbar .field { display: flex; flex-direction: column; gap: 0.3rem; }
+.toolbar .field label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.toolbar .field label .muted { text-transform: none; font-weight: 500; letter-spacing: 0; }
+.toolbar .field-grow { flex: 1 1 14rem; }
+.toolbar .field-grow input { width: 100%; }
+.toolbar select, .toolbar input { margin: 0; }
+.toolbar-actions { display: flex; gap: 0.5rem; margin-left: auto; }
 .health-healthy { color: var(--ok); }
 .health-unhealthy { color: var(--error); font-weight: 600; }
 .health-starting { color: var(--warn); }

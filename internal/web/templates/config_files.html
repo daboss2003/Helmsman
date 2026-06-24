@@ -12,7 +12,7 @@
   <section class="panel">
     <h2>Files</h2>
     {{if .ManagedFiles}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr>{{if .ConfigCanonical}}<th>Service</th><th>Mount</th><th>Source</th>{{else}}<th>Name</th><th>Path</th>{{end}}<th>Bindings</th><th>Secret</th><th>Mode</th>{{if not .ConfigCanonical}}<th>Drift</th>{{end}}<th></th></tr></thead>
       <tbody>
         {{range .ManagedFiles}}
@@ -39,7 +39,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}<p class="muted">No managed config files.</p>{{end}}
   </section>
 
@@ -74,7 +74,7 @@
   {{if .LegacyFiles}}
   <section class="panel">
     <h2>Legacy config files <span class="muted">(app-level — assign a service + mount to migrate into helmsman.yaml)</span></h2>
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Name</th><th>Path</th><th>Bindings</th><th>Migrate into</th></tr></thead>
       <tbody>
         {{range .LegacyFiles}}
@@ -94,14 +94,14 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
   </section>
   {{end}}
 
   <section class="panel">
     <h2>Cert bindings <span class="muted">(edge-issued cert → a read-only mount in the service)</span></h2>
     {{if .CertBindings}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr>{{if .ConfigCanonical}}<th>Service</th><th>Hostname</th><th>Mount</th>{{else}}<th>Name</th><th>Hostname</th><th>Sync dir</th>{{end}}<th>Required</th><th></th></tr></thead>
       <tbody>
         {{range .CertBindings}}
@@ -122,7 +122,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}<p class="muted">No cert bindings.</p>{{end}}
     <form method="post" action="/apps/{{.Project}}/cert-bindings" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">

@@ -7,7 +7,7 @@
   <section class="panel">
     <h2><span>All apps {{if .AppsRows}}<span class="muted">({{len .AppsRows}})</span>{{end}}</span> <a href="/git/new" class="btn btn-sm btn-primary">+ New app</a></h2>
     {{if .AppsRows}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>App</th><th>Status</th><th>Services</th><th>Source</th><th></th></tr></thead>
       <tbody>
         {{range .AppsRows}}
@@ -24,7 +24,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}
     <p class="muted">No apps yet. <a href="/git/new">Connect a repo</a> — Helmsman reads its <code>helmsman.yaml</code> (and scaffolds a starter if it has none) and deploys it.</p>
     {{end}}

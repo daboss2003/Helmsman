@@ -7,7 +7,7 @@
   <section class="panel">
     <h2>Tokens</h2>
     {{if .APITokenRows}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>ID</th><th>Scopes</th><th>Networks</th><th>Expires</th><th>State</th><th></th></tr></thead>
       <tbody>
         {{range .APITokenRows}}
@@ -33,7 +33,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}
     <p class="muted">No API tokens yet.</p>
     {{end}}

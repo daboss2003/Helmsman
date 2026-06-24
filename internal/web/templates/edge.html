@@ -13,7 +13,7 @@
   <section class="panel">
     <h2>Routes</h2>
     {{if .Routes}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Hostname</th><th>Path</th><th>→ Upstream</th><th>HSTS</th><th>On</th></tr></thead>
       <tbody>
         {{range .Routes}}
@@ -26,7 +26,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}<p class="muted">No routes deployed yet — declare them under <code>spec.edge.routes</code> in your app's <code>helmsman.yaml</code> and deploy.</p>{{end}}
   </section>
 {{end}}

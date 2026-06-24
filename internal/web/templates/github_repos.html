@@ -16,7 +16,7 @@
 
   {{if .GitHubRepos}}
   <section class="panel">
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Repository</th><th>Visibility</th><th>Branch</th><th></th></tr></thead>
       <tbody>
         {{range .GitHubRepos}}
@@ -35,7 +35,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
   </section>
   {{else}}
   <p class="muted">No repositories found for this account.</p>

@@ -12,7 +12,7 @@
   {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
 
   <section class="panel">
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>File</th><th>Instance</th><th>App slug</th><th></th></tr></thead>
       <tbody>
         {{range .Candidates}}
@@ -35,7 +35,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     <p class="muted small">Already-connected apps show <strong>Open</strong> — choosing one takes you to it
       rather than overwriting it.</p>
   </section>

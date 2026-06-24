@@ -38,16 +38,16 @@
   {{if .Configured}}
   <section class="panel">
     <h2>Status</h2>
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <tbody>
         <tr><td>State</td><td><span class="badge">{{.UpdateState}}</span></td></tr>
         <tr><td>Deployed commit</td><td class="mono">{{if .DeployedCommit}}{{.DeployedCommit}}{{else}}— (never deployed){{end}}</td></tr>
         <tr><td>Staged commit</td><td class="mono">{{if .StagedCommit}}{{.StagedCommit}}{{else}}— (not fetched){{end}}</td></tr>
         <tr><td>Commits behind</td><td>{{.CommitsBehind}}</td></tr>
         <tr><td>Last fetch</td><td>{{if .LastFetchAt}}{{.LastFetchAt}}{{else}}never{{end}}</td></tr>
-        {{if .LastFetchError}}<tr><td>Last fetch error</td><td class="health-unhealthy">{{.LastFetchError}}</td></tr>{{end}}
+        {{if .LastFetchError}}<tr><td>Last fetch error</td><td class="health-unhealthy wrap-cell">{{.LastFetchError}}</td></tr>{{end}}
       </tbody>
-    </table>
+    </table></div>
     <form method="post" action="/apps/{{pathEscape .Project}}/git/fetch" class="inline mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <button type="submit">Fetch now</button>
@@ -69,22 +69,22 @@
   <section class="panel">
     <h2>Pending update <span class="muted">({{.Diff.CommitsBehind}} commit(s) ahead of deployed)</span></h2>
     {{if .Diff.Commits}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Commit</th><th>Author</th><th>Subject</th></tr></thead>
       <tbody>
         {{range .Diff.Commits}}<tr><td class="mono">{{.Sha}}</td><td>{{.Author}}</td><td>{{.Subject}}</td></tr>{{end}}
       </tbody>
-    </table>
+    </table></div>
     {{end}}
     {{if .Diff.Files}}
     <details class="accordion mt1">
       <summary>Changed files <span class="muted">({{len .Diff.Files}})</span></summary>
-      <table class="grid">
+      <div class="table-scroll"><table class="grid">
         <thead><tr><th>Status</th><th>Path</th></tr></thead>
         <tbody>
           {{range .Diff.Files}}<tr><td class="mono">{{.Status}}</td><td class="mono">{{.Path}}</td></tr>{{end}}
         </tbody>
-      </table>
+      </table></div>
     </details>
     {{end}}
     {{if .Diff.Truncated}}<p class="muted">(diff truncated — too many commits/files to display)</p>{{end}}

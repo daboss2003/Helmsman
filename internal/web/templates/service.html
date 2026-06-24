@@ -7,7 +7,7 @@
 
   <section class="panel">
     <h2>Status</h2>
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <tbody>
         <tr><td>State</td><td>{{if .Found}}<span class="pill {{if .Running}}pill-ok{{else}}pill-down{{end}}">{{.State}}</span>{{else}}<span class="pill">not running</span>{{end}}</td></tr>
         {{if .Found}}
@@ -20,7 +20,7 @@
         {{if .DesiredReplicas}}<tr><td>Desired replicas</td><td class="mono">{{.DesiredReplicas}}</td></tr>{{end}}
         {{if .StatusText}}<tr><td>Status</td><td class="muted">{{.StatusText}}</td></tr>{{end}}
       </tbody>
-    </table>
+    </table></div>
     <div class="queue-actions mt1">
       <button type="button" class="btn btn-sm lc-btn" data-log-url="/apps/{{pathEscape .Project}}/services/{{pathEscape .Service}}/logs">View logs</button>
       {{if and (not $.WriteDisabledReason) (not $.Protected)}}
@@ -88,7 +88,7 @@
 {{range .Ops.Metrics}}
 <section class="panel">
   <h2>{{.Title}}</h2>
-  <table class="grid">
+  <div class="table-scroll"><table class="grid">
     <tbody>
       {{range .Items}}
       <tr>
@@ -98,13 +98,13 @@
       </tr>
       {{end}}
     </tbody>
-  </table>
+  </table></div>
 </section>
 {{end}}
 {{if .Ops.Queues}}
 <section class="panel">
   <h2>Queues</h2>
-  <table class="grid">
+  <div class="table-scroll"><table class="grid">
     <thead><tr><th>Queue</th><th>State</th><th>Counts</th></tr></thead>
     <tbody>
       {{range .Ops.Queues}}
@@ -115,7 +115,7 @@
       </tr>
       {{end}}
     </tbody>
-  </table>
+  </table></div>
 </section>
 {{end}}
 {{else if .Ops.Err}}

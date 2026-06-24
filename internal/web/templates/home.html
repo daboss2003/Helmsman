@@ -35,7 +35,7 @@
   {{if .Provisioned}}
   <section class="panel">
     <h2><span>Provisioned apps <span class="muted">(legacy — form-created; migrate to a repo)</span></span></h2>
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>App</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         {{range .Provisioned}}
@@ -53,7 +53,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
   </section>
   {{end}}
 

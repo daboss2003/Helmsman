@@ -39,7 +39,7 @@
   <section class="panel">
     <h2><span>Repository &amp; updates</span> <a href="/apps/{{pathEscape .Project}}/git" class="btn btn-sm btn-ghost">Repository settings →</a></h2>
     <p class="muted small mono">{{.RepoURL}} · {{.Ref}}</p>
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <tbody>
         <tr><td>Status</td><td>
           {{if eq .UpdateState "up_to_date"}}<span class="pill pill-ok">up to date</span>
@@ -49,16 +49,16 @@
         </td></tr>
         <tr><td>Deployed commit</td><td class="mono">{{if .DeployedCommit}}{{.DeployedCommit}}{{else}}— (never deployed){{end}}</td></tr>
         <tr><td>Last checked</td><td>{{if .LastFetchAt}}{{.LastFetchAt}}{{else}}never{{end}}</td></tr>
-        {{if .LastFetchError}}<tr><td>Last error</td><td class="health-unhealthy">{{.LastFetchError}}</td></tr>{{end}}
+        {{if .LastFetchError}}<tr><td>Last error</td><td class="health-unhealthy wrap-cell">{{.LastFetchError}}</td></tr>{{end}}
       </tbody>
-    </table>
+    </table></div>
 
     {{if and .Diff .Diff.Commits}}
     <h3>What changed</h3>
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Commit</th><th>Author</th><th>Subject</th></tr></thead>
       <tbody>{{range .Diff.Commits}}<tr><td class="mono">{{.Sha}}</td><td>{{.Author}}</td><td>{{.Subject}}</td></tr>{{end}}</tbody>
-    </table>
+    </table></div>
     {{end}}
 
     <div class="queue-actions mt1">

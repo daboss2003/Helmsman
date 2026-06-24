@@ -150,7 +150,7 @@
 {{if .Queues}}
 <section class="panel">
   <h2>Queues</h2>
-  <table class="grid">
+  <div class="table-scroll"><table class="grid">
     <thead><tr><th>Queue</th><th>State</th><th>Counts</th><th>Actions</th></tr></thead>
     <tbody>
       {{range .Queues}}
@@ -168,12 +168,12 @@
       </tr>
       {{end}}
     </tbody>
-  </table>
+  </table></div>
 </section>
 {{end}}
 {{end}}
 {{end}}
-<table class="grid">
+<div class="table-scroll"><table class="grid">
   <thead>
     <tr><th>Service</th><th>State</th><th>Health</th><th>CPU%</th><th>Memory</th><th>Restarts</th><th>Self-heal</th><th>Status</th><th>Actions</th></tr>
   </thead>
@@ -209,6 +209,6 @@
     <tr><td colspan="9" class="muted">No containers for this app.</td></tr>
     {{end}}
   </tbody>
-</table>
+</table></div>
 {{end}}
 {{end}}

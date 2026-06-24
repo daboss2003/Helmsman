@@ -10,7 +10,7 @@
   <section class="panel">
     <h2>Open alerts</h2>
     {{if .Firing}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Level</th><th>Target</th><th>Detail</th><th>Since (UTC)</th><th>Actions</th></tr></thead>
       <tbody>
         {{range .Firing}}
@@ -35,14 +35,14 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}<p class="muted">No open alerts.</p>{{end}}
   </section>
 
   <section class="panel">
     <h2>Channels <span class="muted">(secrets are write-only)</span></h2>
     {{if .Channels}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Name</th><th>Kind</th><th>Enabled</th><th>Actions</th></tr></thead>
       <tbody>
         {{range .Channels}}
@@ -58,7 +58,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}<p class="muted">No channels.</p>{{end}}
     <pre id="deploy-output" class="stream" hidden></pre>
     <form method="post" action="/alerts/channels" class="stack mt1">
@@ -93,7 +93,7 @@
   <section class="panel">
     <h2>Rules</h2>
     {{if .Rules}}
-    <table class="grid">
+    <div class="table-scroll"><table class="grid">
       <thead><tr><th>Name</th><th>Kind</th><th>Scope</th><th>Threshold</th><th>For (s)</th><th>Level</th><th>Defer</th><th>On</th><th></th></tr></thead>
       <tbody>
         {{range .Rules}}
@@ -110,7 +110,7 @@
         </tr>
         {{end}}
       </tbody>
-    </table>
+    </table></div>
     {{else}}<p class="muted">No rules.</p>{{end}}
     <form method="post" action="/alerts/rules" class="stack mt1">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">

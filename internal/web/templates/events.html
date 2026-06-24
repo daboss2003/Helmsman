@@ -1,54 +1,76 @@
 {{template "top" .}}
 {{template "nav" .}}
 <main class="wrap">
-  <h1>Audit log</h1>
-  <p class="muted">Append-only; secret values are never recorded. Old rows are pruned by retention,
-    but a <code>level=security</code> row is always archived to NDJSON before it is dropped.</p>
+  <div class="page-head">
+    <div>
+      <h1>Audit log</h1>
+      <p class="muted">Append-only — secret values are never recorded. Old rows are pruned by retention, but every
+        <code>security</code> event is archived to NDJSON before it's dropped.</p>
+    </div>
+  </div>
 
-  <form method="get" action="/events" class="filters">
-    <label>Level
+  <form method="get" action="/events" class="toolbar">
+    <div class="field">
+      <label>Level</label>
       <select name="level">
-        <option value="">any</option>
+        <option value="">Any level</option>
         <option value="info" {{if eq .EventLevel "info"}}selected{{end}}>info</option>
         <option value="security" {{if eq .EventLevel "security"}}selected{{end}}>security</option>
-      </select></label>
-    <label>Outcome
+      </select>
+    </div>
+    <div class="field">
+      <label>Outcome</label>
       <select name="outcome">
-        <option value="">any</option>
+        <option value="">Any outcome</option>
         <option value="ok" {{if eq .EventOutcome "ok"}}selected{{end}}>ok</option>
         <option value="deny" {{if eq .EventOutcome "deny"}}selected{{end}}>deny</option>
         <option value="error" {{if eq .EventOutcome "error"}}selected{{end}}>error</option>
-      </select></label>
-    <label>Search <span class="muted">(action/target)</span>
-      <input type="text" name="q" value="{{.EventQuery}}" placeholder="git_deploy"></label>
-    <button type="submit">Filter</button>
-    <a href="/events" class="link">reset</a>
+      </select>
+    </div>
+    <div class="field field-grow">
+      <label>Search <span class="muted">action or target</span></label>
+      <input type="text" name="q" value="{{.EventQuery}}" placeholder="e.g. git_deploy, app_delete">
+    </div>
+    <div class="toolbar-actions">
+      <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+      <a href="/events" class="btn btn-sm btn-ghost">Reset</a>
+    </div>
   </form>
 
-  <table class="grid">
-    <thead>
-      <tr><th>When (UTC)</th><th>Actor</th><th>IP</th><th>Action</th><th>Target</th><th>Outcome</th><th>Level</th><th>Detail</th></tr>
-    </thead>
-    <tbody>
-      {{range .Events}}
-      <tr class="lvl-{{.Level}} out-{{.Outcome}}">
-        <td class="mono">{{.When}}</td>
-        <td>{{.Actor}}</td>
-        <td class="mono">{{.IP}}</td>
-        <td>{{.Action}}</td>
-        <td>{{.Target}}</td>
-        <td>{{.Outcome}}</td>
-        <td>{{.Level}}</td>
-        <td>{{.Detail}}</td>
-      </tr>
-      {{else}}
-      <tr><td colspan="8" class="muted">No events match.</td></tr>
-      {{end}}
-    </tbody>
-  </table>
+  <div class="table-scroll table-tall">
+    <table class="grid grid-audit">
+      <thead>
+        <tr><th>When (UTC)</th><th>Actor</th><th>IP</th><th>Action</th><th>Target</th><th>Outcome</th><th>Level</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        {{range .Events}}
+        <tr>
+          <td class="mono muted">{{.When}}</td>
+          <td>{{if .Actor}}{{.Actor}}{{else}}<span class="muted">—</span>{{end}}</td>
+          <td class="mono">{{if .IP}}{{.IP}}{{else}}<span class="muted">—</span>{{end}}</td>
+          <td><code class="chip">{{.Action}}</code></td>
+          <td class="mono">{{if .Target}}{{.Target}}{{else}}<span class="muted">—</span>{{end}}</td>
+          <td>
+            {{if eq .Outcome "ok"}}<span class="pill pill-ok">ok</span>
+            {{else if eq .Outcome "deny"}}<span class="pill pill-down">deny</span>
+            {{else if eq .Outcome "error"}}<span class="pill pill-warn">error</span>
+            {{else}}<span class="pill">{{.Outcome}}</span>{{end}}
+          </td>
+          <td>
+            {{if eq .Level "security"}}<span class="badge badge-warn">security</span>
+            {{else}}<span class="badge badge-muted">{{.Level}}</span>{{end}}
+          </td>
+          <td class="wrap-cell muted">{{if .Detail}}{{.Detail}}{{else}}—{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="8" class="empty">No events match your filters.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 
   {{if .EventOlderURL}}
-  <p><a href="{{.EventOlderURL}}">Older →</a></p>
+  <p class="mt1"><a class="btn btn-sm btn-ghost" href="{{.EventOlderURL}}">Older events →</a></p>
   {{end}}
 </main>
 {{template "bottom" .}}

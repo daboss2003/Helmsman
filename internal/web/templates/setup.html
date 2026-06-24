@@ -14,12 +14,12 @@
 
   <section class="panel">
     <h2>Status</h2>
-    <table class="grid"><tbody>
+    <div class="table-scroll"><table class="grid"><tbody>
       <tr><td>setup.enabled (config)</td><td>{{if .Enabled}}<span class="health-healthy">enabled</span>{{else}}<span class="muted">disabled — set setup.enabled over SSH to run</span>{{end}}</td></tr>
       <tr><td>Sandbox backend</td><td>{{if .Available}}<span class="health-healthy">available</span>{{else}}<span class="health-unhealthy">unavailable</span> — {{.Unavailable}}{{end}}</td></tr>
       {{if .WriteDisabled}}<tr><td>Write plane</td><td class="health-unhealthy">{{.WriteDisabled}}</td></tr>{{end}}
       {{if .Checksum}}<tr><td>Script checksum</td><td class="mono">{{.Checksum}}</td></tr>{{end}}
-    </tbody></table>
+    </tbody></table></div>
   </section>
 
   <section class="panel">
@@ -28,10 +28,10 @@
       Upload your <code>helmsman.yaml</code> to sync <code>spec.setup</code> into Helmsman; running it is a
       separate, confirmed step below.</p>
     {{if .Script}}
-    <table class="grid"><tbody>
+    <div class="table-scroll"><table class="grid"><tbody>
       <tr><td>Trigger</td><td class="mono">{{.Trigger}}</td></tr>
       {{if .Produces}}<tr><td>Produces</td><td class="mono">{{.Produces}}</td></tr>{{end}}
-    </tbody></table>
+    </tbody></table></div>
     <pre class="mono" aria-label="setup script (read-only)">{{.Script}}</pre>
     {{else}}
     <p class="muted">No setup script synced for this app.</p>

@@ -33,7 +33,7 @@
       if (logSource) { logSource.close(); logSource = null; }
       pre.hidden = true;
       pre.textContent = "";
-      closeBtn.hidden = true;
+      closeBtn.remove(); // drop the button entirely; showStream recreates it next open
     });
     pre.parentNode.insertBefore(closeBtn, pre);
   }
