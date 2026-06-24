@@ -301,6 +301,7 @@ details.accordion > summary:hover { color: var(--primary); }
 .btn-ghost:hover { background: rgba(255,255,255,0.05); }
 .btn-danger { background: transparent; color: var(--error); border-color: rgba(248,113,113,.4); }
 .btn-danger:hover { background: rgba(248,113,113,.1); }
+.danger-zone { border-color: rgba(248,113,113,.35); }
 .btn-sm { padding: 0.35rem 0.7rem; font-size: 0.83rem; }
 /* .link = link-styled inline action (in dense table cells). .lc-btn is ONLY a JS hook
    (it carries no appearance) — pair it with .btn/.btn-primary for a real button, or

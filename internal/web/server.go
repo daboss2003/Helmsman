@@ -388,6 +388,9 @@ func (s *Server) Handler() http.Handler {
 	// Helmsman never pushes — git access is fetch-only).
 	mux.HandleFunc("GET /apps/{project}/definition.yaml", s.requireAuth(s.handleDefinitionYAML))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))
+	// Permanent app delete: full teardown (stop+remove containers/volumes, run dir, repo,
+	// and all per-app state). Re-authenticates with the operator password in the handler.
+	mux.HandleFunc("POST /apps/{project}/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAppDelete))))
 	mux.HandleFunc("GET /partials/app/{project}", s.requireAuth(s.withCSRFToken(s.handleAppPartial)))
 	// App Ops Interface (M3): config form + server-side-proxied queue actions.
 	mux.HandleFunc("GET /apps/{project}/ops-config", s.requireAuth(s.withCSRFToken(s.handleOpsConfigGet)))

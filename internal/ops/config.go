@@ -225,6 +225,16 @@ func (s *ConfigStore) Status(project string) (Status, bool) {
 	return st, true
 }
 
+// DeleteApp removes an app's ops config (incl. the encrypted shared secret) and its
+// recorded health-score history. Used by the app-delete teardown.
+func (s *ConfigStore) DeleteApp(project string) error {
+	if _, err := s.db.Exec(`DELETE FROM app_ops WHERE project = ?`, project); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM ops_snapshot WHERE project = ?`, project)
+	return err
+}
+
 // EnabledProjects returns the projects with ops probing enabled.
 func (s *ConfigStore) EnabledProjects() ([]string, error) {
 	rows, err := s.db.Query(`SELECT project FROM app_ops WHERE enabled = 1`)

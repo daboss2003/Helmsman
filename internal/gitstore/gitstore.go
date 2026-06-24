@@ -155,6 +155,14 @@ func (s *Store) Save(ctx context.Context, in SaveInput) error {
 	return err
 }
 
+// Delete removes an app's entire GitOps row — repo config, deploy FSM, the encrypted
+// fetch credential, and the webhook material all live on this one row, so the row
+// delete fully purges them. Used by the app-delete teardown.
+func (s *Store) Delete(ctx context.Context, project string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM app_git WHERE project=?`, project)
+	return err
+}
+
 // Get returns a repo app's config (no secret material).
 func (s *Store) Get(project string) (Config, bool, error) {
 	var c Config

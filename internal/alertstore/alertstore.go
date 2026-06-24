@@ -228,6 +228,31 @@ func (s *Store) DeleteRule(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DeleteApp removes everything alerting holds for one app: rules scoped to the app
+// (and their live state/outbox), plus any per-target state/outbox for the app's
+// containers under GLOBAL rules (target is "<slug>" or "<slug>/<service>"). Global
+// channels and all-app rules are left untouched. Used by the app-delete teardown.
+// Each statement runs on its own; the subqueries resolve before the rules are dropped.
+func (s *Store) DeleteApp(ctx context.Context, slug string) error {
+	like := slug + "/%"
+	stmts := []struct {
+		sql  string
+		args []any
+	}{
+		{`DELETE FROM alert_state WHERE rule_id IN (SELECT id FROM alert_rules WHERE scope=?)`, []any{slug}},
+		{`DELETE FROM alert_outbox WHERE rule_id IN (SELECT id FROM alert_rules WHERE scope=?)`, []any{slug}},
+		{`DELETE FROM alert_state WHERE target=? OR target LIKE ?`, []any{slug, like}},
+		{`DELETE FROM alert_outbox WHERE target=? OR target LIKE ?`, []any{slug, like}},
+		{`DELETE FROM alert_rules WHERE scope=?`, []any{slug}},
+	}
+	for _, st := range stmts {
+		if _, err := s.db.ExecContext(ctx, st.sql, st.args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RuleByID returns one rule (the notifier needs its channel routing).
 func (s *Store) RuleByID(id int64) (alert.Rule, bool) {
 	var r alert.Rule

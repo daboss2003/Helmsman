@@ -60,6 +60,13 @@ func (s *Store) SaveCanonical(ctx context.Context, d *Definition, note string) (
 	return res.LastInsertId()
 }
 
+// DeleteApp removes ALL canonical-definition versions for a slug (the whole history).
+// Used by the app-delete teardown.
+func (s *Store) DeleteApp(ctx context.Context, slug string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM definition_versions WHERE slug=?`, slug)
+	return err
+}
+
 // Current returns the live canonical definition for a slug (the latest version),
 // HMAC-verified and RE-PARSED. No version yet → (nil, nil).
 func (s *Store) Current(slug string) (*Definition, error) {

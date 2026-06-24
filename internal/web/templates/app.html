@@ -94,5 +94,32 @@
       {{if .Scaling}}<br>Currently scaling: {{range $svc, $n := .Scaling}}<a href="/apps/{{pathEscape $.App.Project}}/services/{{pathEscape $svc}}"><code>{{$svc}}={{$n}}</code></a> {{end}}{{end}}</p>
   </section>
   {{end}}
+
+  {{if not .Protected}}
+  <section class="panel danger-zone">
+    <h2 class="health-unhealthy">Danger zone</h2>
+    <p>Permanently delete <strong>{{.App.Project}}</strong>. This <strong>cannot be undone</strong>. It will:</p>
+    <ul class="muted">
+      <li>stop and remove all of its containers, networks, and <strong>data volumes</strong>;</li>
+      <li>delete its run directory and its connected Git repo (the local clone);</li>
+      <li>erase all of its config — env &amp; secrets, config files, cert bindings, edge/L4 routes, auto-scaling, self-healing, and ops.</li>
+    </ul>
+    {{if .WriteDisabledReason}}
+    <p class="muted">Delete is unavailable while the write plane is down ({{.WriteDisabledReason}}).</p>
+    {{else}}
+    <form method="post" action="/apps/{{pathEscape .App.Project}}/delete" class="stack"
+          data-confirm="Permanently delete {{.App.Project}} and ALL of its data, volumes, and repo? This cannot be undone.">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label>Confirm your password to delete
+        <input type="password" name="password" autocomplete="off" required placeholder="your password"></label>
+      {{if .TOTPEnabled}}
+      <label>2FA code
+        <input type="text" name="totp" inputmode="numeric" autocomplete="off" pattern="[0-9]*" required placeholder="6-digit code"></label>
+      {{end}}
+      <button type="submit" class="btn btn-danger">Delete {{.App.Project}} permanently</button>
+    </form>
+    {{end}}
+  </section>
+  {{end}}
 </main>
 {{template "bottom" .}}

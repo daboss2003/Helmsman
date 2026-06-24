@@ -82,6 +82,16 @@ func (s *Store) Delete(ctx context.Context, slug string) error {
 	return err
 }
 
+// DeleteApp removes an app's setup script AND its run ledger. Used by the app-delete
+// teardown (the plain Delete only drops the script).
+func (s *Store) DeleteApp(ctx context.Context, slug string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM setup_scripts WHERE slug=?`, slug); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM setup_runs WHERE slug=?`, slug)
+	return err
+}
+
 // RecordRunStart inserts a run row and returns its id.
 func (s *Store) RecordRunStart(ctx context.Context, slug, checksum, actor string) int64 {
 	res, err := s.db.ExecContext(ctx,

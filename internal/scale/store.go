@@ -28,6 +28,16 @@ type PolicyRow struct {
 
 // SavePolicy validates + upserts a policy. A policy must pass Policy.Valid() and
 // carry non-zero per-replica reservations before it can be enabled.
+// DeleteApp removes ALL scaling policies and controller state for every service of an
+// app. Used by the app-delete teardown.
+func (s *Store) DeleteApp(ctx context.Context, app string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM scaling_policy WHERE app=?`, app); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM scaling_state WHERE app=?`, app)
+	return err
+}
+
 func (s *Store) SavePolicy(ctx context.Context, k Key, pr PolicyRow) error {
 	if ok, why := pr.Policy.Valid(); !ok {
 		return errors.New("scaling policy invalid: " + why)

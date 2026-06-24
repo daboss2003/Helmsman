@@ -215,6 +215,13 @@ func (s *Store) Reveal(project, key string) (string, bool, error) {
 	return "", false, nil
 }
 
+// DeleteApp removes ALL env versions (literals + encrypted secrets) for an app —
+// the entire history, so no secret material survives. Used by the app-delete teardown.
+func (s *Store) DeleteApp(ctx context.Context, project string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM env_blobs WHERE project=?`, project)
+	return err
+}
+
 // Get returns one key's full entry, including its Enc marker (so a caller that
 // writes the value to a file can decode it). Prefer this over Reveal for
 // secret_files materialization.

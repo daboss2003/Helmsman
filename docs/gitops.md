@@ -41,6 +41,16 @@ You'll find this on the app's page (a **Repository & updates** panel) and on the
 
 > **Want instant deploys?** By default Helmsman checks every couple of minutes. If you want a push to be picked up immediately, you can add an optional **webhook** — but it's not required. And if you want truly hands-off releases, turn on **auto-deploy** (off by default): Helmsman then deploys a new commit for you, through the same checks, when it's a clean fast-forward. The background check on its own only ever *fetches* — it never deploys.
 
+## Deleting an app
+
+The app's page has a **Danger zone** with a **Delete** button. Deleting is **permanent and cannot be undone** — it is gated behind re-entering your password (a live session isn't enough) and, because it stops containers, it needs the write plane to be available. When you confirm, Helmsman:
+
+- stops and removes all of the app's **containers, networks, and data volumes** (`docker compose down --volumes`);
+- deletes its **run directory** and its **Git object store** (the local repo clone Helmsman fetched);
+- erases **all of its state** — env & secrets, config files, cert bindings, edge/L4 routes, auto-scaling, self-healing, and ops — and revokes any API token whose only scope was deploying this app.
+
+What is **not** touched: your own Git repository on GitHub/elsewhere (Helmsman only deletes its local clone), the global GitHub connection, and whole-system **backups** (a backup is a snapshot of all of Helmsman, not one app — restore from one if you delete by mistake). Protected/managed projects (Helmsman's own infrastructure) can't be deleted.
+
 ## Why this is safe
 
 - **Nothing deploys until you click** (unless you explicitly turn on auto-deploy). A push to your repo can't trigger a surprise build on your server.

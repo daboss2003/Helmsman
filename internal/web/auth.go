@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"time"
@@ -83,27 +84,10 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	<-s.verifySem
 	ok := userMatch && pwOK
 
-	// TOTP, when configured. Not widened under clock skew (plan §5.9). Single-use:
-	// the matched step is advanced atomically so a code can't be replayed within
-	// its window (review #4). Only checked when the password already matched, so
-	// an attacker without the password can't burn the watermark.
-	if ok && sec.totpSecret != "" {
-		step, vok := crypto.ValidateTOTPStep(sec.totpSecret, totp, time.Now(), 1)
-		if !vok {
-			ok = false
-		} else {
-			res, err := s.db.ExecContext(ctx,
-				`INSERT INTO settings(key, value) VALUES(@k, @s)
-				 ON CONFLICT(key) DO UPDATE SET value = @s WHERE CAST(value AS INTEGER) < @s`,
-				sql.Named("k", totpLastStepKey), sql.Named("s", int64(step)))
-			n := int64(0)
-			if err == nil {
-				n, _ = res.RowsAffected()
-			}
-			if err != nil || n != 1 { // already consumed (replay) or write error → reject
-				ok = false
-			}
-		}
+	// TOTP, when configured. Only checked when the password already matched (&&
+	// short-circuits), so an attacker without the password can't burn the watermark.
+	if ok {
+		ok = s.verifyTOTPOnce(ctx, totp)
 	}
 
 	if !ok {
@@ -128,6 +112,32 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		Actor: sec.username, IP: peer, Action: "login", Outcome: audit.OK, Level: audit.Security,
 	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// verifyTOTPOnce validates a TOTP code against the configured secret and atomically
+// advances the single-use watermark so the same code can't be replayed within its
+// window — across login AND any other re-auth (e.g. the destructive app-delete). When
+// 2FA is not configured it returns true (nothing to check). Not widened under clock
+// skew (plan §5.9). Callers must gate this behind a prior password match (&&-short-
+// circuit) so an attacker without the password can't burn the watermark.
+func (s *Server) verifyTOTPOnce(ctx context.Context, code string) bool {
+	sec := s.security()
+	if sec.totpSecret == "" {
+		return true
+	}
+	step, vok := crypto.ValidateTOTPStep(sec.totpSecret, code, time.Now(), 1)
+	if !vok {
+		return false
+	}
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO settings(key, value) VALUES(@k, @s)
+		 ON CONFLICT(key) DO UPDATE SET value = @s WHERE CAST(value AS INTEGER) < @s`,
+		sql.Named("k", totpLastStepKey), sql.Named("s", int64(step)))
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n == 1 // n==0 → already consumed (replay)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {

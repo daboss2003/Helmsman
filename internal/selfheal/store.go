@@ -65,6 +65,19 @@ func (s *Store) Delete(ctx context.Context, k Key) error {
 	return err
 }
 
+// DeleteApp removes ALL self-healing state for an app: the per-service FSM rows, the
+// tuned policy, and any expected-down lease. Used by the app-delete teardown.
+func (s *Store) DeleteApp(ctx context.Context, app string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM supervisor_state WHERE app=?`, app); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM app_selfheal WHERE project=?`, app); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM expected_down WHERE app=?`, app)
+	return err
+}
+
 // ClearCircuit resets a latched CIRCUIT_OPEN service to HEALTHY so the supervisor
 // will act on it again (the operator's "I fixed the underlying problem" button).
 func (s *Store) ClearCircuit(ctx context.Context, k Key, now int64) error {

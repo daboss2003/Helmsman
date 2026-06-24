@@ -154,6 +154,16 @@ func (s *Store) DeleteConfigFile(ctx context.Context, project, name string) erro
 	return err
 }
 
+// DeleteApp removes ALL of an app's managed config files AND cert bindings. Used by
+// the app-delete teardown. (Two statements; each runs on its own — no nested query.)
+func (s *Store) DeleteApp(ctx context.Context, project string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM app_config_files WHERE project = ?`, project); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM app_cert_bindings WHERE project = ?`, project)
+	return err
+}
+
 // SetRenderedSHA records the sha of the last materialized output (drift detection).
 func (s *Store) SetRenderedSHA(ctx context.Context, project, name, sha string) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE app_config_files SET rendered_sha256 = ? WHERE project = ? AND name = ?`, sha, project, name)

@@ -106,6 +106,20 @@ func (s *Store) Revoke(ctx context.Context, id string) error {
 	return nil
 }
 
+// RevokeAppScoped revokes any token whose ONLY capability is deploying THIS app
+// (scopes == "deploy:write:<slug>"), used by the app-delete teardown. It deliberately
+// leaves multi-scope tokens alone — yanking a token that also serves other apps would
+// be collateral damage, and a leftover scope for a now-gone app is inert (its deploy
+// route no longer resolves). Returns the number of tokens revoked.
+func (s *Store) RevokeAppScoped(ctx context.Context, slug string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET revoked=1 WHERE revoked=0 AND scopes=?`, "deploy:write:"+slug)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // TouchLastUsed records a best-effort last-use timestamp (never gates auth — a
 // failure here must not deny a valid request, so callers ignore the error).
 func (s *Store) TouchLastUsed(ctx context.Context, id string, now time.Time) {

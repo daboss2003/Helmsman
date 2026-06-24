@@ -29,6 +29,7 @@ type tmplData struct {
 	App           *monitor.App
 	Project       string
 	Protected     bool         // the App is a Helmsman-managed/protected project — no app actions
+	TOTPEnabled   bool         // 2FA is configured → destructive re-auth (app delete) also asks for a code
 	BackURL       string       // breadcrumb target; the app home, or the repository page when not yet deployed
 	Svc           *serviceView // the per-service page model
 	OpsCfg        *ops.Config
@@ -169,6 +170,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		App:                 app,
 		Snap:                snap,
 		Protected:           s.cfg.IsProtectedProject(project),
+		TOTPEnabled:         s.security().totpSecret != "",
 		WriteDisabledReason: s.writeDisabledReason(),
 		Supervisor:          s.supervisorStates(project),
 		Scaling:             s.scalingDesired(project),
