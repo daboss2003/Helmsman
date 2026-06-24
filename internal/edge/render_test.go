@@ -35,7 +35,7 @@ func TestRenderPerCAPolicies(t *testing.T) {
 		{Hostname: "pub.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true},                 // default CA
 		{Hostname: "api.lan", Upstream: "api:3000", UpstreamScheme: "http", Enabled: true, CA: "internal"},         // private CA
 		{Hostname: "bad.example.com", Upstream: "x:80", UpstreamScheme: "http", Enabled: true, CA: "doesnotexist"}, // unknown → default
-	}, nil)
+	}, []CertHost{{Hostname: "mqtt.lan", CA: "internal"}}) // cert-only, private CA
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +69,9 @@ func TestRenderPerCAPolicies(t *testing.T) {
 	}
 	if caBySubject["api.lan"] != "https://ca.lan/acme/acme/directory" {
 		t.Errorf("api.lan should use the private CA, got %q", caBySubject["api.lan"])
+	}
+	if caBySubject["mqtt.lan"] != "https://ca.lan/acme/acme/directory" {
+		t.Errorf("cert-only mqtt.lan should use the private CA, got %q", caBySubject["mqtt.lan"])
 	}
 	if len(rootsBySubject["api.lan"]) != 1 || rootsBySubject["api.lan"][0] != "/etc/helmsman/internal-ca.pem" {
 		t.Errorf("api.lan missing the private CA trusted roots: %v", rootsBySubject["api.lan"])
@@ -240,7 +243,7 @@ func toJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 func TestRenderCertOnlySubject(t *testing.T) {
 	out, err := Render(baseCfg(), []Route{
 		{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true},
-	}, []string{"mqtt.example.com"})
+	}, []CertHost{{Hostname: "mqtt.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}

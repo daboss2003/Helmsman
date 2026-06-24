@@ -268,6 +268,7 @@ func (b *Binding) UnmarshalYAML(n *yaml.Node) error {
 type CertBinding struct {
 	Hostname string `yaml:"hostname"`
 	Mount    string `yaml:"mount"`
+	CA       string `yaml:"ca,omitempty"` // "" = default issuer; else a named CA from config.yaml edge.cas
 }
 
 // Secret declares a name (+ optional generate hint) — NEVER a value.
@@ -832,6 +833,9 @@ func validateCertBinding(svc string, cb CertBinding) error {
 	}
 	if err := mountPath(cb.Mount); err != nil {
 		return fmt.Errorf("service %q cert_bindings mount: %w", svc, err)
+	}
+	if cb.CA != "" && !edgeCANameRe.MatchString(cb.CA) {
+		return fmt.Errorf("service %q cert_bindings ca %q must match [a-z][a-z0-9-]{0,30} (a CA defined in config.yaml edge.cas)", svc, cb.CA)
 	}
 	return nil
 }

@@ -150,7 +150,14 @@ func isLoopbackHostname(host string) bool {
 // certOnly are hostnames Caddy must obtain+renew an ACME cert for WITHOUT a proxy
 // route — a consumer app (e.g. an MQTT broker) terminates TLS itself using the synced
 // cert (spec.cert_bindings). Caddy still answers the ACME challenge on :80/:443.
-func Render(base BaseConfig, routes []Route, certOnly []string) ([]byte, error) {
+// CertHost is a cert-only ACME subject (a cert binding's hostname) + the named CA it
+// should be issued from ("" = the default issuer).
+type CertHost struct {
+	Hostname string
+	CA       string
+}
+
+func Render(base BaseConfig, routes []Route, certOnly []CertHost) ([]byte, error) {
 	admin := &caddyAdmin{Listen: base.AdminListen, EnforceOrigin: true, Origins: []string{"127.0.0.1", "::1", "localhost"}}
 
 	var httpRoutes []caddyRoute
@@ -231,15 +238,17 @@ func Render(base BaseConfig, routes []Route, certOnly []string) ([]byte, error) 
 	}
 
 	// Cert-only subjects: issue+renew a cert (so a consumer app can serve TLS with
-	// it) but add NO proxy route — validated FQDN, deduped, never the admin host.
-	for _, h := range certOnly {
-		h = strings.ToLower(strings.TrimSpace(h))
+	// it) but add NO proxy route — validated FQDN, deduped, never the admin host. Each
+	// carries its chosen CA (default issuer when empty).
+	for _, ch := range certOnly {
+		h := strings.ToLower(strings.TrimSpace(ch.Hostname))
 		if len(h) > 253 || !hostnameRe.MatchString(h) {
 			return nil, fmt.Errorf("cert-only hostname %q is invalid", h)
 		}
 		if !seen[h] {
 			subjects = append(subjects, h)
 			seen[h] = true
+			subjectCA[h] = ch.CA
 		}
 	}
 

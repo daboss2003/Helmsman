@@ -327,12 +327,14 @@ services:
     cert_bindings:
       - hostname: mqtt.example.com    # a hostname Helmsman's edge issues a cert for
         mount: /etc/certs             # the cert is synced into this directory
+        ca: internal                  # optional: issue from a private CA (config.yaml edge.cas)
 ```
 
 | Field | Notes |
 |---|---|
 | `hostname` | the FQDN Helmsman issues/renews the cert for. |
 | `mount` | absolute container path the cert directory is mounted at. |
+| `ca` | optional — name of a **private CA** (defined in `config.yaml` [`edge.cas`](#using-a-private-ca)) to issue this cert from, instead of the default `edge.acme_ca`. An undefined name fails the deploy. Omit it for the default CA. Ideal for an internal MQTT/DB host issued by your own CA. |
 
 Helmsman's edge issues and renews the certificate for `hostname`, then **at deploy** syncs the files into `mount` as `tls.crt` (0644) and `tls.key` (0600) and recreates the service so it loads them. The deploy **waits automatically** until they exist (it fails fast with a reason if the cert can't issue), so the container never has to poll. Your app reads the files straight from `mount` — there are no cert template tokens.
 
@@ -384,7 +386,7 @@ edge:
       trusted_root: /etc/helmsman/internal-ca.pem   # optional: a PEM Caddy trusts for the CA's own HTTPS
 ```
 
-Then in any app's `helmsman.yaml`, point a route at it by name with `ca: internal`. Each CA gets its own ACME issuer; everything without a `ca` keeps using the default.
+Then in any app's `helmsman.yaml`, point a route (or a [`cert_binding`](#cert_bindings-per-service)) at it by name with `ca: internal`. Each CA gets its own ACME issuer; everything without a `ca` keeps using the default. So you can have, say, `mqtt.lan` (a cert binding) and `api.lan` (a route) issued by your internal CA, while your public hostnames stay on Let's Encrypt — all from the same dashboard/deploy.
 
 The `edge.routes` block is **parsed into the typed edge model and re-marshalled** (read-and-render, never run verbatim). The save fails if it shadows a managed hostname, touches `admin`/`tls.automation`/`pki`, targets `9000/2019/2375`, grabs `:80/:443`, or weakens XFF. **The definition file contributes only Layer-1 routes** — never the protected Layer-0 base. See [Managed edge & routes](./edge-and-tls.md).
 

@@ -279,8 +279,16 @@ func cmdServe(args []string) error {
 		if ok, why := edge.Available(""); ok {
 			admin := edge.NewAdmin(base.AdminListen)
 			edgeRecon = edge.NewReconciler(edgeRoutes, admin, base, log)
-			// cert_bindings: the edge issues a cert-only ACME subject per hostname.
-			edgeRecon.SetCertHosts(cfgStore.AllCertHostnames)
+			// cert_bindings: the edge issues a cert-only ACME subject per hostname, from
+			// the binding's chosen CA (default issuer when unset).
+			edgeRecon.SetCertHosts(func() []edge.CertHost {
+				hosts := cfgStore.AllCertHosts()
+				out := make([]edge.CertHost, len(hosts))
+				for i, h := range hosts {
+					out[i] = edge.CertHost{Hostname: h.Hostname, CA: h.CA}
+				}
+				return out
+			})
 			sup := &edge.Supervisor{CaddyBin: "caddy", AdminListen: base.AdminListen, Log: log}
 			if initCfg, rerr := edge.Render(base, nil, nil); rerr == nil {
 				sup.InitialCfg = initCfg

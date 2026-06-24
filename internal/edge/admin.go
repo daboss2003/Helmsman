@@ -101,7 +101,7 @@ type Reconciler struct {
 	admin     *Admin
 	base      BaseConfig
 	log       *slog.Logger
-	certHosts func() []string // cert-only ACME subjects (spec.cert_bindings); may be nil
+	certHosts func() []CertHost // cert-only ACME subjects (spec.cert_bindings) + their CA; may be nil
 	// poolFn discovers the live replica endpoints for a set of routes — the auto-scaling
 	// edge pool, recomputed from read-only container discovery each reconcile. It returns
 	// pools keyed by PoolKey(route); a route absent from the map (or with an empty pool)
@@ -124,7 +124,7 @@ func NewReconciler(store *RouteStore, admin *Admin, base BaseConfig, log *slog.L
 
 // SetCertHosts registers a provider for cert-only ACME subjects (hostnames Helmsman
 // must obtain a cert for without a proxy route — spec.cert_bindings).
-func (r *Reconciler) SetCertHosts(fn func() []string) { r.certHosts = fn }
+func (r *Reconciler) SetCertHosts(fn func() []CertHost) { r.certHosts = fn }
 
 // SetPoolDiscoverer registers the live-replica endpoint discoverer. When set, each
 // reconcile asks fn for a route's current replica endpoints (ip:port) and, if it
@@ -143,7 +143,7 @@ func (r *Reconciler) ReconcilePool(ctx context.Context, app, service string, rep
 	return r.Reconcile(ctx)
 }
 
-func (r *Reconciler) certOnly() []string {
+func (r *Reconciler) certOnly() []CertHost {
 	if r.certHosts == nil {
 		return nil
 	}

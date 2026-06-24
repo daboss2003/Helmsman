@@ -691,7 +691,10 @@ func (s *Server) deployRepoApp(ctx context.Context, cfg gitstore.Config, sha, so
 	// Register cert_bindings so the managed edge issues each hostname's cert, then
 	// sync the issued leaf into the run dir (blocks until issued). Replaces the
 	// docker.sock cert-reloader: no container holds the socket.
-	s.registerCertBindings(ctx, slug, def, onLine)
+	if err := s.registerCertBindings(ctx, slug, def, onLine); err != nil {
+		s.gitStore.SetState(bg, slug, "update_blocked")
+		return err
+	}
 	// Wait for ACME to finish issuing each cert_binding (the edge was just told to),
 	// then copy the leaf in. This makes one deploy self-complete instead of failing
 	// closed and forcing a manual re-deploy.

@@ -466,9 +466,18 @@ const defaultCaddyCertRoot = "/var/lib/caddy/caddy/certificates"
 // managed edge issues a cert for each hostname (a cert-only ACME subject), then
 // reconciles the edge. Best-effort: a reconcile failure (edge not owned / Caddy down)
 // is logged, not fatal — issuance applies when the edge is up.
-func (s *Server) registerCertBindings(ctx context.Context, project string, def *definition.Definition, onLine func(string)) {
+func (s *Server) registerCertBindings(ctx context.Context, project string, def *definition.Definition, onLine func(string)) error {
 	if s.cfgStore == nil {
-		return
+		return nil
+	}
+	// Fail closed on an undefined CA BEFORE writing anything — a cert binding can only
+	// reference a CA the operator defined in config.yaml (no trust-injection).
+	for _, name := range sortedServiceNames(def) {
+		for _, cb := range def.Spec.Compose.Services[name].CertBindings {
+			if cb.CA != "" && !s.cfg.HasEdgeCA(cb.CA) {
+				return fmt.Errorf("cert_binding %q references unknown CA %q — define it in config.yaml edge.cas", cb.Hostname, cb.CA)
+			}
+		}
 	}
 	any := false
 	for _, name := range sortedServiceNames(def) {
@@ -478,6 +487,7 @@ func (s *Server) registerCertBindings(ctx context.Context, project string, def *
 				Hostname:    cb.Hostname,
 				SyncDirRel:  definition.ManagedCertDir(name, cb.Hostname),
 				Required:    true,
+				CA:          cb.CA,
 			})
 			if err != nil {
 				onLine("warning: could not register cert binding for " + cb.Hostname + ": " + err.Error())
@@ -491,6 +501,7 @@ func (s *Server) registerCertBindings(ctx context.Context, project string, def *
 			onLine("note: edge not reconciled yet (it issues the cert when up): " + err.Error())
 		}
 	}
+	return nil
 }
 
 // certIssueWaitTimeout bounds how long a deploy waits for the managed edge to issue a

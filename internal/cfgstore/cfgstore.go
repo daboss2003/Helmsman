@@ -42,6 +42,13 @@ type CertBinding struct {
 	Hostname    string
 	SyncDirRel  string
 	Required    bool
+	CA          string // "" = default issuer; else a named CA from config.yaml edge.cas
+}
+
+// CertHost is a cert-only ACME subject (a cert binding's hostname) + its chosen issuer.
+type CertHost struct {
+	Hostname string
+	CA       string
 }
 
 // Store persists config files + cert bindings.
@@ -173,7 +180,7 @@ func (s *Store) SetRenderedSHA(ctx context.Context, project, name, sha string) {
 
 // CertBindings returns the cert bindings for a project.
 func (s *Store) CertBindings(project string) ([]CertBinding, error) {
-	rows, err := s.db.Query(`SELECT binding_name, hostname, sync_dir_rel, required FROM app_cert_bindings WHERE project = ? ORDER BY binding_name`, project)
+	rows, err := s.db.Query(`SELECT binding_name, hostname, sync_dir_rel, required, tls_ca FROM app_cert_bindings WHERE project = ? ORDER BY binding_name`, project)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +189,7 @@ func (s *Store) CertBindings(project string) ([]CertBinding, error) {
 	for rows.Next() {
 		c := CertBinding{Project: project}
 		var req int
-		if err := rows.Scan(&c.BindingName, &c.Hostname, &c.SyncDirRel, &req); err != nil {
+		if err := rows.Scan(&c.BindingName, &c.Hostname, &c.SyncDirRel, &req, &c.CA); err != nil {
 			return nil, err
 		}
 		c.Required = req == 1
@@ -191,21 +198,27 @@ func (s *Store) CertBindings(project string) ([]CertBinding, error) {
 	return out, rows.Err()
 }
 
-// AllCertHostnames returns the distinct hostnames across all apps' cert bindings —
-// the cert-only ACME subjects the managed edge must issue (spec.cert_bindings).
-func (s *Store) AllCertHostnames() []string {
-	rows, err := s.db.Query(`SELECT DISTINCT hostname FROM app_cert_bindings ORDER BY hostname`)
+// AllCertHosts returns the cert-only ACME subjects across all apps' cert bindings —
+// each hostname + its chosen issuer (spec.cert_bindings) — for the managed edge to
+// issue. Deduped by hostname (first CA wins if a hostname is bound twice).
+func (s *Store) AllCertHosts() []CertHost {
+	rows, err := s.db.Query(`SELECT hostname, tls_ca FROM app_cert_bindings ORDER BY hostname`)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	var out []string
+	var out []CertHost
+	seen := map[string]bool{}
 	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
+		var h, ca string
+		if err := rows.Scan(&h, &ca); err != nil {
 			return out
 		}
-		out = append(out, h)
+		if seen[h] {
+			continue
+		}
+		seen[h] = true
+		out = append(out, CertHost{Hostname: h, CA: ca})
 	}
 	return out
 }
@@ -226,11 +239,11 @@ func (s *Store) SaveCertBinding(ctx context.Context, project string, cb CertBind
 		req = 1
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO app_cert_bindings(project, binding_name, hostname, sync_dir_rel, required, updated_at)
-		 VALUES(?, ?, ?, ?, ?, ?)
+		`INSERT INTO app_cert_bindings(project, binding_name, hostname, sync_dir_rel, required, tls_ca, updated_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(project, binding_name) DO UPDATE SET
-		   hostname=excluded.hostname, sync_dir_rel=excluded.sync_dir_rel, required=excluded.required, updated_at=excluded.updated_at`,
-		project, cb.BindingName, strings.TrimSpace(cb.Hostname), filepath.Clean(cb.SyncDirRel), req, time.Now().Unix())
+		   hostname=excluded.hostname, sync_dir_rel=excluded.sync_dir_rel, required=excluded.required, tls_ca=excluded.tls_ca, updated_at=excluded.updated_at`,
+		project, cb.BindingName, strings.TrimSpace(cb.Hostname), filepath.Clean(cb.SyncDirRel), req, cb.CA, time.Now().Unix())
 	return err
 }
 
