@@ -465,6 +465,8 @@ func (s *Server) Handler() http.Handler {
 	// (source of truth) and reconciled on deploy. No POST /edge/routes write-back.
 	// Alerting (M10): channels + rules + open alerts. Read-and-notify only.
 	mux.HandleFunc("GET /alerts", s.requireAuth(s.withCSRFToken(s.handleAlerts)))
+	mux.HandleFunc("GET /alerts/channels", s.requireAuth(s.withCSRFToken(s.handleChannelsPage)))
+	mux.HandleFunc("GET /alerts/rules", s.requireAuth(s.withCSRFToken(s.handleRulesPage)))
 	mux.HandleFunc("POST /alerts/channels", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleAlertChannelSave))))
 	mux.HandleFunc("POST /alerts/channels/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAlertChannelDelete))))
 	mux.HandleFunc("POST /alerts/channels/test", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAlertChannelTest))))

@@ -43,21 +43,14 @@ type alertsView struct {
 	EdgeOwned   bool                        // managed ntfy needs the managed edge to expose it
 }
 
+// handleAlerts (GET /alerts) is the VIEW page: open alerts + counts, with links to the
+// dedicated Channels and Rules pages.
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	if s.alertStore == nil {
 		http.Error(w, "alerting unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	av := &alertsView{}
-	av.Channels, _ = s.alertStore.ListChannels()
-	if rules, err := s.alertStore.ListRules(); err == nil {
-		for _, ru := range rules {
-			av.Rules = append(av.Rules, alertRuleView{
-				ID: ru.ID, Name: ru.Name, Kind: ru.Kind, Scope: ru.Scope, Threshold: ru.Threshold,
-				ForSeconds: ru.ForSeconds, Level: ru.Level, DeferWhenSelfManaged: ru.DeferWhenSelfManaged, Enabled: ru.Enabled,
-			})
-		}
-	}
 	if firing, err := s.alertStore.FiringStates(); err == nil {
 		for _, f := range firing {
 			av.Firing = append(av.Firing, firingView{
@@ -66,16 +59,54 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	av.Channels, _ = s.alertStore.ListChannels() // for the "Channels (N)" link count
+	if rules, err := s.alertStore.ListRules(); err == nil {
+		av.Rules = make([]alertRuleView, len(rules)) // count only here
+	}
+	s.render(w, r, "alerts.html", tmplData{
+		Title: "Alerts — Helmsman", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r), Alerts: av,
+	})
+}
+
+// handleChannelsPage (GET /alerts/channels) is the dedicated channels page: list +
+// create + delete + test, plus the Helmsman-hosted ntfy subscribe info.
+func (s *Server) handleChannelsPage(w http.ResponseWriter, r *http.Request) {
+	if s.alertStore == nil {
+		http.Error(w, "alerting unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	av := &alertsView{}
+	av.Channels, _ = s.alertStore.ListChannels()
 	if info, ok, err := s.alertStore.ManagedNtfy(); err == nil && ok {
 		av.ManagedNtfy = &info
 	}
 	av.EdgeOwned = s.edgeRoutes != nil && s.edgeRecon != nil && s.runner != nil
-	s.render(w, r, "alerts.html", tmplData{
-		Title:     "Alerts — Helmsman",
-		CSRFToken: CSRFToken(r.Context()),
-		Username:  sessionUser(r),
-		Error:     r.URL.Query().Get("err"),
-		Alerts:    av,
+	s.render(w, r, "channels.html", tmplData{
+		Title: "Alert channels — Helmsman", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r),
+		Error: r.URL.Query().Get("err"), Alerts: av,
+	})
+}
+
+// handleRulesPage (GET /alerts/rules) is the dedicated rules page: list + create +
+// delete. Channels are loaded so the rule form can offer them in a select.
+func (s *Server) handleRulesPage(w http.ResponseWriter, r *http.Request) {
+	if s.alertStore == nil {
+		http.Error(w, "alerting unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	av := &alertsView{}
+	if rules, err := s.alertStore.ListRules(); err == nil {
+		for _, ru := range rules {
+			av.Rules = append(av.Rules, alertRuleView{
+				ID: ru.ID, Name: ru.Name, Kind: ru.Kind, Scope: ru.Scope, Threshold: ru.Threshold,
+				ForSeconds: ru.ForSeconds, Level: ru.Level, DeferWhenSelfManaged: ru.DeferWhenSelfManaged, Enabled: ru.Enabled,
+			})
+		}
+	}
+	av.Channels, _ = s.alertStore.ListChannels()
+	s.render(w, r, "rules.html", tmplData{
+		Title: "Alert rules — Helmsman", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r),
+		Error: r.URL.Query().Get("err"), Alerts: av,
 	})
 }
 
@@ -128,7 +159,7 @@ func (s *Server) handleAlertChannelSave(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "alert_channel_save", Target: name, Outcome: audit.OK, Level: audit.Security})
-	http.Redirect(w, r, "/alerts", http.StatusSeeOther)
+	http.Redirect(w, r, "/alerts/channels", http.StatusSeeOther)
 }
 
 func (s *Server) handleAlertChannelDelete(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +175,7 @@ func (s *Server) handleAlertChannelDelete(w http.ResponseWriter, r *http.Request
 	}
 	_ = s.alertStore.DeleteChannel(r.Context(), id)
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "alert_channel_delete", Target: strconv.FormatInt(id, 10), Outcome: audit.OK, Level: audit.Security})
-	http.Redirect(w, r, "/alerts", http.StatusSeeOther)
+	http.Redirect(w, r, "/alerts/channels", http.StatusSeeOther)
 }
 
 // handleAlertChannelTest sends a test notification through one channel. Channel
@@ -156,7 +187,10 @@ func (s *Server) handleAlertChannelTest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	_ = r.ParseForm()
-	id, _ := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
+	// The "send test" button (lc-btn) POSTs with the id in the QUERY string, so read it
+	// with FormValue (query+body), not PostFormValue (body only) — otherwise id=0 and
+	// the channel never resolves ("could not build channel").
+	id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
 	ch, err := s.alertStore.ChannelByID(id)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -199,7 +233,7 @@ func (s *Server) handleAlertRuleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "alert_rule_save", Target: rule.Name, Outcome: audit.OK, Level: audit.Security})
-	http.Redirect(w, r, "/alerts", http.StatusSeeOther)
+	http.Redirect(w, r, "/alerts/rules", http.StatusSeeOther)
 }
 
 func (s *Server) handleAlertRuleDelete(w http.ResponseWriter, r *http.Request) {
@@ -210,7 +244,7 @@ func (s *Server) handleAlertRuleDelete(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	id, _ := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
 	_ = s.alertStore.DeleteRule(r.Context(), id)
-	http.Redirect(w, r, "/alerts", http.StatusSeeOther)
+	http.Redirect(w, r, "/alerts/rules", http.StatusSeeOther)
 }
 
 func (s *Server) handleAlertAck(w http.ResponseWriter, r *http.Request) {

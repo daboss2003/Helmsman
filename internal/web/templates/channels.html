@@ -1,0 +1,135 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+{{with .Alerts}}
+  <p><a href="/alerts">← Alerts</a></p>
+  <h1>Alert channels</h1>
+  <p class="muted">Where alerts are delivered. Credentials are <strong>write-only</strong> — stored encrypted
+    and never shown back.</p>
+  {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
+
+  {{if .ManagedNtfy}}
+  <section class="panel">
+    <h2>Helmsman-hosted ntfy <span class="badge badge-warn">running</span></h2>
+    <p class="muted">Helmsman is running its own private ntfy server for you. Subscribe in the ntfy app
+      (iOS/Android) with the URL and <strong>read-only</strong> token below — that token can only
+      <em>receive</em> alerts, never publish. Delete the <code>{{.ManagedNtfy.Name}}</code> channel below to
+      stop and remove it.</p>
+    <div class="table-scroll"><table class="grid">
+      <tbody>
+        <tr><td>Subscribe URL</td><td class="mono">{{.ManagedNtfy.BaseURL}}/{{.ManagedNtfy.Topic}}</td></tr>
+        <tr><td>Topic</td><td class="mono">{{.ManagedNtfy.Topic}}</td></tr>
+        <tr><td>Read-only token</td><td class="mono">{{.ManagedNtfy.ReadToken}}</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted small">In the ntfy app: add the server <code>{{.ManagedNtfy.BaseURL}}</code>, set this token
+      under the server's settings, then subscribe to <code>{{.ManagedNtfy.Topic}}</code>. iOS gets instant push
+      via ntfy.sh's free relay (it only sees an opaque topic hash, never your messages).</p>
+  </section>
+  {{end}}
+
+  <section class="panel">
+    <h2>Channels</h2>
+    {{if .Channels}}
+    <div class="table-scroll"><table class="grid">
+      <thead><tr><th>Name</th><th>Kind</th><th>Enabled</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{range .Channels}}
+        <tr>
+          <td>{{.Name}}</td><td class="mono">{{.Kind}}</td><td>{{if .Enabled}}yes{{else}}no{{end}}</td>
+          <td class="queue-actions">
+            <button type="button" class="link lc-btn" data-lc-url="/alerts/channels/test?id={{.ID}}">send test</button>
+            <form method="post" action="/alerts/channels/delete" class="inline" data-confirm="Delete channel {{.Name}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="id" value="{{.ID}}">
+              <button type="submit" class="link">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table></div>
+    {{else}}<p class="muted">No channels yet.</p>{{end}}
+    <pre id="deploy-output" class="stream" hidden></pre>
+    <div class="queue-actions mt1">
+      <button type="button" class="btn btn-sm btn-primary" data-open-dialog="dlg-channel">+ Add a channel</button>
+    </div>
+  </section>
+
+  <dialog id="dlg-channel" class="modal">
+    <form method="post" action="/alerts/channels" class="stack">
+      <div class="modal-head"><h2>Add a channel</h2>
+        <button type="button" class="modal-x" data-close-dialog aria-label="Close">✕</button></div>
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <label>Name <input type="text" name="name" placeholder="ops push" required></label>
+      <label>Kind
+        <select name="kind" data-kind-toggle>
+          <option value="ntfy">ntfy (external)</option>
+          {{if .ManagedNtfy}}{{else}}<option value="ntfy_managed">ntfy (Helmsman-hosted)</option>{{end}}
+          <option value="webhook">webhook</option>
+          <option value="slack">slack</option>
+          <option value="discord">discord</option>
+          <option value="telegram">telegram</option>
+          <option value="smtp">smtp (email)</option>
+        </select></label>
+
+      <div class="kind-fields" data-kind="ntfy">
+        <label>Server URL <span class="muted">(public ntfy.sh, or your own server)</span>
+          <input type="text" name="url" autocomplete="off" placeholder="https://ntfy.sh"></label>
+        <label>Topic <span class="muted">(pick something unguessable on public ntfy.sh)</span>
+          <input type="text" name="topic" autocomplete="off" placeholder="helmsman-alerts-7x2k9"></label>
+        <label>Token <span class="muted">(optional — only for a protected topic/server)</span>
+          <input type="password" name="token" autocomplete="new-password"></label>
+      </div>
+
+      <div class="kind-fields" data-kind="ntfy_managed" hidden>
+        {{if .EdgeOwned}}
+        <p class="muted">Helmsman will run its OWN private ntfy server, expose it at the hostname below over
+          HTTPS, and give you a read-only token to subscribe with. It's only started when you save this.</p>
+        <label>Hostname <span class="muted">(a DNS name pointed at this server)</span>
+          <input type="text" name="ntfy_hostname" autocomplete="off" disabled placeholder="ntfy.example.com"></label>
+        <label>Topic <input type="text" name="ntfy_topic" autocomplete="off" disabled placeholder="alerts"></label>
+        {{else}}
+        <p class="muted">Helmsman-hosted ntfy needs the <strong>managed edge</strong> (it exposes ntfy over HTTPS).
+          Enable the managed edge, or use an <strong>external</strong> ntfy instead.</p>
+        {{end}}
+      </div>
+
+      <div class="kind-fields" data-kind="webhook" hidden>
+        <label>URL <input type="text" name="url" autocomplete="off" disabled placeholder="https://example.com/hook"></label>
+        <label>HMAC secret <span class="muted">(optional; signs the payload)</span>
+          <input type="password" name="secret" autocomplete="new-password" disabled></label>
+      </div>
+
+      <div class="kind-fields" data-kind="slack" hidden>
+        <label>Slack incoming-webhook URL
+          <input type="text" name="webhook_url" autocomplete="off" disabled placeholder="https://hooks.slack.com/services/..."></label>
+      </div>
+
+      <div class="kind-fields" data-kind="discord" hidden>
+        <label>Discord webhook URL
+          <input type="text" name="webhook_url" autocomplete="off" disabled placeholder="https://discord.com/api/webhooks/..."></label>
+      </div>
+
+      <div class="kind-fields" data-kind="telegram" hidden>
+        <label>Bot token <input type="password" name="bot_token" autocomplete="new-password" disabled></label>
+        <label>Chat ID <input type="text" name="chat_id" autocomplete="off" disabled></label>
+      </div>
+
+      <div class="kind-fields" data-kind="smtp" hidden>
+        <label>Host <input type="text" name="host" autocomplete="off" disabled placeholder="smtp.example.com"></label>
+        <label>Port <input type="text" name="port" inputmode="numeric" disabled placeholder="587"></label>
+        <label>Username <input type="text" name="username" autocomplete="off" disabled></label>
+        <label>Password <input type="password" name="password" autocomplete="new-password" disabled></label>
+        <label>From <input type="text" name="from" disabled placeholder="alerts@example.com"></label>
+        <label>To <input type="text" name="to" disabled placeholder="ops@example.com"></label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save channel</button>
+      </div>
+    </form>
+  </dialog>
+{{end}}
+</main>
+{{template "bottom" .}}

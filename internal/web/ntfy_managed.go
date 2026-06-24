@@ -121,7 +121,7 @@ func (s *Server) provisionManagedNtfy(w http.ResponseWriter, r *http.Request, na
 	}
 	provisioned = true
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "ntfy_managed_provision", Target: hostname, Outcome: audit.OK, Level: audit.Security})
-	http.Redirect(w, r, "/alerts", http.StatusSeeOther)
+	http.Redirect(w, r, "/alerts/channels", http.StatusSeeOther)
 }
 
 // teardownManagedNtfy removes the managed ntfy's edge route and stops its container
@@ -139,5 +139,5 @@ func (s *Server) teardownManagedNtfy(ctx context.Context) {
 }
 
 func (s *Server) redirectAlertsErr(w http.ResponseWriter, r *http.Request, msg string) {
-	http.Redirect(w, r, "/alerts?err="+url.QueryEscape(msg), http.StatusSeeOther)
+	http.Redirect(w, r, "/alerts/channels?err="+url.QueryEscape(msg), http.StatusSeeOther)
 }

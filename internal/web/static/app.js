@@ -314,6 +314,27 @@
     });
   })();
 
+  // ---- modal dialogs (CSP-safe; no inline handlers) ----
+  // A [data-open-dialog="id"] button opens <dialog id="id">; [data-close-dialog] (or a
+  // click on the backdrop) closes the containing <dialog>.
+  document.querySelectorAll("[data-open-dialog]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var d = document.getElementById(btn.getAttribute("data-open-dialog"));
+      if (d && d.showModal) d.showModal();
+    });
+  });
+  document.querySelectorAll("[data-close-dialog]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var d = btn.closest("dialog");
+      if (d) d.close();
+    });
+  });
+  document.querySelectorAll("dialog.modal").forEach(function (d) {
+    d.addEventListener("click", function (e) {
+      if (e.target === d) d.close(); // click on the backdrop (outside the form)
+    });
+  });
+
   // ---- shell: sidebar active link + mobile toggle + topbar title ----
   var layout = document.querySelector("[data-layout]");
   var toggle = document.querySelector("[data-menu-toggle]");

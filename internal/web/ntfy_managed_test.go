@@ -39,7 +39,7 @@ func TestProvisionManagedNtfyNeedsEdge(t *testing.T) {
 		t.Fatalf("status = %d, want 303", resp.StatusCode)
 	}
 	loc := resp.Header.Get("Location")
-	if !strings.HasPrefix(loc, "/alerts?err=") {
+	if !strings.HasPrefix(loc, "/alerts/channels?err=") {
 		t.Fatalf("expected an error redirect, got %q", loc)
 	}
 	if _, ok, _ := e.srv.alertStore.ManagedNtfy(); ok {

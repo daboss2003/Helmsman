@@ -1,0 +1,92 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+{{with .Alerts}}
+  <p><a href="/alerts">← Alerts</a></p>
+  <h1>Alert rules</h1>
+  <p class="muted">What Helmsman watches for. A rule fires to a channel (or all enabled channels) when its
+    condition holds for the chosen window.</p>
+  {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
+
+  <section class="panel">
+    <h2>Rules</h2>
+    {{if .Rules}}
+    <div class="table-scroll"><table class="grid">
+      <thead><tr><th>Name</th><th>Kind</th><th>Scope</th><th>Threshold</th><th>For (s)</th><th>Level</th><th>Defer</th><th>On</th><th></th></tr></thead>
+      <tbody>
+        {{range .Rules}}
+        <tr>
+          <td>{{.Name}}</td><td class="mono">{{.Kind}}</td><td>{{if .Scope}}{{.Scope}}{{else}}all{{end}}</td>
+          <td>{{.Threshold}}</td><td>{{.ForSeconds}}</td><td>{{.Level}}</td>
+          <td>{{if .DeferWhenSelfManaged}}yes{{else}}no{{end}}</td><td>{{if .Enabled}}yes{{else}}no{{end}}</td>
+          <td>
+            <form method="post" action="/alerts/rules/delete" class="inline" data-confirm="Delete rule {{.Name}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="id" value="{{.ID}}">
+              <button type="submit" class="link">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table></div>
+    {{else}}<p class="muted">No rules yet.</p>{{end}}
+    <div class="queue-actions mt1">
+      <button type="button" class="btn btn-sm btn-primary" data-open-dialog="dlg-rule">+ Add a rule</button>
+    </div>
+  </section>
+
+  <dialog id="dlg-rule" class="modal">
+    <form method="post" action="/alerts/rules" class="stack">
+      <div class="modal-head"><h2>Add a rule</h2>
+        <button type="button" class="modal-x" data-close-dialog aria-label="Close">✕</button></div>
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <label>Name <input type="text" name="name" placeholder="host cpu high" required></label>
+      <label>Kind
+        <select name="kind" data-kind-toggle>
+          <option value="container_down">container_down — a service is down</option>
+          <option value="host_cpu">host_cpu — host CPU over %</option>
+          <option value="host_mem">host_mem — host memory over %</option>
+          <option value="host_disk">host_disk — host disk over %</option>
+          <option value="dep_down">dep_down — a reported dependency is down</option>
+          <option value="restart_storm">restart_storm — a service keeps restarting</option>
+        </select></label>
+
+      {{/* Scope applies only to the per-app kinds; host_* rules target the host. */}}
+      <div class="kind-fields" data-kind="container_down dep_down restart_storm">
+        <label>Scope <span class="muted">(blank = all apps; or one app's slug)</span>
+          <input type="text" name="scope" autocomplete="off"></label>
+      </div>
+      {{/* Threshold: a percentage for host_*, a restart count for restart_storm. */}}
+      <div class="kind-fields" data-kind="host_cpu host_mem host_disk" hidden>
+        <label>Threshold <span class="muted">(percent, e.g. 90)</span>
+          <input type="text" name="threshold" inputmode="numeric" disabled placeholder="90"></label>
+      </div>
+      <div class="kind-fields" data-kind="restart_storm" hidden>
+        <label>Threshold <span class="muted">(restart count, e.g. 5)</span>
+          <input type="text" name="threshold" inputmode="numeric" disabled placeholder="5"></label>
+      </div>
+
+      <label>For seconds <span class="muted">(must hold this long before alerting)</span>
+        <input type="text" name="for_seconds" inputmode="numeric" placeholder="60"></label>
+      <label>Level <select name="level"><option value="warning">warning</option><option value="critical">critical</option></select></label>
+      <label>Channel
+        <select name="channel_id">
+          <option value="0">All enabled channels</option>
+          {{range .Channels}}<option value="{{.ID}}">{{.Name}} ({{.Kind}})</option>{{end}}
+        </select></label>
+
+      {{/* Defer is about an app that self-alerts; irrelevant for host_* rules. */}}
+      <div class="kind-fields" data-kind="container_down dep_down restart_storm">
+        <label class="check"><input type="checkbox" name="defer" checked> Defer when the app self-alerts (liveness still covers)</label>
+      </div>
+
+      <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save rule</button>
+      </div>
+    </form>
+  </dialog>
+{{end}}
+</main>
+{{template "bottom" .}}

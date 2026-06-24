@@ -24,7 +24,7 @@ sudo systemctl restart helmsman
 
 > **Restart, not reload.** The alerting engine starts at boot, so `systemctl reload` won't turn it on — you must `systemctl restart helmsman`. (See [editing the config file](./installation.md#editing-the-config-file-reload-vs-restart).)
 
-Everything else is managed on the **Alerts** page in the dashboard — there's a form for each part, no files or config to hand-edit. Alerting is **not** part of any app's `helmsman.yaml`: channels and rules are platform-level and live in the dashboard, and channel credentials (SMTP passwords, webhook secrets, bot tokens) are stored **encrypted at rest** — they are never rendered back into a form or written to a file. Open problems also appear on the **Incidents** screen.
+Everything else is managed in the dashboard — no files or config to hand-edit. The **Alerts** page shows open alerts and links to two dedicated screens: **Channels** (where alerts go) and **Rules** (what to watch for). Each has an **Add** button that opens a form. Alerting is **not** part of any app's `helmsman.yaml`: channels and rules are platform-level and live in the dashboard, and channel credentials (SMTP passwords, webhook secrets, bot tokens) are stored **encrypted at rest** — they are never rendered back into a form or written to a file. Open problems also appear on the **Incidents** screen.
 
 ## What it watches
 
@@ -39,11 +39,11 @@ Some apps already alert on their own. Helmsman is smart about this:
 - **App alerts defer to apps that cover themselves.** If an app already pages you about its own health, Helmsman won't double-page. The one exception is a **down safety net**: if an app actually goes *down* or unreachable, Helmsman always alerts — so "the app went dark" never results in silence.
 - **Platform alerts always fire.** Crashes, out-of-memory kills, certificate or edge failures, a full disk — these are never deferred, because a crash-looping app can't be trusted to report its own death.
 
-You set this up as **rules** on the Alerts page: pick what to watch (e.g. host CPU, container down, restart storm), an optional scope (all apps, or one app), a threshold, how long it must hold before alerting, the severity, and which channel to send to.
+You set this up as **rules** on the **Rules** page (Alerts → Rules): pick what to watch (e.g. host CPU, container down, restart storm), an optional scope (all apps, or one app), a threshold, how long it must hold before alerting, the severity, and which channel to send to (a dropdown of your channels, or all enabled).
 
 ## How an alert reaches you
 
-Add one or more **channels** on the Alerts page. An alert goes to each one:
+Add one or more **channels** on the **Channels** page (Alerts → Channels). An alert goes to each one:
 
 | Channel | What you provide |
 |---|---|
@@ -60,7 +60,7 @@ The **Add a channel** form shows **only the fields for the kind you pick** — c
 
 [ntfy](https://ntfy.sh) is the easiest way to get alerts as phone push notifications. To set it up:
 
-1. On the **Alerts** page → **Add a channel**, pick **ntfy** and fill in:
+1. On the **Channels** page (Alerts → Channels) → **Add a channel**, pick **ntfy** and fill in:
    - **Server URL** — `https://ntfy.sh` (the free public service) or your own ntfy server.
    - **Topic** — any name, e.g. `helmsman-alerts-7x2k9`. On public ntfy.sh a topic is *unauthenticated*, so **use a long, random name** (anyone who knows it can read it).
    - **Token** — leave blank for public ntfy.sh; fill it only if your topic/server requires auth.
@@ -76,7 +76,7 @@ If you don't want to use public ntfy.sh **or** run ntfy yourself, pick **ntfy (H
 
 - You give it a **hostname** (a DNS name pointed at this server, e.g. `ntfy.example.com`) and a **topic**.
 - Helmsman starts a locked-down ntfy container, **exposes it through the managed edge with automatic HTTPS**, and generates two tokens: a **write** token it publishes with (kept server-side) and a **read-only** token for you.
-- The Alerts page then shows your **subscribe URL + read-only token**. In the ntfy app, add that server, set the token, and subscribe to the topic. The read-only token can only **receive** alerts — never publish — so it's safe on your phone. iOS gets instant push via ntfy.sh's free relay (which only ever sees an opaque topic hash, never your messages).
+- The Channels page then shows your **subscribe URL + read-only token**. In the ntfy app, add that server, set the token, and subscribe to the topic. The read-only token can only **receive** alerts — never publish — so it's safe on your phone. iOS gets instant push via ntfy.sh's free relay (which only ever sees an opaque topic hash, never your messages).
 
 Requirements: the **managed edge must be enabled** (Helmsman needs it to expose ntfy over HTTPS) and the hostname's **DNS must point at this server** (so the edge can get a certificate). The ntfy server is **only run once you configure this channel** — deleting the channel stops and removes it.
 
