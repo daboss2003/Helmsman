@@ -37,15 +37,14 @@ const (
 	// publishes alerts to http://127.0.0.1:LoopbackPort (never reachable off-host).
 	LoopbackPort = 2586
 
-	// Image is the ntfy server image. MUST be >= v2.14.0 — that is the first release with
-	// declarative auth-users/auth-access/auth-tokens in server.yml, which is how this
-	// package seeds the publisher/subscriber tokens (older images silently ignore those
-	// keys, so deny-all would reject everything and no alert would ever arrive).
-	// NOTE: Helmsman's posture pins infra images by digest (see internal/socketproxy).
-	// Pin this to a verified sha256 for production — resolve with
-	// `docker buildx imagetools inspect binwiederhier/ntfy:v2.14.0` on a host with
-	// registry access; the version tag is the safe default until then.
-	Image = "binwiederhier/ntfy:v2.14.0"
+	// Image is the ntfy server image, DIGEST-PINNED (plan §15 supply-chain posture, like
+	// internal/socketproxy). It must be >= v2.14.0 — the first release with declarative
+	// auth-users/auth-access/auth-tokens in server.yml, which is how this package seeds
+	// the publisher/subscriber tokens (older images silently ignore those keys, so
+	// deny-all would reject everything and no alert would ever arrive). This is the
+	// multi-arch manifest-list digest for v2.24.0 (amd64/arm64/arm), resolved from the
+	// registry. To bump: re-resolve with `docker buildx imagetools inspect binwiederhier/ntfy:<ver>`.
+	Image = "binwiederhier/ntfy:v2.24.0@sha256:f8a9b104313b87cc24ae4f775f39e6328205b57dff6ede3eaf098a91e5d79f59"
 )
 
 // Params is everything needed to render the server config for one managed instance.

@@ -22,6 +22,14 @@ func validParams(t *testing.T) Params {
 	return Params{BaseURL: "https://ntfy.example.com", Topic: "alerts", WriteToken: w, ReadToken: r}
 }
 
+// The infra image must stay digest-pinned (supply-chain posture) and on a version that
+// supports declarative auth seeding (>= v2.14.0).
+func TestImageDigestPinned(t *testing.T) {
+	if !strings.Contains(Image, "@sha256:") {
+		t.Errorf("ntfy image must be digest-pinned, got %q", Image)
+	}
+}
+
 func TestGenerateTokenFormat(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 50; i++ {
