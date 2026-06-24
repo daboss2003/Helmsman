@@ -36,9 +36,11 @@ type firingView struct {
 }
 
 type alertsView struct {
-	Channels []alertstore.ChannelMeta
-	Rules    []alertRuleView
-	Firing   []firingView
+	Channels    []alertstore.ChannelMeta
+	Rules       []alertRuleView
+	Firing      []firingView
+	ManagedNtfy *alertstore.NtfyManagedInfo // the Helmsman-hosted ntfy subscribe info, if configured
+	EdgeOwned   bool                        // managed ntfy needs the managed edge to expose it
 }
 
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
@@ -64,10 +66,15 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	if info, ok, err := s.alertStore.ManagedNtfy(); err == nil && ok {
+		av.ManagedNtfy = &info
+	}
+	av.EdgeOwned = s.edgeRoutes != nil && s.edgeRecon != nil && s.runner != nil
 	s.render(w, r, "alerts.html", tmplData{
 		Title:     "Alerts — Helmsman",
 		CSRFToken: CSRFToken(r.Context()),
 		Username:  sessionUser(r),
+		Error:     r.URL.Query().Get("err"),
 		Alerts:    av,
 	})
 }
@@ -107,6 +114,10 @@ func (s *Server) handleAlertChannelSave(w http.ResponseWriter, r *http.Request) 
 	_ = r.ParseForm()
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	kind := strings.TrimSpace(r.PostFormValue("kind"))
+	if kind == "ntfy_managed" {
+		s.provisionManagedNtfy(w, r, name)
+		return
+	}
 	cfg, ok := buildChannelConfig(kind, r)
 	if !ok {
 		http.Error(w, "unknown channel kind", http.StatusUnprocessableEntity)
@@ -127,7 +138,12 @@ func (s *Server) handleAlertChannelDelete(w http.ResponseWriter, r *http.Request
 	}
 	_ = r.ParseForm()
 	id, _ := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
+	// If this is the Helmsman-hosted ntfy, tear its container + edge route down too.
+	if kind, err := s.alertStore.ChannelKind(id); err == nil && kind == "ntfy_managed" {
+		s.teardownManagedNtfy(r.Context())
+	}
 	_ = s.alertStore.DeleteChannel(r.Context(), id)
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "alert_channel_delete", Target: strconv.FormatInt(id, 10), Outcome: audit.OK, Level: audit.Security})
 	http.Redirect(w, r, "/alerts", http.StatusSeeOther)
 }
 

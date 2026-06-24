@@ -25,6 +25,35 @@ func newStore(t *testing.T) *Store {
 	return New(db, cipher)
 }
 
+// ManagedNtfy returns the subscribe info (base url, topic, READ token) but never the
+// write token Helmsman publishes with.
+func TestManagedNtfyExposesReadTokenNotWrite(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	cfg := `{"url":"http://127.0.0.1:2586","topic":"alerts","token":"tk_writeXXXXXXXXXXXXXXXXXXXXXXXXX","read_token":"tk_readYYYYYYYYYYYYYYYYYYYYYYYYYY","base_url":"https://ntfy.example.com"}`
+	if err := s.SaveChannel(ctx, "hosted", "ntfy_managed", []byte(cfg)); err != nil {
+		t.Fatal(err)
+	}
+	info, ok, err := s.ManagedNtfy()
+	if err != nil || !ok {
+		t.Fatalf("ManagedNtfy: %v ok=%v", err, ok)
+	}
+	if info.BaseURL != "https://ntfy.example.com" || info.Topic != "alerts" {
+		t.Errorf("wrong subscribe info: %+v", info)
+	}
+	if info.ReadToken != "tk_readYYYYYYYYYYYYYYYYYYYYYYYYYY" {
+		t.Errorf("read token = %q", info.ReadToken)
+	}
+	if strings.Contains(info.ReadToken, "write") {
+		t.Error("the write token must never be exposed via ManagedNtfy")
+	}
+	// No managed channel → ok=false.
+	s2 := newStore(t)
+	if _, ok, _ := s2.ManagedNtfy(); ok {
+		t.Error("ManagedNtfy must be ok=false when none is configured")
+	}
+}
+
 func TestChannelEncryptedRoundTrip(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

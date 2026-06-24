@@ -50,6 +50,8 @@ func BuildChannel(kind string, configJSON []byte) (Channel, error) {
 		return parseChannel[discordChannel](configJSON)
 	case "ntfy":
 		return parseChannel[ntfyChannel](configJSON)
+	case "ntfy_managed":
+		return parseChannel[ntfyManagedChannel](configJSON)
 	default:
 		return nil, fmt.Errorf("alert: unknown channel kind %q", kind)
 	}
@@ -58,7 +60,7 @@ func BuildChannel(kind string, configJSON []byte) (Channel, error) {
 // ValidChannelKind reports whether kind is supported.
 func ValidChannelKind(kind string) bool {
 	switch kind {
-	case "webhook", "smtp", "telegram", "slack", "discord", "ntfy":
+	case "webhook", "smtp", "telegram", "slack", "discord", "ntfy", "ntfy_managed":
 		return true
 	}
 	return false
@@ -152,6 +154,10 @@ func postJSON(ctx context.Context, target string, body any, hdr map[string]strin
 }
 
 func postText(ctx context.Context, target, body string, hdr map[string]string) error {
+	return postTextWith(ctx, guardedClient(20*time.Second), target, body, hdr)
+}
+
+func postTextWith(ctx context.Context, client *http.Client, target, body string, hdr map[string]string) error {
 	if !strings.HasPrefix(target, "https://") && !strings.HasPrefix(target, "http://") {
 		return errors.New("alert: channel url must be http(s)")
 	}
@@ -162,7 +168,7 @@ func postText(ctx context.Context, target, body string, hdr map[string]string) e
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}
-	resp, err := guardedClient(20 * time.Second).Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return sanitizeHTTPErr(err)
 	}
@@ -171,6 +177,48 @@ func postText(ctx context.Context, target, body string, hdr map[string]string) e
 		return fmt.Errorf("alert: channel returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// loopbackClient dials ONLY loopback — the inverse of guardedClient. It is used solely
+// by the managed-ntfy channel, whose publish target is Helmsman's OWN ntfy on
+// 127.0.0.1 (which guardedClient rightly blocks for every operator-supplied channel).
+// The positive loopback check means even a tampered config can't turn it into an
+// off-host SSRF.
+func loopbackClient(timeout time.Duration) *http.Client {
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	d.Control = func(network, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return err
+		}
+		ip, err := netip.ParseAddr(host)
+		if err != nil || !ip.Unmap().IsLoopback() {
+			return errBlockedTarget
+		}
+		return nil
+	}
+	return &http.Client{
+		Timeout:       timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: &http.Transport{
+			DialContext:         d.DialContext,
+			TLSHandshakeTimeout: 5 * time.Second,
+			DisableKeepAlives:   true,
+		},
+	}
+}
+
+func isLoopbackHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.Unmap().IsLoopback()
 }
 
 // --- webhook (HMAC-signed) ---
@@ -223,6 +271,31 @@ func (c ntfyChannel) Send(ctx context.Context, n Notification) error {
 	}
 	target := strings.TrimRight(c.URL, "/") + "/" + c.Topic
 	return postText(ctx, target, n.Body, hdr)
+}
+
+// ntfyManagedChannel publishes to Helmsman's OWN managed ntfy over loopback. URL is set
+// by Helmsman (a 127.0.0.1 publish endpoint), Token is the WRITE-only token. ReadToken
+// and BaseURL are carried so the dashboard can show the operator how to subscribe; they
+// are not used to send (the struct lists them so DisallowUnknownFields accepts the
+// config). Send re-checks the target is loopback and uses the loopback-only client.
+type ntfyManagedChannel struct {
+	URL       string `json:"url"`
+	Topic     string `json:"topic"`
+	Token     string `json:"token"`
+	ReadToken string `json:"read_token"`
+	BaseURL   string `json:"base_url"`
+}
+
+func (c ntfyManagedChannel) Send(ctx context.Context, n Notification) error {
+	if !isLoopbackHTTPURL(c.URL) {
+		return errors.New("alert: managed ntfy target must be loopback")
+	}
+	hdr := map[string]string{"X-Title": headerSafe(n.Title)}
+	if c.Token != "" {
+		hdr["Authorization"] = "Bearer " + c.Token
+	}
+	target := strings.TrimRight(c.URL, "/") + "/" + c.Topic
+	return postTextWith(ctx, loopbackClient(20*time.Second), target, n.Body, hdr)
 }
 
 type telegramChannel struct {

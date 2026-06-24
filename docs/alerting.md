@@ -70,6 +70,16 @@ The **Add a channel** form shows **only the fields for the kind you pick** — c
 
 If you'd rather not rely on public ntfy.sh, you can self-host ntfy (a single small binary) and point the channel at it — see [the ntfy docs](https://docs.ntfy.sh/install/).
 
+### Let Helmsman host ntfy for you
+
+If you don't want to use public ntfy.sh **or** run ntfy yourself, pick **ntfy (Helmsman-hosted)** when adding a channel. Helmsman runs its own private ntfy for you:
+
+- You give it a **hostname** (a DNS name pointed at this server, e.g. `ntfy.example.com`) and a **topic**.
+- Helmsman starts a locked-down ntfy container, **exposes it through the managed edge with automatic HTTPS**, and generates two tokens: a **write** token it publishes with (kept server-side) and a **read-only** token for you.
+- The Alerts page then shows your **subscribe URL + read-only token**. In the ntfy app, add that server, set the token, and subscribe to the topic. The read-only token can only **receive** alerts — never publish — so it's safe on your phone. iOS gets instant push via ntfy.sh's free relay (which only ever sees an opaque topic hash, never your messages).
+
+Requirements: the **managed edge must be enabled** (Helmsman needs it to expose ntfy over HTTPS) and the hostname's **DNS must point at this server** (so the edge can get a certificate). The ntfy server is **only run once you configure this channel** — deleting the channel stops and removes it.
+
 Alerts are **deduplicated** — one problem is one page, not a flood — and they respect your **quiet hours**: non-critical alerts are held overnight, while critical ones always come through. Helmsman paces its own sending so a slow mail server or bot can never turn it into a spam-cannon.
 
 ## Knowing Helmsman itself is alive (the dead-man's switch)

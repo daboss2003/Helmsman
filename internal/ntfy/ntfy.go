@@ -37,11 +37,15 @@ const (
 	// publishes alerts to http://127.0.0.1:LoopbackPort (never reachable off-host).
 	LoopbackPort = 2586
 
-	// Image is the ntfy server image. NOTE: Helmsman's posture pins infra images by
-	// digest (see internal/socketproxy). Pin this to a verified sha256 for production —
-	// resolve with `docker buildx imagetools inspect binwiederhier/ntfy:<ver>` on a host
-	// with registry access. A version tag is used here as a safe default.
-	Image = "binwiederhier/ntfy:v2.11.0"
+	// Image is the ntfy server image. MUST be >= v2.14.0 — that is the first release with
+	// declarative auth-users/auth-access/auth-tokens in server.yml, which is how this
+	// package seeds the publisher/subscriber tokens (older images silently ignore those
+	// keys, so deny-all would reject everything and no alert would ever arrive).
+	// NOTE: Helmsman's posture pins infra images by digest (see internal/socketproxy).
+	// Pin this to a verified sha256 for production — resolve with
+	// `docker buildx imagetools inspect binwiederhier/ntfy:v2.14.0` on a host with
+	// registry access; the version tag is the safe default until then.
+	Image = "binwiederhier/ntfy:v2.14.0"
 )
 
 // Params is everything needed to render the server config for one managed instance.
@@ -56,18 +60,26 @@ type Params struct {
 	ReadToken  string // subscriber/phone token (ro on Topic)
 }
 
-// GenerateToken returns a fresh ntfy-format access token ("tk_" + 30 [a-z0-9]).
+// GenerateToken returns a fresh ntfy-format access token: "tk_" + 29 [a-z0-9] = 32
+// chars total, which is exactly what ntfy requires. Uses crypto/rand with rejection
+// sampling so the alphabet is uniform (no modulo bias).
 func GenerateToken() (string, error) {
-	const n = 30
-	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+	const n = 29
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789" // 36
+	const limit = 256 - (256 % len(alphabet))               // reject the biased tail (>=252)
+	out := make([]byte, n)
+	buf := make([]byte, 1)
+	for i := 0; i < n; {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		if int(buf[0]) >= limit {
+			continue
+		}
+		out[i] = alphabet[int(buf[0])%len(alphabet)]
+		i++
 	}
-	for i := range b {
-		b[i] = alphabet[int(b[i])%len(alphabet)]
-	}
-	return "tk_" + string(b), nil
+	return "tk_" + string(out), nil
 }
 
 // Validate checks the params are well-formed before they drive config generation.
@@ -76,7 +88,7 @@ func (p Params) Validate() error {
 		return fmt.Errorf("ntfy: base url must be https")
 	}
 	if !validToken(p.WriteToken) || !validToken(p.ReadToken) {
-		return fmt.Errorf("ntfy: tokens must be tk_ + 30 [a-z0-9]")
+		return fmt.Errorf("ntfy: tokens must be tk_ + 29 [a-z0-9]")
 	}
 	if p.WriteToken == p.ReadToken {
 		return fmt.Errorf("ntfy: write and read tokens must differ")
@@ -88,7 +100,7 @@ func (p Params) Validate() error {
 }
 
 func validToken(t string) bool {
-	if !strings.HasPrefix(t, "tk_") || len(t) != 33 {
+	if !strings.HasPrefix(t, "tk_") || len(t) != 32 { // tk_ + 29 = 32, ntfy's required length
 		return false
 	}
 	for _, c := range t[3:] {
@@ -225,6 +237,27 @@ func EnsureRunning(ctx context.Context, runner *dockerexec.Runner, dataDir strin
 	composePath, err := Materialize(dataDir, p)
 	if err != nil {
 		return err
+	}
+	job := dockerexec.Job{
+		Project:     Project,
+		Dir:         filepath.Dir(composePath),
+		ConfigFiles: []string{composePath},
+		Action:      []string{"up", "-d", "--remove-orphans"},
+	}
+	return runner.RunInternal(ctx, job, onLine)
+}
+
+// Up brings the EXISTING on-disk managed-ntfy compose up WITHOUT re-materializing the
+// config (so it needs no tokens). Used at boot to reconcile the protected container to
+// running if it was removed — restart:unless-stopped covers reboots, but not a manual
+// `docker rm`. No-op error if it was never provisioned. Best-effort.
+func Up(ctx context.Context, runner *dockerexec.Runner, dataDir string, onLine func(string)) error {
+	if runner == nil {
+		return fmt.Errorf("ntfy: nil runner")
+	}
+	composePath := filepath.Join(dataDir, "ntfy", "docker-compose.yml")
+	if _, err := os.Stat(composePath); err != nil {
+		return fmt.Errorf("ntfy: no managed compose on disk: %w", err)
 	}
 	job := dockerexec.Job{
 		Project:     Project,

@@ -29,8 +29,8 @@ func TestGenerateTokenFormat(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !validToken(tok) {
-			t.Fatalf("token %q is not tk_+30[a-z0-9]", tok)
+		if !validToken(tok) || len(tok) != 32 {
+			t.Fatalf("token %q is not tk_+29[a-z0-9] (32 chars)", tok)
 		}
 		if seen[tok] {
 			t.Fatalf("token collision: %q", tok)

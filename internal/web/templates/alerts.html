@@ -39,6 +39,26 @@
     {{else}}<p class="muted">No open alerts.</p>{{end}}
   </section>
 
+  {{if .ManagedNtfy}}
+  <section class="panel">
+    <h2>Helmsman-hosted ntfy <span class="badge badge-warn">running</span></h2>
+    <p class="muted">Helmsman is running its own private ntfy server for you. Subscribe in the ntfy app
+      (iOS/Android) with the URL and <strong>read-only</strong> token below — that token can only
+      <em>receive</em> alerts, never publish. Delete the <code>{{.ManagedNtfy.Name}}</code> channel below to
+      stop and remove it.</p>
+    <div class="table-scroll"><table class="grid">
+      <tbody>
+        <tr><td>Subscribe URL</td><td class="mono">{{.ManagedNtfy.BaseURL}}/{{.ManagedNtfy.Topic}}</td></tr>
+        <tr><td>Topic</td><td class="mono">{{.ManagedNtfy.Topic}}</td></tr>
+        <tr><td>Read-only token</td><td class="mono">{{.ManagedNtfy.ReadToken}}</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted small">In the ntfy app: add the server <code>{{.ManagedNtfy.BaseURL}}</code>, set this token
+      under the server's settings, then subscribe to <code>{{.ManagedNtfy.Topic}}</code>. iOS gets instant push
+      via ntfy.sh's free relay (it only sees an opaque topic hash, never your messages).</p>
+  </section>
+  {{end}}
+
   <section class="panel">
     <h2>Channels <span class="muted">(secrets are write-only)</span></h2>
     {{if .Channels}}
@@ -67,7 +87,8 @@
       <label>Name <input type="text" name="name" placeholder="ops push" required></label>
       <label>Kind
         <select name="kind" data-kind-toggle>
-          <option value="ntfy">ntfy</option>
+          <option value="ntfy">ntfy (external)</option>
+          {{if .ManagedNtfy}}{{else}}<option value="ntfy_managed">ntfy (Helmsman-hosted)</option>{{end}}
           <option value="webhook">webhook</option>
           <option value="slack">slack</option>
           <option value="discord">discord</option>
@@ -82,6 +103,19 @@
           <input type="text" name="topic" autocomplete="off" placeholder="helmsman-alerts-7x2k9"></label>
         <label>Token <span class="muted">(optional — only for a protected topic/server)</span>
           <input type="password" name="token" autocomplete="new-password"></label>
+      </div>
+
+      <div class="kind-fields" data-kind="ntfy_managed" hidden>
+        {{if .EdgeOwned}}
+        <p class="muted">Helmsman will run its OWN private ntfy server, expose it at the hostname below over
+          HTTPS, and give you a read-only token to subscribe with. It's only started when you save this.</p>
+        <label>Hostname <span class="muted">(a DNS name pointed at this server)</span>
+          <input type="text" name="ntfy_hostname" autocomplete="off" disabled placeholder="ntfy.example.com"></label>
+        <label>Topic <input type="text" name="ntfy_topic" autocomplete="off" disabled placeholder="alerts"></label>
+        {{else}}
+        <p class="muted">Helmsman-hosted ntfy needs the <strong>managed edge</strong> (it exposes ntfy over HTTPS).
+          Enable the managed edge, or use an <strong>external</strong> ntfy instead.</p>
+        {{end}}
       </div>
 
       <div class="kind-fields" data-kind="webhook" hidden>

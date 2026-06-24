@@ -2,9 +2,46 @@ package alert
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+// The managed-ntfy channel publishes to Helmsman's OWN ntfy on loopback (which the SSRF
+// guard blocks for every other channel), and MUST refuse any non-loopback target so a
+// tampered config can't turn it into an off-host SSRF.
+func TestNtfyManagedLoopbackOnly(t *testing.T) {
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close() // srv.URL is http://127.0.0.1:PORT (loopback)
+
+	cfg := fmt.Sprintf(`{"url":%q,"topic":"alerts","token":"tk_write","read_token":"tk_read","base_url":"https://h.example"}`, srv.URL)
+	ch, err := BuildChannel("ntfy_managed", []byte(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ch.Send(context.Background(), Notification{Title: "t", Body: "b"}); err != nil {
+		t.Fatalf("loopback send failed: %v", err)
+	}
+	if gotPath != "/alerts" || gotAuth != "Bearer tk_write" {
+		t.Errorf("publish wrong: path=%q auth=%q", gotPath, gotAuth)
+	}
+
+	// A non-loopback target must be refused outright (no request).
+	bad := `{"url":"https://evil.example.com","topic":"alerts","token":"tk_write","read_token":"tk_read","base_url":"https://h"}`
+	ch2, err := BuildChannel("ntfy_managed", []byte(bad))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ch2.Send(context.Background(), Notification{Title: "t", Body: "b"}); err == nil {
+		t.Error("managed ntfy must refuse a non-loopback target")
+	}
+}
 
 func TestHeaderSafeStripsInjection(t *testing.T) {
 	got := headerSafe("Subject\r\nBcc: evil@x\x00 more")

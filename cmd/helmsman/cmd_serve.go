@@ -29,6 +29,7 @@ import (
 	"github.com/daboss2003/Helmsman/internal/hostmon"
 	"github.com/daboss2003/Helmsman/internal/l4"
 	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/Helmsman/internal/ntfy"
 	"github.com/daboss2003/Helmsman/internal/ops"
 	"github.com/daboss2003/Helmsman/internal/opsclient"
 	"github.com/daboss2003/Helmsman/internal/provision"
@@ -149,6 +150,10 @@ func cmdServe(args []string) error {
 	// operator remembering to list it, so seed it BEFORE the web server and the
 	// self-heal watcher read cfg.ProtectedProjects (review finding).
 	protectManagedProxy(cfg)
+	// Reserve the managed-ntfy project name so it can never become an operator app or a
+	// lifecycle/self-heal target. The container itself is only run when the operator
+	// configures a Helmsman-hosted ntfy alert channel.
+	protectProject(cfg, ntfy.Project)
 
 	if !cfg.Docker.ExternalProxy {
 		wg.Add(1)
@@ -203,6 +208,24 @@ func cmdServe(args []string) error {
 	// Alert engine (M10, plan §8): read-and-notify only. Runs only when enabled;
 	// the evaluator + notifier + heartbeat are joined before the deferred db.Close.
 	alertStore := alertstore.New(db, cipher)
+
+	// If a Helmsman-hosted ntfy alert channel is configured, reconcile its protected
+	// container to running at boot (best-effort, ungated). restart:unless-stopped covers
+	// reboots; this also recovers from a manual `docker rm`. It ups the EXISTING on-disk
+	// compose (no re-materialize), so it needs no tokens.
+	if _, ok, err := alertStore.ManagedNtfy(); ok && err == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ec, cancel := context.WithTimeout(ctx, 90*time.Second)
+			defer cancel()
+			if err := ntfy.Up(ec, runner, cfg.DataDir, func(string) {}); err != nil {
+				log.Warn("could not reconcile the managed ntfy container at boot", "err", err)
+			} else {
+				log.Info("managed ntfy container reconciled")
+			}
+		}()
+	}
 	if cfg.Alerting.Enabled {
 		// The "open in dashboard" link in notifications is derived from admin.hostname
 		// (we already know where the dashboard lives) — no separate admin_url.
@@ -534,12 +557,18 @@ func protectManagedProxy(cfg *config.Config) {
 	if cfg.Docker.ExternalProxy {
 		return
 	}
+	protectProject(cfg, socketproxy.Project)
+}
+
+// protectProject idempotently adds a Helmsman-managed project name to the protected set
+// (so it can never be a lifecycle/self-heal/scale target or collide with an operator app).
+func protectProject(cfg *config.Config, project string) {
 	for _, p := range cfg.ProtectedProjects {
-		if p == socketproxy.Project {
+		if p == project {
 			return
 		}
 	}
-	cfg.ProtectedProjects = append(cfg.ProtectedProjects, socketproxy.Project)
+	cfg.ProtectedProjects = append(cfg.ProtectedProjects, project)
 }
 
 // checkWritablePaths fail-closes the boot if a required writable dir is missing or

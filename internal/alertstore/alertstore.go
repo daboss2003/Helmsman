@@ -6,6 +6,8 @@ package alertstore
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -73,6 +75,51 @@ func (s *Store) ListChannels() ([]ChannelMeta, error) {
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// NtfyManagedInfo is the display-safe subset of a Helmsman-hosted ntfy channel — the
+// subscribe URL, topic, and READ-ONLY token the operator puts in their phone. The
+// write token is never returned.
+type NtfyManagedInfo struct {
+	Name      string
+	BaseURL   string
+	Topic     string
+	ReadToken string
+}
+
+// ManagedNtfy returns the configured Helmsman-hosted ntfy channel's subscribe info, or
+// ok=false if none is configured. Decrypts the channel config but exposes only the
+// read-only token (the operator must see it to subscribe), never the write token.
+func (s *Store) ManagedNtfy() (NtfyManagedInfo, bool, error) {
+	var name string
+	var enc []byte
+	err := s.db.QueryRow(`SELECT name, config_enc FROM alert_channels WHERE kind='ntfy_managed' ORDER BY id LIMIT 1`).Scan(&name, &enc)
+	if errors.Is(err, sql.ErrNoRows) {
+		return NtfyManagedInfo{}, false, nil
+	}
+	if err != nil {
+		return NtfyManagedInfo{}, false, err
+	}
+	pt, err := s.cipher.Open(enc)
+	if err != nil {
+		return NtfyManagedInfo{}, false, err
+	}
+	var cfg struct {
+		BaseURL   string `json:"base_url"`
+		Topic     string `json:"topic"`
+		ReadToken string `json:"read_token"`
+	}
+	if err := json.Unmarshal(pt, &cfg); err != nil {
+		return NtfyManagedInfo{}, false, err
+	}
+	return NtfyManagedInfo{Name: name, BaseURL: cfg.BaseURL, Topic: cfg.Topic, ReadToken: cfg.ReadToken}, true, nil
+}
+
+// ChannelKind returns a channel's kind by id (for delete-time teardown decisions).
+func (s *Store) ChannelKind(id int64) (string, error) {
+	var kind string
+	err := s.db.QueryRow(`SELECT kind FROM alert_channels WHERE id=?`, id).Scan(&kind)
+	return kind, err
 }
 
 func (s *Store) channel(id int64) (alert.Channel, error) {
