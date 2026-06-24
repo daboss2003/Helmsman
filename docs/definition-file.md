@@ -365,8 +365,26 @@ edge:
 | `redirect_http` | bool | `true` | HTTP→HTTPS redirect. |
 | `hsts` | bool | per-edge | HSTS is only emitted **after** a cert exists. |
 | `security_headers` | bool | per-edge | Emit the baseline security-header set for this vhost. |
+| `ca` | string | default issuer | Name of a **private CA** to issue this route's cert from, instead of the default `edge.acme_ca`. The CA must be defined in the operator's `config.yaml` under [`edge.cas`](#using-a-private-ca) — referencing an undefined name fails the deploy. Omit it and the route uses the default CA (Let's Encrypt, typically), exactly as before. |
 
 (Need the edge to issue a certificate for a hostname it shouldn't proxy — a broker that terminates its own TLS, say? That's a [`cert_binding`](#speccert_bindings), not a route.)
+
+#### Using a private CA
+
+The default issuer is `edge.acme_ca` in the operator's `config.yaml`. To issue *some* hostnames from a private/internal CA (e.g. [`step-ca`](https://smallstep.com/docs/step-ca/)) while the rest keep using the default, the operator defines named CAs in `config.yaml` (the root of trust — an app repo can never introduce a trusted CA):
+
+```yaml
+# /etc/helmsman/config.yaml
+edge:
+  acme_ca: https://acme-v02.api.letsencrypt.org/directory   # the default
+  cas:
+    - name: internal
+      directory_url: https://ca.lan/acme/acme/directory
+      email: pki@lan                 # optional; falls back to acme_email
+      trusted_root: /etc/helmsman/internal-ca.pem   # optional: a PEM Caddy trusts for the CA's own HTTPS
+```
+
+Then in any app's `helmsman.yaml`, point a route at it by name with `ca: internal`. Each CA gets its own ACME issuer; everything without a `ca` keeps using the default.
 
 The `edge.routes` block is **parsed into the typed edge model and re-marshalled** (read-and-render, never run verbatim). The save fails if it shadows a managed hostname, touches `admin`/`tls.automation`/`pki`, targets `9000/2019/2375`, grabs `:80/:443`, or weakens XFF. **The definition file contributes only Layer-1 routes** — never the protected Layer-0 base. See [Managed edge & routes](./edge-and-tls.md).
 

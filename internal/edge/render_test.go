@@ -26,6 +26,76 @@ func mustRender(t *testing.T, base BaseConfig, routes []Route) map[string]any {
 	return doc
 }
 
+// Routes opting into a named private CA get their own TLS automation policy (that CA's
+// directory + trusted roots); everything else stays on the default issuer.
+func TestRenderPerCAPolicies(t *testing.T) {
+	base := baseCfg()
+	base.CAs = []CA{{Name: "internal", DirectoryURL: "https://ca.lan/acme/acme/directory", Email: "pki@lan", TrustedRoots: []string{"/etc/helmsman/internal-ca.pem"}}}
+	out, err := Render(base, []Route{
+		{Hostname: "pub.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true},                 // default CA
+		{Hostname: "api.lan", Upstream: "api:3000", UpstreamScheme: "http", Enabled: true, CA: "internal"},         // private CA
+		{Hostname: "bad.example.com", Upstream: "x:80", UpstreamScheme: "http", Enabled: true, CA: "doesnotexist"}, // unknown → default
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Apps struct {
+			TLS struct {
+				Automation struct {
+					Policies []struct {
+						Subjects []string `json:"subjects"`
+						Issuers  []struct {
+							CA           string   `json:"ca"`
+							Email        string   `json:"email"`
+							TrustedRoots []string `json:"trusted_roots_pem_files"`
+						} `json:"issuers"`
+					} `json:"policies"`
+				} `json:"automation"`
+			} `json:"tls"`
+		} `json:"apps"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	pol := doc.Apps.TLS.Automation.Policies
+	caBySubject := map[string]string{}
+	rootsBySubject := map[string][]string{}
+	for _, p := range pol {
+		for _, s := range p.Subjects {
+			caBySubject[s] = p.Issuers[0].CA
+			rootsBySubject[s] = p.Issuers[0].TrustedRoots
+		}
+	}
+	if caBySubject["api.lan"] != "https://ca.lan/acme/acme/directory" {
+		t.Errorf("api.lan should use the private CA, got %q", caBySubject["api.lan"])
+	}
+	if len(rootsBySubject["api.lan"]) != 1 || rootsBySubject["api.lan"][0] != "/etc/helmsman/internal-ca.pem" {
+		t.Errorf("api.lan missing the private CA trusted roots: %v", rootsBySubject["api.lan"])
+	}
+	if caBySubject["pub.example.com"] != "https://acme.example/directory" {
+		t.Errorf("pub.example.com should use the default CA, got %q", caBySubject["pub.example.com"])
+	}
+	if caBySubject["bad.example.com"] != "https://acme.example/directory" {
+		t.Errorf("unknown CA must fall back to the default issuer, got %q", caBySubject["bad.example.com"])
+	}
+	// The default-CA subjects must NOT carry the private CA's trusted roots.
+	if len(rootsBySubject["pub.example.com"]) != 0 {
+		t.Errorf("default-CA subject should have no trusted roots, got %v", rootsBySubject["pub.example.com"])
+	}
+}
+
+// With no CAs configured/referenced, the render is unchanged: one policy, default issuer.
+func TestRenderSingleCABackwardCompatible(t *testing.T) {
+	out, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(out), `"acme"`); n != 1 {
+		t.Errorf("expected exactly one issuer for the single default CA, got %d", n)
+	}
+}
+
 // A valid route renders an HTTPS vhost with a pinned ACME issuer + the catch-all
 // 404, and admin stays on the unix socket with enforce_origin.
 func TestRenderHappyPath(t *testing.T) {

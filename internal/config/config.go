@@ -5,17 +5,22 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/netip"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/daboss2003/Helmsman/internal/crypto"
 	"gopkg.in/yaml.v3"
 )
+
+// edgeCANameRe constrains a named edge CA so it's a safe, referenceable identifier.
+var edgeCANameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 
 // DefaultPath is where the root-of-trust config lives in production.
 const DefaultPath = "/etc/helmsman/config.yaml"
@@ -98,10 +103,35 @@ type EdgeConfig struct {
 	Mode             EdgeMode `yaml:"mode"`
 	ACMEEmail        string   `yaml:"acme_email"`
 	ACMECA           string   `yaml:"acme_ca"`
+	CAs              []EdgeCA `yaml:"cas"` // extra named issuers (private CAs) routes/cert-bindings can opt into by name
 	ApplyProbeWindow Duration `yaml:"apply_probe_window"`
 	L4Enabled        bool     `yaml:"l4_enabled"`      // own a managed L4 (TCP/UDP) load balancer (nginx-stream)
 	L4NginxDigest    string   `yaml:"l4_nginx_digest"` // pinned SHA-256 of the nginx binary (optional)
 }
+
+// EdgeCA is an additional ACME issuer — a private/internal CA (e.g. step-ca). A
+// helmsman.yaml edge route or cert binding opts into it by Name; everything else keeps
+// using the default edge.acme_ca. Defined ONLY here in the root-of-trust config (an app
+// repo must never be able to introduce a trusted CA).
+type EdgeCA struct {
+	Name         string `yaml:"name"`          // [a-z][a-z0-9-]{0,30}; referenced as `ca: <name>`
+	DirectoryURL string `yaml:"directory_url"` // the ACME directory URL (https)
+	Email        string `yaml:"email"`         // optional ACME contact; falls back to acme_email
+	TrustedRoot  string `yaml:"trusted_root"`  // optional PEM file Caddy trusts for the CA's OWN https
+}
+
+// EdgeCAByName returns the configured CA with the given name.
+func (c *Config) EdgeCAByName(name string) (EdgeCA, bool) {
+	for _, ca := range c.Edge.CAs {
+		if ca.Name == name {
+			return ca, true
+		}
+	}
+	return EdgeCA{}, false
+}
+
+// HasEdgeCA reports whether a named edge CA is configured.
+func (c *Config) HasEdgeCA(name string) bool { _, ok := c.EdgeCAByName(name); return ok }
 
 // AdminConfig optionally fronts the admin UI through the edge and points at the
 // Caddy admin endpoint (plan §6.1 SBD-1/SBD-2).
@@ -536,6 +566,28 @@ func (c *Config) Validate() error {
 		}
 	default:
 		add("edge.mode: must be %q or %q, got %q", EdgeManaged, EdgeExternal, c.Edge.Mode)
+	}
+
+	// --- extra edge CAs (private issuers) ---
+	seenCA := map[string]bool{}
+	for i, ca := range c.Edge.CAs {
+		if !edgeCANameRe.MatchString(ca.Name) {
+			add("edge.cas[%d].name: must match [a-z][a-z0-9-]{0,30} (got %q)", i, ca.Name)
+		}
+		if seenCA[ca.Name] {
+			add("edge.cas: duplicate CA name %q", ca.Name)
+		}
+		seenCA[ca.Name] = true
+		if !strings.HasPrefix(strings.TrimSpace(ca.DirectoryURL), "https://") {
+			add("edge.cas[%d] (%s): directory_url must be an https ACME directory URL", i, ca.Name)
+		}
+		if ca.TrustedRoot != "" {
+			if b, err := os.ReadFile(ca.TrustedRoot); err != nil {
+				add("edge.cas[%d] (%s): trusted_root %q is not readable: %v", i, ca.Name, ca.TrustedRoot, err)
+			} else if !bytes.Contains(b, []byte("BEGIN CERTIFICATE")) {
+				add("edge.cas[%d] (%s): trusted_root %q is not a PEM certificate", i, ca.Name, ca.TrustedRoot)
+			}
+		}
 	}
 
 	// --- admin.listen, when set, must never be routable ---

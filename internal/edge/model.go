@@ -111,7 +111,8 @@ type caddyTLSPolicy struct {
 }
 
 type caddyIssuer struct {
-	Module string `json:"module"`
-	CA     string `json:"ca,omitempty"`
-	Email  string `json:"email,omitempty"`
+	Module       string   `json:"module"`
+	CA           string   `json:"ca,omitempty"`
+	Email        string   `json:"email,omitempty"`
+	TrustedRoots []string `json:"trusted_roots_pem_files,omitempty"` // for a private CA's own https
 }

@@ -48,6 +48,26 @@ func mustReject(t *testing.T, yaml, wantSubstr string) {
 	}
 }
 
+func TestEdgeCAsValidatedAndParsed(t *testing.T) {
+	// A valid private CA parses + is queryable by name.
+	cfg, err := Parse([]byte(validYAML(t, "  cas:\n    - name: internal\n      directory_url: \"https://ca.lan/acme/acme/directory\"\n      email: \"pki@lan\"\n")))
+	if err != nil {
+		t.Fatalf("valid edge.cas rejected: %v", err)
+	}
+	ca, ok := cfg.EdgeCAByName("internal")
+	if !ok || ca.DirectoryURL != "https://ca.lan/acme/acme/directory" || ca.Email != "pki@lan" {
+		t.Errorf("EdgeCAByName wrong: %+v ok=%v", ca, ok)
+	}
+	if cfg.HasEdgeCA("nope") {
+		t.Error("HasEdgeCA should be false for an undefined CA")
+	}
+	// Bad name, non-https URL, and duplicate names are rejected.
+	mustReject(t, validYAML(t, "  cas:\n    - name: \"Bad Name\"\n      directory_url: \"https://x/d\"\n"), "name")
+	mustReject(t, validYAML(t, "  cas:\n    - name: internal\n      directory_url: \"http://insecure/d\"\n"), "directory_url")
+	mustReject(t, validYAML(t, "  cas:\n    - name: a\n      directory_url: \"https://x/d\"\n    - name: a\n      directory_url: \"https://y/d\"\n"), "duplicate")
+	mustReject(t, validYAML(t, "  cas:\n    - name: internal\n      directory_url: \"https://x/d\"\n      trusted_root: \"/no/such/file.pem\"\n"), "trusted_root")
+}
+
 func TestValidConfigLoads(t *testing.T) {
 	cfg, err := Parse([]byte(validYAML(t, "")))
 	if err != nil {

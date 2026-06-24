@@ -41,6 +41,16 @@ type Route struct {
 	HSTS            bool
 	SecurityHeaders bool
 	Enabled         bool
+	CA              string // "" = default issuer (BaseConfig.ACMECA); else a BaseConfig.CAs name
+}
+
+// CA is an additional ACME issuer (a private/internal CA) a subject can opt into by
+// Name. Mapped from config.yaml edge.cas.
+type CA struct {
+	Name         string
+	DirectoryURL string
+	Email        string   // "" → falls back to BaseConfig.ACMEEmail
+	TrustedRoots []string // PEM file paths Caddy trusts for the CA's own https ("" → system roots)
 }
 
 // BaseConfig is Layer 0 — the protected base, injected from typed config (never
@@ -48,7 +58,8 @@ type Route struct {
 type BaseConfig struct {
 	AdminListen    string   // "unix//run/helmsman/caddy-admin.sock" or "127.0.0.1:2019"
 	ACMEEmail      string   // pinned ACME contact
-	ACMECA         string   // pinned single issuer directory URL
+	ACMECA         string   // pinned default issuer directory URL
+	CAs            []CA     // extra named issuers (private CAs) a subject can opt into
 	AdminHostname  string   // "" = NO admin vhost (reach the UI via SSH tunnel)
 	AdminAllowlist []string // IP-allowlist CIDRs for the admin vhost (typed, mandatory if AdminHostname set)
 	AdminUpstream  string   // the ONLY loopback upstream, identity-pinned (e.g. 127.0.0.1:9000)
@@ -145,6 +156,7 @@ func Render(base BaseConfig, routes []Route, certOnly []string) ([]byte, error) 
 	var httpRoutes []caddyRoute
 	var subjects []string
 	seen := map[string]bool{}
+	subjectCA := map[string]string{} // hostname -> CA name ("" / absent = default issuer)
 
 	// SBD-1: the admin vhost is rendered ONLY if explicitly configured, with the
 	// IP allowlist as the FIRST matcher, upstream pinned to the loopback admin.
@@ -214,6 +226,7 @@ func Render(base BaseConfig, routes []Route, certOnly []string) ([]byte, error) 
 		if !seen[h] {
 			subjects = append(subjects, h)
 			seen[h] = true
+			subjectCA[h] = r.CA
 		}
 	}
 
@@ -241,20 +254,50 @@ func Render(base BaseConfig, routes []Route, certOnly []string) ([]byte, error) 
 			}},
 		},
 	}
-	// SBD-3: ACME pinned to one CA, issuing ONLY for the configured subjects;
-	// on_demand omitted (off). No subjects → no automation policy (base serves
-	// nothing, proxies to nothing — the safe recovery floor).
+	// SBD-3: ACME issuing ONLY for the configured subjects; on_demand omitted (off).
+	// No subjects → no automation policy (base serves nothing — the safe recovery floor).
+	// Subjects are grouped by their chosen CA: each named CA gets its own automation
+	// policy (its issuer directory + optional trusted roots), and everything else uses
+	// the default issuer. An unknown CA name falls back to the default (defensive — the
+	// apply layer already rejects unknown names).
 	if len(subjects) > 0 {
+		caByName := map[string]CA{}
+		for _, c := range base.CAs {
+			caByName[c.Name] = c
+		}
+		groups := map[string][]string{} // CA name ("" = default) -> its subjects
+		var order []string              // CA names in first-seen order
+		for _, h := range subjects {
+			name := subjectCA[h]
+			if name != "" {
+				if _, ok := caByName[name]; !ok {
+					name = "" // unknown → default issuer
+				}
+			}
+			if _, ok := groups[name]; !ok {
+				order = append(order, name)
+			}
+			groups[name] = append(groups[name], h)
+		}
+		policies := make([]caddyTLSPolicy, 0, len(order))
+		for _, name := range order {
+			iss := caddyIssuer{Module: "acme", CA: base.ACMECA, Email: base.ACMEEmail}
+			if name != "" {
+				c := caByName[name]
+				email := c.Email
+				if email == "" {
+					email = base.ACMEEmail
+				}
+				iss = caddyIssuer{Module: "acme", CA: c.DirectoryURL, Email: email, TrustedRoots: c.TrustedRoots}
+			}
+			policies = append(policies, caddyTLSPolicy{Subjects: groups[name], Issuers: []caddyIssuer{iss}})
+		}
 		cfg.Apps.TLS = &caddyTLS{
 			// automate makes Caddy actually obtain a cert for every subject — including
 			// cert-only ones (no proxy route references them, so auto-HTTPS wouldn't
-			// pick them up). Without this Caddy has the policy but never issues, and a
-			// cert_binding app (e.g. emqx/DNS) waits forever for a cert that never comes.
+			// pick them up).
 			Certificates: &caddyCertificates{Automate: subjects},
-			Automation: caddyAutomation{Policies: []caddyTLSPolicy{{
-				Subjects: subjects,
-				Issuers:  []caddyIssuer{{Module: "acme", CA: base.ACMECA, Email: base.ACMEEmail}},
-			}}},
+			Automation:   caddyAutomation{Policies: policies},
 		}
 	}
 	return json.MarshalIndent(cfg, "", "  ")

@@ -271,6 +271,7 @@ func cmdServe(args []string) error {
 			AdminListen:    edgeAdminListen(cfg),
 			ACMEEmail:      cfg.Edge.ACMEEmail,
 			ACMECA:         cfg.Edge.ACMECA,
+			CAs:            edgeCAs(cfg),
 			AdminHostname:  cfg.Admin.Hostname,
 			AdminAllowlist: cfg.IPAllowlist,
 			AdminUpstream:  cfg.BindAddr,
@@ -558,6 +559,23 @@ func protectManagedProxy(cfg *config.Config) {
 		return
 	}
 	protectProject(cfg, socketproxy.Project)
+}
+
+// edgeCAs maps the configured private CAs to the edge render's CA type (the trusted-root
+// PEM is passed by FILE PATH — Caddy reads it for the CA's own https).
+func edgeCAs(cfg *config.Config) []edge.CA {
+	if len(cfg.Edge.CAs) == 0 {
+		return nil
+	}
+	out := make([]edge.CA, 0, len(cfg.Edge.CAs))
+	for _, c := range cfg.Edge.CAs {
+		var roots []string
+		if c.TrustedRoot != "" {
+			roots = []string{c.TrustedRoot}
+		}
+		out = append(out, edge.CA{Name: c.Name, DirectoryURL: c.DirectoryURL, Email: c.Email, TrustedRoots: roots})
+	}
+	return out
 }
 
 // protectProject idempotently adds a Helmsman-managed project name to the protected set

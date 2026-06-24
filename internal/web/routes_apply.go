@@ -177,6 +177,11 @@ func (s *Server) applyRoutes(ctx context.Context, project string, def *definitio
 			if scheme == "" {
 				scheme = "http"
 			}
+			// A route may opt into a private CA by name; it MUST be defined in the
+			// root-of-trust config (an app repo can't introduce a trusted CA).
+			if r.CA != "" && !s.cfg.HasEdgeCA(r.CA) {
+				return fmt.Errorf("edge route %q references unknown CA %q — define it in config.yaml edge.cas", r.Hostname, r.CA)
+			}
 			routes = append(routes, edge.Route{
 				Hostname:        r.Hostname,
 				Upstream:        r.Service + ":" + strconv.Itoa(port), // selector, resolved at apply
@@ -186,6 +191,7 @@ func (s *Server) applyRoutes(ctx context.Context, project string, def *definitio
 				SecurityHeaders: r.SecurityHeaders,
 				RedirectHTTP:    r.RedirectHTTP,
 				Enabled:         true,
+				CA:              r.CA,
 			})
 		}
 		if err := s.edgeRoutes.ReplaceProject(ctx, project, routes); err != nil {

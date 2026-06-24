@@ -29,12 +29,13 @@ import (
 const APIVersion = "helmsman/v1"
 
 var (
-	slugRe     = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
-	svcRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
-	secretRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
-	envKeyRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	tokenKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`) // {{hm.KEY}} binding key grammar
-	hostnameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62})(\.[a-z0-9]([a-z0-9-]{0,62}))+$`)
+	slugRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
+	svcRe        = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
+	secretRe     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+	envKeyRe     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	tokenKeyRe   = regexp.MustCompile(`^[A-Za-z0-9_-]+$`) // {{hm.KEY}} binding key grammar
+	hostnameRe   = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62})(\.[a-z0-9]([a-z0-9-]{0,62}))+$`)
+	edgeCANameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`) // a named CA from config.yaml edge.cas
 )
 
 // buildLanguages are the recognized build languages. "auto" (the default) detects
@@ -305,6 +306,7 @@ type Route struct {
 	SecurityHeaders bool   `yaml:"security_headers"`
 	RedirectHTTP    bool   `yaml:"redirect_http"`
 	UpstreamScheme  string `yaml:"upstream_scheme,omitempty"` // "" (=http) | http | https — how the edge dials the upstream
+	CA              string `yaml:"ca,omitempty"`              // "" = default issuer; else a named CA from config.yaml edge.cas
 }
 
 // Scaling is the opt-in auto-scaling policy (§8A) for one service.
@@ -900,6 +902,9 @@ func (s *Spec) validateEdge() error {
 		}
 		if r.UpstreamScheme != "" && r.UpstreamScheme != "http" && r.UpstreamScheme != "https" {
 			return fmt.Errorf("edge route %q upstream_scheme %q must be http or https", h, r.UpstreamScheme)
+		}
+		if r.CA != "" && !edgeCANameRe.MatchString(r.CA) {
+			return fmt.Errorf("edge route %q ca %q must match [a-z][a-z0-9-]{0,30} (a CA defined in config.yaml edge.cas)", h, r.CA)
 		}
 	}
 	// L4 (TCP/UDP) routes: the LB owns each listen port, replicas stay internal.

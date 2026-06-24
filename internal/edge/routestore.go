@@ -46,10 +46,10 @@ func (s *RouteStore) ReplaceProject(ctx context.Context, project string, routes 
 	now := time.Now().Unix()
 	for _, r := range routes {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO app_routes(app_id, hostname, upstream, upstream_scheme, path_prefix, redirect_http, hsts, security_headers, enabled, created_at)
-			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO app_routes(app_id, hostname, upstream, upstream_scheme, path_prefix, redirect_http, hsts, security_headers, enabled, tls_ca, created_at)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.AppID, r.Hostname, r.Upstream, r.UpstreamScheme, r.PathPrefix,
-			b2i(r.RedirectHTTP), b2i(r.HSTS), b2i(r.SecurityHeaders), b2i(r.Enabled), now); err != nil {
+			b2i(r.RedirectHTTP), b2i(r.HSTS), b2i(r.SecurityHeaders), b2i(r.Enabled), r.CA, now); err != nil {
 			return err
 		}
 	}
@@ -69,23 +69,23 @@ func (s *RouteStore) Save(ctx context.Context, r Route) error {
 	}
 	if r.id == 0 {
 		_, err := s.db.ExecContext(ctx,
-			`INSERT INTO app_routes(app_id, hostname, upstream, upstream_scheme, path_prefix, redirect_http, hsts, security_headers, enabled, created_at)
-			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO app_routes(app_id, hostname, upstream, upstream_scheme, path_prefix, redirect_http, hsts, security_headers, enabled, tls_ca, created_at)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.AppID, r.Hostname, r.Upstream, r.UpstreamScheme, r.PathPrefix,
-			b2i(r.RedirectHTTP), b2i(r.HSTS), b2i(r.SecurityHeaders), b2i(r.Enabled), time.Now().Unix())
+			b2i(r.RedirectHTTP), b2i(r.HSTS), b2i(r.SecurityHeaders), b2i(r.Enabled), r.CA, time.Now().Unix())
 		return err
 	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE app_routes SET app_id=?, hostname=?, upstream=?, upstream_scheme=?, path_prefix=?, redirect_http=?, hsts=?, security_headers=?, enabled=? WHERE id=?`,
+		`UPDATE app_routes SET app_id=?, hostname=?, upstream=?, upstream_scheme=?, path_prefix=?, redirect_http=?, hsts=?, security_headers=?, enabled=?, tls_ca=? WHERE id=?`,
 		r.AppID, r.Hostname, r.Upstream, r.UpstreamScheme, r.PathPrefix,
-		b2i(r.RedirectHTTP), b2i(r.HSTS), b2i(r.SecurityHeaders), b2i(r.Enabled), r.id)
+		b2i(r.RedirectHTTP), b2i(r.HSTS), b2i(r.SecurityHeaders), b2i(r.Enabled), r.CA, r.id)
 	return err
 }
 
 // List returns all routes (for rendering + the UI).
 func (s *RouteStore) List() ([]Route, error) {
 	rows, err := s.db.Query(
-		`SELECT id, app_id, hostname, upstream, upstream_scheme, path_prefix, redirect_http, hsts, security_headers, enabled FROM app_routes ORDER BY hostname, path_prefix`)
+		`SELECT id, app_id, hostname, upstream, upstream_scheme, path_prefix, redirect_http, hsts, security_headers, enabled, tls_ca FROM app_routes ORDER BY hostname, path_prefix`)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (s *RouteStore) List() ([]Route, error) {
 	for rows.Next() {
 		var r Route
 		var redir, hsts, sec, en int
-		if err := rows.Scan(&r.id, &r.AppID, &r.Hostname, &r.Upstream, &r.UpstreamScheme, &r.PathPrefix, &redir, &hsts, &sec, &en); err != nil {
+		if err := rows.Scan(&r.id, &r.AppID, &r.Hostname, &r.Upstream, &r.UpstreamScheme, &r.PathPrefix, &redir, &hsts, &sec, &en, &r.CA); err != nil {
 			return nil, err
 		}
 		r.RedirectHTTP, r.HSTS, r.SecurityHeaders, r.Enabled = redir == 1, hsts == 1, sec == 1, en == 1
