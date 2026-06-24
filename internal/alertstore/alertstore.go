@@ -78,18 +78,20 @@ func (s *Store) ListChannels() ([]ChannelMeta, error) {
 }
 
 // NtfyManagedInfo is the display-safe subset of a Helmsman-hosted ntfy channel — the
-// subscribe URL, topic, and READ-ONLY token the operator puts in their phone. The
-// write token is never returned.
+// subscribe URL, topic, and the read-only USERNAME+PASSWORD the operator signs into the
+// ntfy app/web UI with. The publisher's write token is never returned.
 type NtfyManagedInfo struct {
-	Name      string
-	BaseURL   string
-	Topic     string
-	ReadToken string
+	Name     string
+	BaseURL  string
+	Topic    string
+	Username string
+	Password string
 }
 
 // ManagedNtfy returns the configured Helmsman-hosted ntfy channel's subscribe info, or
 // ok=false if none is configured. Decrypts the channel config but exposes only the
-// read-only token (the operator must see it to subscribe), never the write token.
+// read-only subscriber credentials (the operator must see them to subscribe), never the
+// publisher write token.
 func (s *Store) ManagedNtfy() (NtfyManagedInfo, bool, error) {
 	var name string
 	var enc []byte
@@ -105,14 +107,15 @@ func (s *Store) ManagedNtfy() (NtfyManagedInfo, bool, error) {
 		return NtfyManagedInfo{}, false, err
 	}
 	var cfg struct {
-		BaseURL   string `json:"base_url"`
-		Topic     string `json:"topic"`
-		ReadToken string `json:"read_token"`
+		BaseURL string `json:"base_url"`
+		Topic   string `json:"topic"`
+		SubUser string `json:"sub_user"`
+		SubPass string `json:"sub_pass"`
 	}
 	if err := json.Unmarshal(pt, &cfg); err != nil {
 		return NtfyManagedInfo{}, false, err
 	}
-	return NtfyManagedInfo{Name: name, BaseURL: cfg.BaseURL, Topic: cfg.Topic, ReadToken: cfg.ReadToken}, true, nil
+	return NtfyManagedInfo{Name: name, BaseURL: cfg.BaseURL, Topic: cfg.Topic, Username: cfg.SubUser, Password: cfg.SubPass}, true, nil
 }
 
 // ChannelKind returns a channel's kind by id (for delete-time teardown decisions).

@@ -20,7 +20,7 @@ func TestNtfyManagedLoopbackOnly(t *testing.T) {
 	}))
 	defer srv.Close() // srv.URL is http://127.0.0.1:PORT (loopback)
 
-	cfg := fmt.Sprintf(`{"url":%q,"topic":"alerts","token":"tk_write","read_token":"tk_read","base_url":"https://h.example"}`, srv.URL)
+	cfg := fmt.Sprintf(`{"url":%q,"topic":"alerts","token":"tk_write","sub_user":"phone","sub_pass":"pw","base_url":"https://h.example"}`, srv.URL)
 	ch, err := BuildChannel("ntfy_managed", []byte(cfg))
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestNtfyManagedLoopbackOnly(t *testing.T) {
 	}
 
 	// A non-loopback target must be refused outright (no request).
-	bad := `{"url":"https://evil.example.com","topic":"alerts","token":"tk_write","read_token":"tk_read","base_url":"https://h"}`
+	bad := `{"url":"https://evil.example.com","topic":"alerts","token":"tk_write","sub_user":"phone","sub_pass":"pw","base_url":"https://h"}`
 	ch2, err := BuildChannel("ntfy_managed", []byte(bad))
 	if err != nil {
 		t.Fatal(err)

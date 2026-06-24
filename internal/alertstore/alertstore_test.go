@@ -25,12 +25,12 @@ func newStore(t *testing.T) *Store {
 	return New(db, cipher)
 }
 
-// ManagedNtfy returns the subscribe info (base url, topic, READ token) but never the
-// write token Helmsman publishes with.
-func TestManagedNtfyExposesReadTokenNotWrite(t *testing.T) {
+// ManagedNtfy returns the subscribe info (base url, topic, read-only username+password)
+// but never the write token Helmsman publishes with.
+func TestManagedNtfyExposesSubscriberCredsNotWriteToken(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
-	cfg := `{"url":"http://127.0.0.1:2586","topic":"alerts","token":"tk_writeXXXXXXXXXXXXXXXXXXXXXXXXX","read_token":"tk_readYYYYYYYYYYYYYYYYYYYYYYYYYY","base_url":"https://ntfy.example.com"}`
+	cfg := `{"url":"http://127.0.0.1:2586","topic":"alerts","token":"tk_writeXXXXXXXXXXXXXXXXXXXXXXXXX","sub_user":"phone","sub_pass":"S3cretSubscriberPass","base_url":"https://ntfy.example.com"}`
 	if err := s.SaveChannel(ctx, "hosted", "ntfy_managed", []byte(cfg)); err != nil {
 		t.Fatal(err)
 	}
@@ -41,10 +41,11 @@ func TestManagedNtfyExposesReadTokenNotWrite(t *testing.T) {
 	if info.BaseURL != "https://ntfy.example.com" || info.Topic != "alerts" {
 		t.Errorf("wrong subscribe info: %+v", info)
 	}
-	if info.ReadToken != "tk_readYYYYYYYYYYYYYYYYYYYYYYYYYY" {
-		t.Errorf("read token = %q", info.ReadToken)
+	if info.Username != "phone" || info.Password != "S3cretSubscriberPass" {
+		t.Errorf("subscriber creds = %q / %q", info.Username, info.Password)
 	}
-	if strings.Contains(info.ReadToken, "write") {
+	// The write token must never be reachable through NtfyManagedInfo (no field carries it).
+	if strings.Contains(info.Username+info.Password+info.BaseURL+info.Topic, "tk_write") {
 		t.Error("the write token must never be exposed via ManagedNtfy")
 	}
 	// No managed channel → ok=false.

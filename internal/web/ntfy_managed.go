@@ -26,10 +26,11 @@ func validHostname(h string) bool {
 }
 
 // provisionManagedNtfy stands up the Helmsman-hosted ntfy for one alert channel: it
-// generates a write token (Helmsman publishes) + a read-only token (the phone
-// subscribes), brings the locked-down ntfy container up, exposes it via the managed
-// edge at the operator's hostname (auto-HTTPS), and saves the channel. The container is
-// only ever started here — it is NOT run by default.
+// generates a write token (Helmsman publishes) + a read-only subscriber password (the
+// operator signs into the ntfy app/web UI with username+password), brings the
+// locked-down ntfy container up, exposes it via the managed edge at the operator's
+// hostname (auto-HTTPS), and saves the channel. The container is only ever started
+// here — it is NOT run by default.
 func (s *Server) provisionManagedNtfy(w http.ResponseWriter, r *http.Request, name string) {
 	if name == "" {
 		name = "Helmsman ntfy"
@@ -57,15 +58,15 @@ func (s *Server) provisionManagedNtfy(w http.ResponseWriter, r *http.Request, na
 	clearWriteDeadline(w)
 	writeTok, err := ntfy.GenerateToken()
 	if err != nil {
-		s.redirectAlertsErr(w, r, "internal error generating tokens")
+		s.redirectAlertsErr(w, r, "internal error generating credentials")
 		return
 	}
-	readTok, err := ntfy.GenerateToken()
+	subPass, err := ntfy.GeneratePassword()
 	if err != nil {
-		s.redirectAlertsErr(w, r, "internal error generating tokens")
+		s.redirectAlertsErr(w, r, "internal error generating credentials")
 		return
 	}
-	params := ntfy.Params{BaseURL: "https://" + hostname, Topic: topic, WriteToken: writeTok, ReadToken: readTok}
+	params := ntfy.Params{BaseURL: "https://" + hostname, Topic: topic, WriteToken: writeTok, SubPassword: subPass}
 	if err := params.Validate(); err != nil {
 		s.redirectAlertsErr(w, r, "invalid ntfy settings: "+err.Error())
 		return
@@ -106,14 +107,15 @@ func (s *Server) provisionManagedNtfy(w http.ResponseWriter, r *http.Request, na
 		s.log.Warn("edge not reconciled after adding the ntfy route (will pick up later)", "err", err)
 	}
 
-	// Save the channel. The write token publishes (over loopback); read_token + base_url
-	// are stored so the dashboard can show the operator how to subscribe.
+	// Save the channel. The write token publishes (over loopback); sub_user/sub_pass +
+	// base_url are stored so the dashboard can show the operator how to subscribe.
 	cfg, _ := json.Marshal(map[string]string{
-		"url":        fmt.Sprintf("http://127.0.0.1:%d", ntfy.LoopbackPort),
-		"topic":      topic,
-		"token":      writeTok,
-		"read_token": readTok,
-		"base_url":   params.BaseURL,
+		"url":      fmt.Sprintf("http://127.0.0.1:%d", ntfy.LoopbackPort),
+		"topic":    topic,
+		"token":    writeTok,
+		"sub_user": ntfy.SubscriberUser,
+		"sub_pass": subPass,
+		"base_url": params.BaseURL,
 	})
 	if err := s.alertStore.SaveChannel(r.Context(), name, "ntfy_managed", cfg); err != nil {
 		s.redirectAlertsErr(w, r, "channel rejected: "+err.Error())

@@ -47,16 +47,21 @@ const (
 	Image = "binwiederhier/ntfy:v2.24.0@sha256:f8a9b104313b87cc24ae4f775f39e6328205b57dff6ede3eaf098a91e5d79f59"
 )
 
+// SubscriberUser is the read-only account the operator signs into the ntfy app/web UI
+// with to subscribe. The ntfy app + web UI authenticate with username+password (not a
+// raw token), so the subscriber gets a real password — not a token they can't enter.
+const SubscriberUser = "phone"
+
 // Params is everything needed to render the server config for one managed instance.
-// Tokens are persisted by the caller (in the encrypted channel config) and passed back
-// in on every (re)materialize so the same tokens survive restarts. The bcrypt user
-// passwords are NOT persisted — they're regenerated random each materialize because
-// only the tokens are ever used to authenticate.
+// They're persisted by the caller (encrypted channel config) and passed back on every
+// (re)materialize so the same credentials survive restarts. Helmsman PUBLISHES with the
+// write token (Bearer, over loopback); the operator SUBSCRIBES as SubscriberUser with
+// SubPassword (read-only).
 type Params struct {
-	BaseURL    string // the public https URL, e.g. "https://ntfy.example.com"
-	Topic      string // the alert topic
-	WriteToken string // Helmsman publisher token (wo on Topic)
-	ReadToken  string // subscriber/phone token (ro on Topic)
+	BaseURL     string // the public https URL, e.g. "https://ntfy.example.com"
+	Topic       string // the alert topic
+	WriteToken  string // Helmsman publisher token (wo on Topic)
+	SubPassword string // the subscriber (phone) account password (ro on Topic)
 }
 
 // GenerateToken returns a fresh ntfy-format access token: "tk_" + 29 [a-z0-9] = 32
@@ -81,16 +86,37 @@ func GenerateToken() (string, error) {
 	return "tk_" + string(out), nil
 }
 
+// GeneratePassword returns a strong, app-typeable subscriber password (24 chars of
+// [A-Za-z0-9], crypto/rand with rejection sampling — no modulo bias).
+func GeneratePassword() (string, error) {
+	const n = 24
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" // 62
+	const limit = 256 - (256 % len(alphabet))
+	out := make([]byte, n)
+	buf := make([]byte, 1)
+	for i := 0; i < n; {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		if int(buf[0]) >= limit {
+			continue
+		}
+		out[i] = alphabet[int(buf[0])%len(alphabet)]
+		i++
+	}
+	return string(out), nil
+}
+
 // Validate checks the params are well-formed before they drive config generation.
 func (p Params) Validate() error {
 	if !strings.HasPrefix(p.BaseURL, "https://") {
 		return fmt.Errorf("ntfy: base url must be https")
 	}
-	if !validToken(p.WriteToken) || !validToken(p.ReadToken) {
-		return fmt.Errorf("ntfy: tokens must be tk_ + 29 [a-z0-9]")
+	if !validToken(p.WriteToken) {
+		return fmt.Errorf("ntfy: write token must be tk_ + 29 [a-z0-9]")
 	}
-	if p.WriteToken == p.ReadToken {
-		return fmt.Errorf("ntfy: write and read tokens must differ")
+	if len(p.SubPassword) < 12 {
+		return fmt.Errorf("ntfy: subscriber password too short")
 	}
 	if !validTopic(p.Topic) {
 		return fmt.Errorf("ntfy: topic must be 1-64 chars of [A-Za-z0-9_-]")
@@ -123,20 +149,22 @@ func validTopic(t string) bool {
 }
 
 // ServerYAML renders the ntfy server.yml: locked down (deny-all) with two seeded users
-// scoped to the topic — the publisher (write-only) and the subscriber (read-only) —
-// each holding one of the seeded tokens. Behind-proxy + base-url are set for Caddy;
-// upstream-base-url enables iOS push via the ntfy.sh relay.
+// scoped to the topic. The publisher (helmsman, write-only) authenticates with a token
+// (Bearer, used over loopback). The subscriber (phone, read-only) authenticates with a
+// real PASSWORD — because the ntfy app + web UI log in with username+password, not a
+// raw token. Behind-proxy + base-url are set for Caddy; upstream-base-url enables iOS
+// push via the ntfy.sh relay.
 func ServerYAML(p Params) ([]byte, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	// Random, never-used passwords — auth-users requires a bcrypt hash per user, but we
-	// only ever authenticate with the tokens.
+	// helmsman's password is random + never used (it auths via the token); the phone
+	// user's hash is the REAL subscriber password the operator signs in with.
 	pubHash, err := randomBcrypt()
 	if err != nil {
 		return nil, err
 	}
-	subHash, err := randomBcrypt()
+	subHash, err := bcryptHash(p.SubPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -151,13 +179,12 @@ func ServerYAML(p Params) ([]byte, error) {
 	fmt.Fprintf(&b, "upstream-base-url: \"https://ntfy.sh\"\n")
 	fmt.Fprintf(&b, "auth-users:\n")
 	fmt.Fprintf(&b, "  - %q\n", "helmsman:"+pubHash+":user")
-	fmt.Fprintf(&b, "  - %q\n", "phone:"+subHash+":user")
+	fmt.Fprintf(&b, "  - %q\n", SubscriberUser+":"+subHash+":user")
 	fmt.Fprintf(&b, "auth-access:\n")
 	fmt.Fprintf(&b, "  - %q\n", "helmsman:"+p.Topic+":wo")
-	fmt.Fprintf(&b, "  - %q\n", "phone:"+p.Topic+":ro")
+	fmt.Fprintf(&b, "  - %q\n", SubscriberUser+":"+p.Topic+":ro")
 	fmt.Fprintf(&b, "auth-tokens:\n")
 	fmt.Fprintf(&b, "  - %q\n", "helmsman:"+p.WriteToken+":Helmsman publisher")
-	fmt.Fprintf(&b, "  - %q\n", "phone:"+p.ReadToken+":Phone subscriber")
 	return []byte(b.String()), nil
 }
 
@@ -166,7 +193,11 @@ func randomBcrypt() (string, error) {
 	if _, err := rand.Read(pw); err != nil {
 		return "", err
 	}
-	h, err := bcrypt.GenerateFromPassword(pw, bcrypt.DefaultCost)
+	return bcryptHash(string(pw))
+}
+
+func bcryptHash(password string) (string, error) {
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}

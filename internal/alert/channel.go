@@ -274,16 +274,18 @@ func (c ntfyChannel) Send(ctx context.Context, n Notification) error {
 }
 
 // ntfyManagedChannel publishes to Helmsman's OWN managed ntfy over loopback. URL is set
-// by Helmsman (a 127.0.0.1 publish endpoint), Token is the WRITE-only token. ReadToken
-// and BaseURL are carried so the dashboard can show the operator how to subscribe; they
-// are not used to send (the struct lists them so DisallowUnknownFields accepts the
-// config). Send re-checks the target is loopback and uses the loopback-only client.
+// by Helmsman (a 127.0.0.1 publish endpoint), Token is the WRITE-only token. SubUser,
+// SubPass and BaseURL are carried so the dashboard can show the operator how to
+// subscribe; they are not used to send (the struct lists them so DisallowUnknownFields
+// accepts the config). Send re-checks the target is loopback and uses the loopback-only
+// client.
 type ntfyManagedChannel struct {
-	URL       string `json:"url"`
-	Topic     string `json:"topic"`
-	Token     string `json:"token"`
-	ReadToken string `json:"read_token"`
-	BaseURL   string `json:"base_url"`
+	URL     string `json:"url"`
+	Topic   string `json:"topic"`
+	Token   string `json:"token"`
+	SubUser string `json:"sub_user"`
+	SubPass string `json:"sub_pass"`
+	BaseURL string `json:"base_url"`
 }
 
 func (c ntfyManagedChannel) Send(ctx context.Context, n Notification) error {

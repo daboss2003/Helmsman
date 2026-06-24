@@ -11,20 +11,25 @@
   {{if .ManagedNtfy}}
   <section class="panel">
     <h2>Helmsman-hosted ntfy <span class="badge badge-warn">running</span></h2>
-    <p class="muted">Helmsman is running its own private ntfy server for you. Subscribe in the ntfy app
-      (iOS/Android) with the URL and <strong>read-only</strong> token below — that token can only
+    <p class="muted">Helmsman is running its own private ntfy server for you. Sign into it from the ntfy app
+      (iOS/Android) or web UI with the <strong>read-only</strong> username + password below — they can only
       <em>receive</em> alerts, never publish. Delete the <code>{{.ManagedNtfy.Name}}</code> channel below to
       stop and remove it.</p>
     <div class="table-scroll"><table class="grid">
       <tbody>
-        <tr><td>Subscribe URL</td><td class="mono">{{.ManagedNtfy.BaseURL}}/{{.ManagedNtfy.Topic}}</td></tr>
+        <tr><td>Server URL</td><td class="mono">{{.ManagedNtfy.BaseURL}}</td></tr>
         <tr><td>Topic</td><td class="mono">{{.ManagedNtfy.Topic}}</td></tr>
-        <tr><td>Read-only token</td><td class="mono">{{.ManagedNtfy.ReadToken}}</td></tr>
+        <tr><td>Username</td><td class="mono">{{.ManagedNtfy.Username}}</td></tr>
+        <tr><td>Password</td><td class="mono">{{.ManagedNtfy.Password}}</td></tr>
       </tbody>
     </table></div>
-    <p class="muted small">In the ntfy app: add the server <code>{{.ManagedNtfy.BaseURL}}</code>, set this token
-      under the server's settings, then subscribe to <code>{{.ManagedNtfy.Topic}}</code>. iOS gets instant push
-      via ntfy.sh's free relay (it only sees an opaque topic hash, never your messages).</p>
+    <p class="muted small"><strong>In the ntfy Android app:</strong> Settings → <em>Manage users</em> → add the
+      server <code>{{.ManagedNtfy.BaseURL}}</code> with the username + password above, then subscribe to topic
+      <code>{{.ManagedNtfy.Topic}}</code> on that server. <strong>On the web (or iOS):</strong> open
+      <code>{{.ManagedNtfy.BaseURL}}</code>, click <em>Sign in</em>, enter the username + password, then subscribe
+      to <code>{{.ManagedNtfy.Topic}}</code>. (The "WebSocket not supported" error means you're not signed in —
+      add the credentials first.) iOS gets instant push via ntfy.sh's free relay (it only sees an opaque topic
+      hash, never your messages).</p>
   </section>
   {{end}}
 

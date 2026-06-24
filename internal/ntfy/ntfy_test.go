@@ -15,11 +15,25 @@ func validParams(t *testing.T) Params {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := GenerateToken()
+	pw, err := GeneratePassword()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Params{BaseURL: "https://ntfy.example.com", Topic: "alerts", WriteToken: w, ReadToken: r}
+	return Params{BaseURL: "https://ntfy.example.com", Topic: "alerts", WriteToken: w, SubPassword: pw}
+}
+
+func TestGeneratePassword(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 50; i++ {
+		pw, err := GeneratePassword()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pw) != 24 || seen[pw] {
+			t.Fatalf("bad/duplicate password %q (len %d)", pw, len(pw))
+		}
+		seen[pw] = true
+	}
 }
 
 // The infra image must stay digest-pinned (supply-chain posture) and on a version that
@@ -50,12 +64,12 @@ func TestGenerateTokenFormat(t *testing.T) {
 func TestValidateRejectsBadParams(t *testing.T) {
 	good := validParams(t)
 	cases := map[string]func(Params) Params{
-		"http base":    func(p Params) Params { p.BaseURL = "http://x"; return p },
-		"empty topic":  func(p Params) Params { p.Topic = ""; return p },
-		"bad topic":    func(p Params) Params { p.Topic = "has space"; return p },
-		"same tokens":  func(p Params) Params { p.ReadToken = p.WriteToken; return p },
-		"short token":  func(p Params) Params { p.WriteToken = "tk_short"; return p },
-		"no tk prefix": func(p Params) Params { p.ReadToken = strings.Repeat("a", 33); return p },
+		"http base":   func(p Params) Params { p.BaseURL = "http://x"; return p },
+		"empty topic": func(p Params) Params { p.Topic = ""; return p },
+		"bad topic":   func(p Params) Params { p.Topic = "has space"; return p },
+		"short token": func(p Params) Params { p.WriteToken = "tk_short"; return p },
+		"short pass":  func(p Params) Params { p.SubPassword = "short"; return p },
+		"empty pass":  func(p Params) Params { p.SubPassword = ""; return p },
 	}
 	for name, mut := range cases {
 		if err := mut(good).Validate(); err == nil {
@@ -67,8 +81,9 @@ func TestValidateRejectsBadParams(t *testing.T) {
 	}
 }
 
-// The generated server.yml must lock the server down and seed exactly the two
-// token-bearing users with the right (write-only / read-only) access on the topic.
+// The generated server.yml must lock the server down, give the publisher a write token
+// and the subscriber a read-only account whose PASSWORD is the one the operator was
+// shown (so they can sign into the ntfy app).
 func TestServerYAMLLockdownAndSeeding(t *testing.T) {
 	p := validParams(t)
 	out, err := ServerYAML(p)
@@ -84,25 +99,38 @@ func TestServerYAMLLockdownAndSeeding(t *testing.T) {
 		`"helmsman:alerts:wo"`, // publisher = write-only
 		`"phone:alerts:ro"`,    // subscriber = read-only
 		"helmsman:" + p.WriteToken + ":Helmsman publisher",
-		"phone:" + p.ReadToken + ":Phone subscriber",
 	}
 	for _, m := range must {
 		if !strings.Contains(s, m) {
 			t.Errorf("server.yml missing %q\n---\n%s", m, s)
 		}
 	}
-	// The read token must never be granted write, and the write token never read.
+	// The subscriber must never be granted write, and there must be NO subscriber token
+	// (it logs in with username+password).
 	if strings.Contains(s, `"phone:alerts:rw"`) || strings.Contains(s, `"phone:alerts:wo"`) {
 		t.Error("subscriber must be read-only")
 	}
-	// The bcrypt user hashes must be valid bcrypt (so ntfy accepts the users).
+	if strings.Contains(s, "phone:tk_") || strings.Contains(s, "Phone subscriber") {
+		t.Error("subscriber must not get a token — it signs in with a password")
+	}
+	// The phone user's seeded bcrypt hash must verify against the shown password (so the
+	// operator can actually sign in), and all hashes must be valid bcrypt.
+	phoneVerified := false
 	for _, line := range strings.Split(s, "\n") {
-		if i := strings.Index(line, "$2a$"); i >= 0 {
-			h := strings.TrimSuffix(line[i:], `:user"`)
-			if _, err := bcrypt.Cost([]byte(h)); err != nil {
-				t.Errorf("invalid bcrypt hash in auth-users: %q (%v)", h, err)
-			}
+		i := strings.Index(line, "$2")
+		if i < 0 {
+			continue
 		}
+		h := strings.TrimSuffix(line[i:], `:user"`)
+		if _, err := bcrypt.Cost([]byte(h)); err != nil {
+			t.Errorf("invalid bcrypt hash in auth-users: %q (%v)", h, err)
+		}
+		if strings.Contains(line, SubscriberUser+":") && bcrypt.CompareHashAndPassword([]byte(h), []byte(p.SubPassword)) == nil {
+			phoneVerified = true
+		}
+	}
+	if !phoneVerified {
+		t.Error("the phone user's bcrypt hash does not match the subscriber password")
 	}
 }
 
