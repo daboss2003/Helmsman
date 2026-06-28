@@ -134,6 +134,39 @@ func TestServerYAMLLockdownAndSeeding(t *testing.T) {
 	}
 }
 
+// The (re)provision path MUST force-recreate so ntfy restarts and re-reads a rewritten
+// server.yml (it provisions auth-users + ACL into user.db only at process start). The
+// boot reconcile path must NOT force-recreate, or every Helmsman restart would churn a
+// correctly-running ntfy. This is the exact invariant whose violation caused signing in
+// to fail with "user phone not authorized" after a re-provision.
+func TestUpActionForceRecreate(t *testing.T) {
+	reprovision := upAction(true)
+	if !containsArg(reprovision, "--force-recreate") {
+		t.Errorf("(re)provision up action must include --force-recreate, got %v", reprovision)
+	}
+	boot := upAction(false)
+	if containsArg(boot, "--force-recreate") {
+		t.Errorf("boot reconcile up action must NOT force-recreate, got %v", boot)
+	}
+	// Both must still be an idempotent detached up that prunes orphans.
+	for _, a := range [][]string{reprovision, boot} {
+		for _, want := range []string{"up", "-d", "--remove-orphans"} {
+			if !containsArg(a, want) {
+				t.Errorf("up action %v missing %q", a, want)
+			}
+		}
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
 // Materialize writes a container-readable server.yml (0644) inside a private dir (0700)
 // and a compose that bind-mounts it + publishes only on loopback.
 func TestMaterializePermsAndCompose(t *testing.T) {

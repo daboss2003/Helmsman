@@ -256,10 +256,22 @@ func Materialize(dataDir string, p Params) (composePath string, err error) {
 	return composePath, nil
 }
 
-// EnsureRunning materializes the config and brings the managed ntfy up idempotently
-// (`docker compose up -d`). UNGATED (infra plane) + best-effort, mirroring socketproxy:
-// a docker error is returned to log, never fatal. Nothing operator-controlled reaches
-// the docker argv (the compose is Helmsman-generated; the bind path is Helmsman-owned).
+// EnsureRunning RE-materializes the config (fresh subscriber password + write token)
+// and brings the managed ntfy up. UNGATED (infra plane) + best-effort, mirroring
+// socketproxy: a docker error is returned to log, never fatal. Nothing operator-controlled
+// reaches the docker argv (the compose is Helmsman-generated; the bind path is Helmsman-owned).
+//
+// --force-recreate is REQUIRED here (this is the (re)provision path): server.yml is
+// bind-mounted, and ntfy only provisions/reconciles its auth-users + ACL into user.db
+// at PROCESS START. Plain `docker compose up -d` recreates a container only when the
+// compose SPEC changes — NOT when a bind-mounted file's CONTENTS change — so without it
+// the already-running ntfy keeps serving the OLD user.db (old subscriber password) while
+// the dashboard shows the NEW one, and signing in fails with "user phone not authorized".
+// Forcing a recreate restarts ntfy so it re-reads the rewritten server.yml and updates
+// the provisioned user/ACL (ntfy provisioning is create-OR-update on restart). The named
+// volumes (user.db, cache) persist across the recreate, so history is kept. This is the
+// only re-materialize path; the boot-time Up() below must NOT force-recreate (it would
+// churn the running container on every restart for no config change).
 func EnsureRunning(ctx context.Context, runner *dockerexec.Runner, dataDir string, p Params, onLine func(string)) error {
 	if runner == nil {
 		return fmt.Errorf("ntfy: nil runner")
@@ -272,9 +284,23 @@ func EnsureRunning(ctx context.Context, runner *dockerexec.Runner, dataDir strin
 		Project:     Project,
 		Dir:         filepath.Dir(composePath),
 		ConfigFiles: []string{composePath},
-		Action:      []string{"up", "-d", "--remove-orphans"},
+		Action:      upAction(true), // (re)provision → force ntfy to re-read the new server.yml
 	}
 	return runner.RunInternal(ctx, job, onLine)
+}
+
+// upAction is the `docker compose up` argv for the managed ntfy. forceRecreate MUST be
+// true on the (re)provision path (EnsureRunning) so a rewritten server.yml is actually
+// re-read — ntfy provisions auth-users/ACL only at process start, and `up -d` alone won't
+// restart a container just because a bind-mounted file's contents changed. It MUST be
+// false on the boot reconcile path (Up) so a Helmsman restart never needlessly churns a
+// correctly-running ntfy. Centralized so the two paths can't silently diverge again.
+func upAction(forceRecreate bool) []string {
+	a := []string{"up", "-d", "--remove-orphans"}
+	if forceRecreate {
+		a = append(a, "--force-recreate")
+	}
+	return a
 }
 
 // Up brings the EXISTING on-disk managed-ntfy compose up WITHOUT re-materializing the
@@ -293,7 +319,7 @@ func Up(ctx context.Context, runner *dockerexec.Runner, dataDir string, onLine f
 		Project:     Project,
 		Dir:         filepath.Dir(composePath),
 		ConfigFiles: []string{composePath},
-		Action:      []string{"up", "-d", "--remove-orphans"},
+		Action:      upAction(false), // boot reconcile → don't churn a correctly-running container
 	}
 	return runner.RunInternal(ctx, job, onLine)
 }

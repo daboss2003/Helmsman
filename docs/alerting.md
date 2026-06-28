@@ -94,6 +94,8 @@ iOS gets instant push via ntfy.sh's free relay (which only ever sees an opaque t
 
 Requirements: the **managed edge must be enabled** (Helmsman needs it to expose ntfy over HTTPS) and the hostname's **DNS must point at this server** (so the edge can get a certificate). The ntfy server is **only run once you configure this channel** — deleting the channel stops and removes it. (If you set this up before v0.3.46, delete the channel and re-add it to switch to the username+password account.)
 
+> **If sign-in is rejected** (the ntfy app says *"user phone not authorized"* or *"invalid credentials"* even with the exact username + password from the Channels page): just **re-submit the ntfy channel form** with the same hostname and topic. Helmsman restarts the ntfy server so it re-reads the current credentials, after which the username + password shown on the Channels page work. (Before v0.3.50 a re-configure rewrote the credentials but didn't restart the server, so the displayed password could lag what the running server expected.)
+
 Alerts are **deduplicated** — one problem is one page, not a flood — and they respect your **quiet hours**: non-critical alerts are held overnight, while critical ones always come through. Helmsman paces its own sending so a slow mail server or bot can never turn it into a spam-cannon.
 
 ## Knowing Helmsman itself is alive (the dead-man's switch)
