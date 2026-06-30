@@ -57,6 +57,10 @@ func (f *fakeDoer) Get(ctx context.Context, base, relPath, secretHeader string, 
 }
 
 func (f *fakeDoer) Post(ctx context.Context, base, relPath, secretHeader string, sec secret.Redacted, body []byte) (*opsclient.Response, error) {
+	f.lastBase = base
+	if secretHeader != "" {
+		f.lastSecret = sec.Reveal()
+	}
 	f.postCalls = append(f.postCalls, relPath)
 	return &opsclient.Response{Status: 200, Body: []byte(`{"ok":true}`)}, nil
 }
@@ -167,6 +171,37 @@ func TestQueueActionBasicKillSwitch(t *testing.T) {
 	}
 	if len(doer.postCalls) != 0 {
 		t.Error("queue action proxied to app despite basic kill-switch")
+	}
+}
+
+// QueueActionTarget posts to the EXPLICIT (per-service) ops endpoint, carrying its
+// secret + base_path — independent of the project-level ops config. It also enforces
+// the same action/queue validation as QueueAction.
+func TestQueueActionTarget(t *testing.T) {
+	doer := &fakeDoer{}
+	db := newTestDB(t)
+	p := NewProber(NewConfigStore(db, newCipher(t)), doer, db, nil)
+	tgt := Target{BaseURL: "http://worker:7000", SecretHeader: "X-Ops-Secret", Secret: secret.New("svc-secret"), BasePath: "/ops"}
+
+	if err := p.QueueActionTarget(context.Background(), "shop", tgt, "emails", "pause"); err != nil {
+		t.Fatalf("QueueActionTarget = %v, want nil", err)
+	}
+	if len(doer.postCalls) != 1 || doer.postCalls[0] != "/ops/queues/emails/pause" {
+		t.Errorf("posted to %v, want [/ops/queues/emails/pause]", doer.postCalls)
+	}
+	if doer.lastBase == "" || !strings.Contains(doer.lastBase, "worker:7000") {
+		t.Errorf("dialed base %q, want the service target worker:7000", doer.lastBase)
+	}
+	// Bad action / queue name are rejected without any POST.
+	doer.postCalls = nil
+	if err := p.QueueActionTarget(context.Background(), "shop", tgt, "emails", "drop-everything"); err != ErrBadQueueAction {
+		t.Errorf("bad action = %v, want ErrBadQueueAction", err)
+	}
+	if err := p.QueueActionTarget(context.Background(), "shop", tgt, "bad name!", "pause"); err != ErrBadQueueName {
+		t.Errorf("bad queue = %v, want ErrBadQueueName", err)
+	}
+	if len(doer.postCalls) != 0 {
+		t.Errorf("a rejected action must not POST, got %v", doer.postCalls)
 	}
 }
 

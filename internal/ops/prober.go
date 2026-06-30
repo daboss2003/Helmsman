@@ -181,6 +181,36 @@ func (p *Prober) QueueAction(ctx context.Context, project, queue, action string)
 	return nil
 }
 
+// QueueActionTarget runs a queue action against an EXPLICIT ops target — a single
+// service's own ops endpoint — instead of the project-level ops config QueueAction
+// uses. The per-service page renders queues discovered from the service's own ops
+// interface (probeServiceOps → ProbeTarget), so its action buttons MUST POST to
+// that same endpoint; routing them through the project target would hit the wrong
+// process (or none, when an app has only per-service ops). The caller resolves the
+// Target from the service's OpsInterface. Same action/queue validation and SSRF-safe
+// client as QueueAction.
+func (p *Prober) QueueActionTarget(ctx context.Context, project string, target Target, queue, action string) error {
+	if !queueActions[action] {
+		return ErrBadQueueAction
+	}
+	if !queueNameRe.MatchString(queue) {
+		return ErrBadQueueName
+	}
+	base, rerr := p.resolveBase(ctx, project, target.BaseURL)
+	if rerr != nil {
+		return ErrQueueFailed
+	}
+	path := joinPath(cleanBasePath(target.BasePath), "/queues/"+queue+"/"+action)
+	resp, err := p.client.Post(ctx, base, path, target.SecretHeader, target.Secret, nil)
+	if err != nil {
+		return ErrQueueFailed
+	}
+	if resp.Status < 200 || resp.Status >= 300 {
+		return ErrQueueFailed
+	}
+	return nil
+}
+
 func (p *Prober) record(ctx context.Context, project string, disc Discovery, res *Result) {
 	caps, _ := json.Marshal(disc.Capabilities)
 	_, _ = p.db.ExecContext(ctx,

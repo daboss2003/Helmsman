@@ -3,8 +3,10 @@ package web
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"time"
 
+	"github.com/daboss2003/mooring/internal/audit"
 	"github.com/daboss2003/mooring/internal/definition"
 	"github.com/daboss2003/mooring/internal/monitor"
 	"github.com/daboss2003/mooring/internal/ops"
@@ -36,9 +38,28 @@ type serviceView struct {
 // endpoint degrades to nil rather than hanging the request. Shared by the page handler
 // and the live-poll fragment so the two can never drift.
 func (s *Server) probeServiceOps(ctx context.Context, project string, svcDef definition.Service) *ops.Result {
-	oi := svcDef.OpsInterface
-	if oi == nil || !oi.Enabled || oi.Mode == "basic" || s.prober == nil {
+	if s.prober == nil {
 		return nil
+	}
+	target, ok := s.serviceOpsTarget(project, svcDef)
+	if !ok {
+		return nil
+	}
+	oi := svcDef.OpsInterface
+	pctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	return s.prober.ProbeTarget(pctx, project, target, oi.Adapter, oi.Mode)
+}
+
+// serviceOpsTarget resolves a service's ops endpoint Target from its OpsInterface
+// (decrypting the configured secret env var). ok=false when the service has no
+// enabled, non-basic ops interface. Shared by probeServiceOps (read) and the
+// per-service queue-action handler (write) so the action POSTs to the SAME endpoint
+// whose queues are shown.
+func (s *Server) serviceOpsTarget(project string, svcDef definition.Service) (ops.Target, bool) {
+	oi := svcDef.OpsInterface
+	if oi == nil || !oi.Enabled || oi.Mode == "basic" {
+		return ops.Target{}, false
 	}
 	secret := ""
 	if oi.Secret != "" && s.envStore != nil {
@@ -48,10 +69,59 @@ func (s *Server) probeServiceOps(ctx context.Context, project string, svcDef def
 			}
 		}
 	}
-	target := ops.Target{BaseURL: oi.BaseURL, SecretHeader: oi.SecretHeader, Secret: secretpkg.New(secret), BasePath: oi.BasePath}
-	pctx, cancel := context.WithTimeout(ctx, 6*time.Second)
-	defer cancel()
-	return s.prober.ProbeTarget(pctx, project, target, oi.Adapter, oi.Mode)
+	return ops.Target{BaseURL: oi.BaseURL, SecretHeader: oi.SecretHeader, Secret: secretpkg.New(secret), BasePath: oi.BasePath}, true
+}
+
+// handleServiceQueueAction runs a queue pause/resume/retry-failed against THIS
+// service's own ops endpoint (not the project-level ops target). It mirrors
+// handleQueueAction's guards (protected-project block, audit) but resolves the
+// per-service Target so the action hits the same endpoint the page's queues came
+// from. Redirects back to the service page.
+func (s *Server) handleServiceQueueAction(w http.ResponseWriter, r *http.Request) {
+	project := r.PathValue("project")
+	service := r.PathValue("service")
+	queue := r.PathValue("queue")
+	action := r.PathValue("action")
+	actor := sessionUser(r)
+	peer := ClientIP(r.Context()).String()
+	auditTarget := project + "/" + service + "/" + queue
+
+	if s.cfg.IsProtectedProject(project) {
+		_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "ops_queue_" + action, Target: auditTarget, Outcome: audit.Deny, Level: audit.Security, Detail: "protected project"})
+		http.Error(w, "this is a protected project and cannot be controlled as an app", http.StatusForbidden)
+		return
+	}
+	if s.prober == nil {
+		http.Error(w, "ops not available", http.StatusNotFound)
+		return
+	}
+	def := s.currentDef(project)
+	if def == nil {
+		http.Error(w, "service ops not configured", http.StatusNotFound)
+		return
+	}
+	svcDef, ok := def.Spec.Compose.Services[service]
+	if !ok {
+		http.Error(w, "service not found", http.StatusNotFound)
+		return
+	}
+	target, ok := s.serviceOpsTarget(project, svcDef)
+	if !ok {
+		http.Error(w, "this service has no ops endpoint", http.StatusNotFound)
+		return
+	}
+
+	err := s.prober.QueueActionTarget(r.Context(), project, target, queue, action)
+	outcome := audit.OK
+	if err != nil {
+		outcome = audit.Error
+	}
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "ops_queue_" + action, Target: auditTarget, Outcome: outcome, Level: audit.Info})
+	if err != nil {
+		http.Error(w, "queue action failed", http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+url.PathEscape(project)+"/services/"+url.PathEscape(service), http.StatusSeeOther)
 }
 
 // handleServiceGet renders the per-service page.
@@ -129,5 +199,9 @@ func (s *Server) handleServiceOpsPartial(w http.ResponseWriter, r *http.Request)
 			sv.Ops = s.probeServiceOps(r.Context(), project, sd)
 		}
 	}
-	s.renderPartial(w, "service_ops", tmplData{Svc: sv})
+	s.renderPartial(w, "service_ops", tmplData{
+		Svc:       sv, // Svc carries Project + Service for the action-form URLs
+		CSRFToken: CSRFToken(r.Context()),
+		Protected: s.cfg.IsProtectedProject(project),
+	})
 }

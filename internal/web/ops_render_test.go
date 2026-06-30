@@ -38,6 +38,41 @@ func TestServiceOpsFragmentRenders(t *testing.T) {
 	}
 }
 
+// The per-service ops fragment renders pause/resume/retry-failed buttons that POST to
+// the SERVICE-scoped queue-action route (so the action hits the same ops endpoint the
+// queues came from), and suppresses them for a protected project.
+func TestServiceOpsFragmentQueueActions(t *testing.T) {
+	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
+	sv := &serviceView{Project: "shop", Service: "resolver", HasOps: true, Ops: &ops.Result{
+		Mode:   ops.RICH,
+		Queues: []ops.Queue{{Name: "jobs", Counts: []ops.QueueCount{{Name: "waiting", Value: 5}}}},
+	}}
+	var buf bytes.Buffer
+	if err := e.srv.templates.ExecuteTemplate(&buf, "service_ops", tmplData{Svc: sv, CSRFToken: "tok123", Protected: false}); err != nil {
+		t.Fatalf("service_ops template error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"/apps/shop/services/resolver/queues/jobs/pause",
+		"/apps/shop/services/resolver/queues/jobs/resume",
+		"/apps/shop/services/resolver/queues/jobs/retry-failed",
+		"tok123",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("service_ops queue actions missing %q:\n%s", want, out)
+		}
+	}
+
+	// Protected project → no action forms.
+	buf.Reset()
+	if err := e.srv.templates.ExecuteTemplate(&buf, "service_ops", tmplData{Svc: sv, CSRFToken: "tok123", Protected: true}); err != nil {
+		t.Fatalf("service_ops template error: %v", err)
+	}
+	if strings.Contains(buf.String(), "/queues/jobs/pause") {
+		t.Errorf("protected project must not render queue-action forms:\n%s", buf.String())
+	}
+}
+
 // The overview health grid renders a coloured cell per service, linking to its page.
 func TestOverviewHealthGridRenders(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")

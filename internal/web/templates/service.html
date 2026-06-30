@@ -102,16 +102,24 @@
 </section>
 {{end}}
 {{if .Ops.Queues}}
+{{$proj := .Project}}{{$svc := .Service}}
 <section class="panel">
   <h2>Queues</h2>
   <div class="table-scroll"><table class="grid">
-    <thead><tr><th>Queue</th><th>State</th><th>Counts</th></tr></thead>
+    <thead><tr><th>Queue</th><th>State</th><th>Counts</th><th>Actions</th></tr></thead>
     <tbody>
       {{range .Ops.Queues}}
       <tr>
         <td>{{.Name}}</td>
         <td>{{if .IsPaused}}<span class="pill pill-warn">paused</span>{{else}}<span class="pill pill-ok">active</span>{{end}}</td>
         <td class="mono">{{range .Counts}}{{.Name}}={{.Value}} {{end}}</td>
+        <td class="queue-actions">
+          {{if $.Protected}}<span class="muted">—</span>{{else}}
+          <form method="post" action="/apps/{{pathEscape $proj}}/services/{{pathEscape $svc}}/queues/{{pathEscape .Name}}/pause" class="inline"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button type="submit" class="link">pause</button></form>
+          <form method="post" action="/apps/{{pathEscape $proj}}/services/{{pathEscape $svc}}/queues/{{pathEscape .Name}}/resume" class="inline"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button type="submit" class="link">resume</button></form>
+          <form method="post" action="/apps/{{pathEscape $proj}}/services/{{pathEscape $svc}}/queues/{{pathEscape .Name}}/retry-failed" class="inline"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button type="submit" class="link">retry-failed</button></form>
+          {{end}}
+        </td>
       </tr>
       {{end}}
     </tbody>

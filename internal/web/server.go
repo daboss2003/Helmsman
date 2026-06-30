@@ -414,7 +414,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/supervisor/clear", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSupervisorClear))))
 	mux.HandleFunc("POST /apps/{project}/scaling", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleScalingSave))))
 	mux.HandleFunc("GET /apps/{project}/services/{service}/logs", s.requireAuth(s.handleServiceLogs))
-	mux.HandleFunc("GET /partials/service/{project}/{service}/ops", s.requireAuth(s.handleServiceOpsPartial))
+	// withCSRFToken so the live-polled ops fragment carries a CSRF token for its
+	// per-service queue-action forms (re-injected on every poll, never stale).
+	mux.HandleFunc("GET /partials/service/{project}/{service}/ops", s.requireAuth(s.withCSRFToken(s.handleServiceOpsPartial)))
+	// Per-service queue actions: routed to THIS service's own ops endpoint (not the
+	// project-level target). More specific than /services/{service}/{action}.
+	mux.HandleFunc("POST /apps/{project}/services/{service}/queues/{queue}/{action}", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleServiceQueueAction))))
 	mux.HandleFunc("GET /apps/{project}/services/{service}", s.requireAuth(s.withCSRFToken(s.handleServiceGet)))
 	// Env settings (M5): literals + write-only secrets, masked reveal, history.
 	mux.HandleFunc("GET /apps/{project}/env", s.requireAuth(s.withCSRFToken(s.handleEnvGet)))

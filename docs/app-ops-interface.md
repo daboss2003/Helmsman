@@ -106,6 +106,10 @@ Use as many groups/items as you like — Database, Cache, Routes, System, Memory
 
 Each response may also be wrapped in a `{ "status": ..., "data": ... }` envelope — Mooring unwraps it.
 
+#### Queue actions (pause / resume / retry-failed)
+
+If you also expose `POST {basePath}/queues/{queue}/{action}` for `action` ∈ `pause | resume | retry-failed`, the service page renders **pause / resume / retry-failed** buttons next to each queue. Mooring POSTs to **that service's own ops endpoint** (the same one its queues are read from) with the `secret_header`, and logs an `ops_queue_<action>` audit event. Protected/managed projects never get action buttons. Respond `2xx` on success.
+
 ## Auth
 
 Mooring sends the configured `secret_header: <your secret>` on every request and validates TLS/SSRF on its side (it only dials the in-cluster `base_url`, never loopback). Require that header in your ops handlers so only Mooring can read them.
