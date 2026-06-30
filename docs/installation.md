@@ -122,7 +122,22 @@ mooring gen-totp
 
 ## 3. Write your config file
 
-Create `/etc/mooring/config.yaml`. This is the only file you edit by hand, and it only holds the essentials: your key, your login, who's allowed to reach the dashboard, and your email for HTTPS certificates.
+`/etc/mooring/config.yaml` is the only file you edit by hand. It holds the essentials: your key, your login, who's allowed to reach the dashboard, and your email for HTTPS certificates. There's no command that generates it for you — it contains your master key and login, so you write it over SSH.
+
+If you installed the `.deb`/`.rpm`/`apt` package, the directory already exists and a template is on disk — copy it and edit:
+
+```bash
+sudo cp /usr/share/mooring/config.example.yaml /etc/mooring/config.yaml
+sudo nano /etc/mooring/config.yaml      # or: sudo vi /etc/mooring/config.yaml
+```
+
+Fill in the essentials (below), then lock the file down — Mooring refuses to boot if it's group/world-writable or unreadable by the service:
+
+```bash
+sudo chown root:mooring /etc/mooring/config.yaml && sudo chmod 0640 /etc/mooring/config.yaml
+```
+
+The file:
 
 ```yaml
 # /etc/mooring/config.yaml
@@ -156,19 +171,32 @@ Mooring validates this file at startup. If a required value is missing or the fi
 
 ## 4. Start it
 
-Mooring runs as a normal background service. The repo ships a ready-made service file (`deploy/systemd/mooring.service`) that runs it locked-down and memory-limited. Set up the service account and start it:
+> ### Installed via `.deb` / `.rpm` / `apt`? Almost everyone — do this and skip the rest of this section.
+>
+> The package's postinstall **already** created the `mooring` service user, the data directories (`/var/lib/mooring`, `/var/lib/mooring-apps`, `/var/lib/caddy`), `/etc/mooring`, and the systemd unit. **Do _not_ run the manual commands below** — they're for the raw-binary install only, and running them produces harmless-but-confusing errors like `user 'mooring' already exists` and `cannot stat 'config.yaml'`. Once your config from Step 3 is in place, just start it:
+>
+> ```bash
+> sudo systemctl enable --now mooring
+> sudo systemctl status mooring     # → "active (running)"
+> ```
+>
+> Then jump to the verification at the end. (Run everything with `sudo` — a plain `systemctl enable` will hang on a polkit password prompt.)
+
+**Only if you installed the raw binary** (Step 1's last option — no package, so nothing was set up for you) do you create the service account, directories, and unit by hand. Run these with `sudo`, from a checkout of the repo so `deploy/systemd/mooring.service` exists:
 
 ```bash
-useradd --system --no-create-home --shell /usr/sbin/nologin mooring
-usermod -aG docker mooring
-install -d -o mooring -g mooring -m0700 /var/lib/mooring
-install -d -o mooring -g mooring -m0700 /var/lib/mooring-apps   # per-app run dirs
-install -d -o mooring -g mooring -m0700 /var/lib/caddy           # edge data/cert store
-install -o root -g mooring -m0640 config.yaml /etc/mooring/config.yaml
-install -m0644 deploy/systemd/mooring.service /etc/systemd/system/mooring.service
-
-systemctl daemon-reload && systemctl enable --now mooring
-systemctl status mooring
+sudo groupadd --system mooring
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin --gid mooring mooring
+sudo usermod -aG docker mooring
+sudo install -d -o root    -g mooring -m0750 /etc/mooring
+sudo install -d -o mooring -g mooring -m0700 /var/lib/mooring
+sudo install -d -o mooring -g mooring -m0700 /var/lib/mooring-apps   # per-app run dirs
+sudo install -d -o mooring -g mooring -m0700 /var/lib/caddy          # edge data/cert store
+sudo install -m0644 deploy/systemd/mooring.service /etc/systemd/system/mooring.service
+# (write /etc/mooring/config.yaml per Step 3, then:)
+sudo chown root:mooring /etc/mooring/config.yaml && sudo chmod 0640 /etc/mooring/config.yaml
+sudo systemctl daemon-reload && sudo systemctl enable --now mooring
+sudo systemctl status mooring
 ```
 
 That's it. **You won't run any Docker commands** — Mooring sets up everything it needs to talk to Docker (a locked-down, read-only connection) and runs your HTTPS edge itself. From here on, it's all in the dashboard.
