@@ -10,3 +10,4 @@ func readCPUTimes() (busy, total uint64, err error)        { return 0, 0, ErrUns
 func readMem() (total, used uint64, err error)             { return 0, 0, ErrUnsupported }
 func readLoad1() (float64, error)                          { return 0, ErrUnsupported }
 func readDisk(path string) (total, used uint64, err error) { return 0, 0, ErrUnsupported }
+func readProcesses(topN int) ([]Process, error)            { return nil, ErrUnsupported }

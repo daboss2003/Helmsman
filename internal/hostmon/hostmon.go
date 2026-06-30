@@ -6,6 +6,7 @@ package hostmon
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -146,4 +147,76 @@ func parseLoadAvg(data string) (float64, error) {
 		return 0, errors.New("hostmon: empty loadavg")
 	}
 	return strconv.ParseFloat(fields[0], 64)
+}
+
+// Process is one host process, for the read-only "task manager" view. Only the
+// fields needed to answer "what's using the memory" are collected — no cmdline
+// (which can leak secrets passed as args) and no signalling capability.
+type Process struct {
+	PID   int
+	PPID  int
+	Name  string
+	State string
+	RSS   uint64 // resident set size in bytes
+}
+
+// Processes returns the top-N host processes by resident memory (descending).
+// It is a READ-ONLY snapshot for the UI; it never signals or mutates anything.
+// Kernel threads (and anything with no resident memory) are skipped so the list
+// is the userspace memory users an operator cares about. Per-pid read errors are
+// tolerated (a process can exit mid-scan) — they're skipped, never fatal.
+func Processes(topN int) ([]Process, error) { return readProcesses(topN) }
+
+// parseProcStatus parses one /proc/[pid]/status into a Process. ok=false when the
+// entry has no resident memory (kernel thread or already-reaped) and should be
+// skipped. Name is capped and stripped of control bytes by the caller's template
+// auto-escaping; here we only bound its length so a hostile comm can't bloat the
+// row or the audit log.
+func parseProcStatus(pid int, data string) (p Process, ok bool) {
+	p.PID = pid
+	var haveRSS bool
+	for _, line := range strings.Split(data, "\n") {
+		name, val, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		switch name {
+		case "Name":
+			if len(val) > 64 {
+				val = val[:64]
+			}
+			p.Name = val
+		case "State":
+			if f := strings.Fields(val); len(f) > 0 {
+				p.State = f[0]
+			}
+		case "PPid":
+			p.PPID, _ = strconv.Atoi(val)
+		case "VmRSS":
+			// "12345 kB"
+			f := strings.Fields(val)
+			if len(f) >= 1 {
+				if kb, err := strconv.ParseUint(f[0], 10, 64); err == nil {
+					p.RSS = kb * 1024
+					haveRSS = true
+				}
+			}
+		}
+	}
+	return p, haveRSS && p.RSS > 0
+}
+
+// topByRSS sorts processes by RSS descending and truncates to topN (topN<=0 → all).
+func topByRSS(ps []Process, topN int) []Process {
+	sort.Slice(ps, func(i, j int) bool {
+		if ps[i].RSS != ps[j].RSS {
+			return ps[i].RSS > ps[j].RSS
+		}
+		return ps[i].PID < ps[j].PID
+	})
+	if topN > 0 && len(ps) > topN {
+		ps = ps[:topN]
+	}
+	return ps
 }

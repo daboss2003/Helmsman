@@ -1,0 +1,58 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <h1>Files <span class="muted">(read-only)</span></h1>
+  <p class="muted"><a href="/server">← Server</a></p>
+  {{with .ServerFiles}}
+  {{if .Err}}<div class="error" role="alert">{{.Err}}</div>{{end}}
+
+  {{if not .Enabled}}
+  <p class="muted">The file view is off. Add allow-listed directories under <code>server.file_roots</code> in <code>/etc/helmsman/config.yaml</code> to enable it.</p>
+  {{else}}
+
+  <div class="file-roots">
+    {{range .Roots}}<a class="chip {{if eq .Name $.ServerFiles.Root}}chip-on{{end}}" href="/server/files?root={{pathEscape .Name}}">{{.Name}}</a>{{end}}
+  </div>
+
+  {{if eq .Root ""}}
+  <p class="muted">Pick a directory above to browse.</p>
+  {{else}}
+
+  {{/* breadcrumbs */}}
+  <nav class="crumbs">
+    <a href="/server/files?root={{pathEscape .Root}}">{{.Root}}</a>
+    {{range .Crumbs}}<span class="sep">/</span><a href="/server/files?root={{pathEscape $.ServerFiles.Root}}&amp;path={{pathEscape .Rel}}">{{.Name}}</a>{{end}}
+  </nav>
+
+  {{if .IsFile}}
+    {{if .Binary}}
+    <p class="muted">This looks like a binary file — not shown.</p>
+    {{else}}
+    <pre class="filebody">{{.Content}}</pre>
+    {{end}}
+  {{else}}
+    <div class="table-scroll"><table class="grid">
+      <thead><tr><th>Name</th><th class="num">Size</th><th>Modified</th></tr></thead>
+      <tbody>
+        {{if .HasUp}}<tr><td><a href="/server/files?root={{pathEscape .Root}}&amp;path={{pathEscape .UpRel}}">{{template "icon-folder"}} ..</a></td><td></td><td></td></tr>{{end}}
+        {{range .Entries}}
+        {{$child := .Name}}{{if $.ServerFiles.Rel}}{{$child = printf "%s/%s" $.ServerFiles.Rel .Name}}{{end}}
+        <tr>
+          <td>
+            {{if .IsDir}}<a href="/server/files?root={{pathEscape $.ServerFiles.Root}}&amp;path={{pathEscape $child}}">{{template "icon-folder"}} {{.Name}}/</a>
+            {{else}}<a href="/server/files?root={{pathEscape $.ServerFiles.Root}}&amp;path={{pathEscape $child}}">{{template "icon-file"}} {{.Name}}</a>{{end}}
+          </td>
+          <td class="num">{{if not .IsDir}}{{humanBytes .Size}}{{end}}</td>
+          <td class="mono">{{.Mod.Format "2006-01-02 15:04"}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table></div>
+    {{if not .Entries}}<p class="muted">Empty directory.</p>{{end}}
+  {{end}}
+
+  {{end}}
+  {{end}}
+  {{end}}
+</main>
+{{template "bottom" .}}

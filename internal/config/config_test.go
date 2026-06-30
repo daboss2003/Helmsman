@@ -68,6 +68,22 @@ func TestEdgeCAsValidatedAndParsed(t *testing.T) {
 	mustReject(t, validYAML(t, "  cas:\n    - name: internal\n      directory_url: \"https://x/d\"\n      trusted_root: \"/no/such/file.pem\"\n"), "trusted_root")
 }
 
+func TestServerTabConfigValidated(t *testing.T) {
+	// A valid server block parses.
+	cfg, err := Parse([]byte(validYAML(t, "server:\n  deb_cache_dir: \"/root/dl\"\n  file_roots:\n    - name: logs\n      path: \"/var/log/app\"\n")))
+	if err != nil {
+		t.Fatalf("valid server config rejected: %v", err)
+	}
+	if cfg.Server.DebCacheDir != "/root/dl" || len(cfg.Server.FileRoots) != 1 || cfg.Server.FileRoots[0].Name != "logs" {
+		t.Errorf("server config not parsed: %+v", cfg.Server)
+	}
+	// Bad root name, relative paths, and duplicate names are rejected.
+	mustReject(t, validYAML(t, "server:\n  file_roots:\n    - name: \"Bad Name\"\n      path: \"/x\"\n"), "file_roots")
+	mustReject(t, validYAML(t, "server:\n  file_roots:\n    - name: logs\n      path: \"relative/dir\"\n"), "absolute")
+	mustReject(t, validYAML(t, "server:\n  file_roots:\n    - name: a\n      path: \"/x\"\n    - name: a\n      path: \"/y\"\n"), "duplicate")
+	mustReject(t, validYAML(t, "server:\n  deb_cache_dir: \"relative\"\n"), "absolute")
+}
+
 func TestValidConfigLoads(t *testing.T) {
 	cfg, err := Parse([]byte(validYAML(t, "")))
 	if err != nil {

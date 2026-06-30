@@ -2,6 +2,36 @@ package hostmon
 
 import "testing"
 
+func TestParseProcStatus(t *testing.T) {
+	data := "Name:\tnginx\nState:\tS (sleeping)\nPid:\t42\nPPid:\t1\nVmRSS:\t   12345 kB\n"
+	p, ok := parseProcStatus(42, data)
+	if !ok {
+		t.Fatal("expected ok for a process with RSS")
+	}
+	if p.PID != 42 || p.PPID != 1 || p.Name != "nginx" || p.State != "S" || p.RSS != 12345*1024 {
+		t.Errorf("bad parse: %+v", p)
+	}
+
+	// A kernel thread (no VmRSS) must be skipped.
+	if _, ok := parseProcStatus(2, "Name:\tkthreadd\nState:\tS\nPPid:\t0\n"); ok {
+		t.Error("a process with no RSS should be skipped (ok=false)")
+	}
+
+	// An overlong name is bounded.
+	long := "Name:\t" + string(make([]byte, 200)) + "\nVmRSS:\t1 kB\n"
+	if p, _ := parseProcStatus(3, long); len(p.Name) > 64 {
+		t.Errorf("name not bounded: len=%d", len(p.Name))
+	}
+}
+
+func TestTopByRSS(t *testing.T) {
+	in := []Process{{PID: 1, RSS: 100}, {PID: 2, RSS: 300}, {PID: 3, RSS: 200}}
+	got := topByRSS(in, 2)
+	if len(got) != 2 || got[0].PID != 2 || got[1].PID != 3 {
+		t.Errorf("topByRSS wrong order/len: %+v", got)
+	}
+}
+
 func TestParseProcStat(t *testing.T) {
 	// user=100 nice=0 system=50 idle=800 iowait=50 irq=0 softirq=0 steal=0
 	data := "cpu  100 0 50 800 50 0 0 0 0 0\ncpu0 ...\nintr 123\n"

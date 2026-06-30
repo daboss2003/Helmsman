@@ -69,6 +69,11 @@ type tmplData struct {
 	// Incidents screen: aggregated open alerts / unhealthy apps / circuit-open / fails.
 	Incidents *incidentsView
 
+	// Server tab: read-only host monitor + disk footprint + .deb cleanup; and the
+	// allow-listed read-only file view.
+	Server      *serverView
+	ServerFiles *serverFilesView
+
 	// GitHub connect (M20): the connect-repo page + repo picker.
 	GitHubEnabled bool
 	GitHubLogin   string

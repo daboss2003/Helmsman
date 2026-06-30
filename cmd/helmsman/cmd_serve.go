@@ -357,6 +357,7 @@ func cmdServe(args []string) error {
 	srv, err := web.New(cfg, web.Deps{
 		DB:          db,
 		ConfigPath:  *configPath,
+		Version:     Version,
 		Log:         log,
 		Monitor:     mon,
 		OpsStore:    opsStore,

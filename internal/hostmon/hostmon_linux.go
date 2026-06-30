@@ -4,6 +4,7 @@ package hostmon
 
 import (
 	"os"
+	"strconv"
 	"syscall"
 )
 
@@ -43,4 +44,33 @@ func readDisk(path string) (total, used uint64, err error) {
 		free = total
 	}
 	return total, total - free, nil
+}
+
+// readProcesses walks /proc, reading each numeric PID's status for name + RSS, and
+// returns the top-N by resident memory. It is a single pass with NO goroutine per
+// pid (so a box with thousands of PIDs can't explode); per-pid read errors (the
+// process exited mid-scan, or EACCES) are skipped, never fatal.
+func readProcesses(topN int) ([]Process, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Process, 0, 128)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue // not a pid dir
+		}
+		data, err := os.ReadFile("/proc/" + e.Name() + "/status")
+		if err != nil {
+			continue // raced with exit, or unreadable
+		}
+		if p, ok := parseProcStatus(pid, string(data)); ok {
+			out = append(out, p)
+		}
+	}
+	return topByRSS(out, topN), nil
 }

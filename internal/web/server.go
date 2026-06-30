@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -88,6 +89,7 @@ const loginBodyLimit = 64 << 10
 type Deps struct {
 	DB          *store.DB
 	ConfigPath  string // for SIGHUP allowlist+auth reload
+	Version     string // the running Helmsman build version (for the Server tab's .deb cleanup)
 	Log         *slog.Logger
 	Monitor     *monitor.Monitor
 	OpsStore    *ops.ConfigStore
@@ -117,6 +119,7 @@ type Deps struct {
 type Server struct {
 	cfg            *config.Config // immutable parts (bind, cookie, edge, session)
 	configPath     string
+	version        string // running Helmsman build version (Server tab .deb cleanup)
 	db             *store.DB
 	sessions       *session.Manager
 	audit          *audit.Logger
@@ -160,6 +163,8 @@ type Server struct {
 	gitDeploy      *dockerexec.Semaphore         // single-flight repo deploy (1 at a time)
 	logStreams     chan struct{}                 // concurrency cap on live log streams
 	sec            atomic.Pointer[secState]
+	footprintOnce  sync.Once       // lazily builds the Server-tab disk-footprint cache
+	footprintC     *footprintCache // cached on-disk footprint (off-request refresh)
 }
 
 // New builds a Server from a validated config and its dependencies.
@@ -175,6 +180,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 	s := &Server{
 		cfg:           cfg,
 		configPath:    d.ConfigPath,
+		version:       d.Version,
 		db:            d.DB,
 		sessions:      session.New(d.DB, cfg.Session.IdleTimeout.D(), cfg.Session.AbsoluteTimeout.D()),
 		audit:         audit.New(d.DB, log),
@@ -374,6 +380,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.requireAuth(s.withCSRFToken(s.handleHome)))
 	mux.HandleFunc("GET /partials/overview", s.requireAuth(s.handleOverviewPartial))
 	mux.HandleFunc("GET /incidents", s.requireAuth(s.withCSRFToken(s.handleIncidents)))
+	// Server tab: read-only host inspection (monitor/processes/disk) + gated .deb cleanup.
+	mux.HandleFunc("GET /server", s.requireAuth(s.withCSRFToken(s.handleServer)))
+	mux.HandleFunc("GET /partials/server", s.requireAuth(s.handleServerPartial))
+	mux.HandleFunc("GET /server/files", s.requireAuth(s.withCSRFToken(s.handleServerFiles)))
+	mux.HandleFunc("POST /server/debs/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleDebDelete))))
 	mux.HandleFunc("GET /apps", s.requireAuth(s.withCSRFToken(s.handleAppsList)))
 	// Host metric series for the live dashboard charts (read plane; cookie-authed).
 	mux.HandleFunc("GET /partials/metrics.json", s.requireAuth(s.handleMetricsHistory))

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -69,6 +70,7 @@ type Config struct {
 	Setup             SetupConfig     `yaml:"setup"`
 	Retention         RetentionConfig `yaml:"retention"`
 	Alerting          AlertingConfig  `yaml:"alerting"`
+	Server            ServerConfig    `yaml:"server"`
 
 	DataDir string `yaml:"data_dir"`
 
@@ -79,6 +81,56 @@ type Config struct {
 	// derived, not from YAML
 	parsedAllowlist []netip.Prefix
 	parsedProxies   []netip.Prefix
+}
+
+// ServerConfig configures the read-only "Server" tab (host inspection + cleanup).
+// Both knobs are OPT-IN and default to off/empty: with no file_roots the file
+// view is disabled entirely (fail-closed), and with no deb_cache_dir the old-.deb
+// cleanup is unavailable. The host monitor (CPU/memory/disk/processes) needs no
+// config. Secret/state paths (the data dir, config, keys, DB) are ALWAYS denied to
+// the file view regardless of what's listed here — see internal/web.
+type ServerConfig struct {
+	// FileRoots are directories the operator may browse READ-ONLY in the Server
+	// tab (e.g. an app's log dir). Each needs a stable name (used in the URL).
+	FileRoots []ServerFileRoot `yaml:"file_roots"`
+	// DebCacheDir is the directory the operator downloads Helmsman .deb packages
+	// into; the Server tab can delete OLD ones there (never the running version),
+	// behind password+TOTP re-auth. Must be absolute. It also must be within the
+	// service's writable paths for the delete to succeed (see docs).
+	DebCacheDir string `yaml:"deb_cache_dir"`
+}
+
+// ServerFileRoot is one named, browsable directory.
+type ServerFileRoot struct {
+	Name string `yaml:"name"` // [a-z0-9][a-z0-9-]{0,30}; used in the URL/UI
+	Path string `yaml:"path"` // absolute directory path
+}
+
+// serverRootNameRe constrains a file-root name to a safe slug (URL/UI key).
+var serverRootNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
+
+// validateServer checks the Server-tab config shape. Existence/containment of the
+// paths is enforced at use time in internal/web (fail-closed), so this only
+// rejects obviously-malformed config: bad root names, duplicates, and
+// non-absolute paths.
+func (c *Config) validateServer() error {
+	seen := map[string]bool{}
+	for _, r := range c.Server.FileRoots {
+		if !serverRootNameRe.MatchString(r.Name) {
+			return fmt.Errorf("server.file_roots: name %q must match [a-z0-9][a-z0-9-]{0,30}", r.Name)
+		}
+		if seen[r.Name] {
+			return fmt.Errorf("server.file_roots: duplicate name %q", r.Name)
+		}
+		seen[r.Name] = true
+		if !filepath.IsAbs(r.Path) {
+			return fmt.Errorf("server.file_roots[%s]: path %q must be absolute", r.Name, r.Path)
+		}
+	}
+	if c.Server.DebCacheDir != "" && !filepath.IsAbs(c.Server.DebCacheDir) {
+		return fmt.Errorf("server.deb_cache_dir %q must be absolute", c.Server.DebCacheDir)
+	}
+	return nil
 }
 
 // IsProtectedProject reports whether a compose project is in the protected set.
@@ -658,6 +710,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Retention.ArchiveMaxMB < 1 {
 		add("retention.archive_max_mb: must be >= 1 (got %d)", c.Retention.ArchiveMaxMB)
+	}
+
+	// --- Server tab (read-only host inspection + .deb cleanup) ---
+	if err := c.validateServer(); err != nil {
+		add("%v", err)
 	}
 
 	if len(errs) > 0 {

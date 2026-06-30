@@ -1,0 +1,142 @@
+{{template "top" .}}
+{{template "nav" .}}
+<main class="wrap">
+  <h1>Server</h1>
+  <p class="muted">A read-only view of this host — what's using memory and disk, plus cleanup for old Helmsman downloads. Nothing here can move or delete your files (the only exception is removing old <code>.deb</code> packages, which asks for your password again).</p>
+  {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+
+  {{/* Live host meters + top processes — refreshed in place every 5s. */}}
+  <div data-poll-url="/partials/server" data-poll-interval="5000">
+    {{template "serverlive" .}}
+  </div>
+
+  {{/* Disk usage — Helmsman's own footprint (measured off the request path). */}}
+  <section class="panel">
+    <h2>Disk usage</h2>
+    {{with .Server}}
+    {{if .FootprintReady}}
+    <div class="table-scroll"><table class="grid">
+      <thead><tr><th>What</th><th>Path</th><th class="num">Size</th><th class="num">Files</th></tr></thead>
+      <tbody>
+        {{range .Footprint.Groups}}
+        <tr><td>{{.Label}}</td><td class="mono">{{.Path}}</td><td class="num">{{humanBytes .Bytes}}</td><td class="num">{{.Files}}</td></tr>
+        {{end}}
+        <tr class="row-total"><td><strong>Total (Helmsman)</strong></td><td></td><td class="num"><strong>{{humanBytes .Footprint.Total}}</strong></td><td class="num"><strong>{{.Footprint.Files}}</strong></td></tr>
+      </tbody>
+    </table></div>
+    {{if .Footprint.Partial}}<p class="muted">Note: measurement hit its time budget and may undercount a large directory.</p>{{end}}
+    {{else}}
+    <p class="muted">Measuring disk usage… reload in a moment.</p>
+    {{end}}
+    {{end}}
+    <p class="muted">Helmsman discards its own build leftovers (interrupted-deploy staging dirs are swept on boot). <strong>Docker</strong>'s build cache, dangling images, and stopped containers do accumulate separately — check them over SSH with <code>docker system df</code> and reclaim with <code>docker system prune</code>. Helmsman never prunes Docker for you (it could delete something you still want).</p>
+  </section>
+
+  {{/* Old-download cleanup. */}}
+  {{with .Server}}
+  <section class="panel">
+    <h2>Helmsman downloads (<code>.deb</code>)</h2>
+    {{if eq .DebCacheDir ""}}
+    <p class="muted">To clean up old downloaded Helmsman <code>.deb</code> packages here, set <code>server.deb_cache_dir</code> in <code>/etc/helmsman/config.yaml</code> to the folder you download them into (it must be writable by the Helmsman service). The running version is never deletable.</p>
+    {{else if not .Debs}}
+    <p class="muted">No Helmsman <code>.deb</code> files found in <code class="mono">{{.DebCacheDir}}</code>.</p>
+    {{else}}
+    <p class="muted">Found in <code class="mono">{{.DebCacheDir}}</code>. The version you're running ({{.Version}}) is kept and can't be deleted. Deleting asks for your password{{if .TOTPEnabled}} and 2FA code{{end}}.</p>
+    <div class="table-scroll"><table class="grid">
+      <thead><tr><th>File</th><th>Version</th><th>Arch</th><th class="num">Size</th><th>Action</th></tr></thead>
+      <tbody>
+        {{range .Debs}}
+        <tr>
+          <td class="mono">{{.Name}}</td>
+          <td>{{.Version}}</td>
+          <td>{{.Arch}}</td>
+          <td class="num">{{humanBytes .Size}}</td>
+          <td>
+            {{if .Running}}<span class="pill pill-ok">in use — kept</span>{{else}}
+            <details class="reauth">
+              <summary class="link">delete</summary>
+              <form method="post" action="/server/debs/delete" class="reauth-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                <input type="hidden" name="name" value="{{.Name}}">
+                <label>Password <input type="password" name="password" autocomplete="off" required></label>
+                {{if $.Server.TOTPEnabled}}<label>2FA code <input type="text" name="totp" inputmode="numeric" autocomplete="off" required></label>{{end}}
+                <button type="submit" class="btn btn-danger btn-sm">Delete {{.Version}} ({{.Arch}})</button>
+              </form>
+            </details>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table></div>
+    {{end}}
+  </section>
+  {{end}}
+
+  {{/* Read-only file view (opt-in). */}}
+  {{with .Server}}
+  <section class="panel">
+    <h2>Files <span class="muted">(read-only)</span></h2>
+    {{if .FileEnabled}}
+    <p>Browse allow-listed directories, read-only:</p>
+    <ul class="root-list">
+      {{range .FileRoots}}<li><a href="/server/files?root={{pathEscape .Name}}">{{template "icon-folder"}} {{.Name}} <span class="muted mono">{{.Path}}</span></a></li>{{end}}
+    </ul>
+    {{else}}
+    <p class="muted">The file view is off. To enable it, add allow-listed directories under <code>server.file_roots</code> in <code>/etc/helmsman/config.yaml</code>. It is strictly read-only and can never reach Helmsman's secrets, keys, database, or config.</p>
+    {{end}}
+  </section>
+  {{end}}
+</main>
+{{template "bottom" .}}
+
+{{/* ---- live fragment: host meters + top processes (polled) ---- */}}
+{{define "serverlive"}}
+{{with .Server}}
+<div class="stat-grid">
+  {{if .HostOK}}
+  {{$mem := ratioPct .Host.MemUsed .Host.MemTotal}}
+  {{$disk := ratioPct .Host.DiskUsed .Host.DiskTotal}}
+  <div class="stat-card {{meterClass .Host.CPUPercent}}">
+    <div class="stat-label">CPU</div>
+    <div class="stat-value">{{pct1 .Host.CPUPercent}}<small>%</small></div>
+    <div class="stat-sub">load {{pct1 .Host.Load1}} (1m)</div>
+    {{template "meter" .Host.CPUPercent}}
+  </div>
+  <div class="stat-card {{meterClass $mem}}">
+    <div class="stat-label">Memory</div>
+    <div class="stat-value">{{pct1 $mem}}<small>%</small></div>
+    <div class="stat-sub">{{humanBytes .Host.MemUsed}} / {{humanBytes .Host.MemTotal}}</div>
+    {{template "meter" $mem}}
+  </div>
+  <div class="stat-card {{meterClass $disk}}">
+    <div class="stat-label">Disk</div>
+    <div class="stat-value">{{pct1 $disk}}<small>%</small></div>
+    <div class="stat-sub">{{humanBytes .Host.DiskUsed}} / {{humanBytes .Host.DiskTotal}}</div>
+    {{template "meter" $disk}}
+  </div>
+  {{else}}
+  {{template "statwait" "CPU"}}{{template "statwait" "Memory"}}{{template "statwait" "Disk"}}
+  {{end}}
+</div>
+
+<section class="panel">
+  <h2>Top processes <span class="muted">by memory</span></h2>
+  {{if .ProcErr}}
+  <p class="muted">{{.ProcErr}}</p>
+  {{else if .Procs}}
+  <div class="table-scroll"><table class="grid">
+    <thead><tr><th class="num">PID</th><th>Process</th><th>State</th><th class="num">Memory (RSS)</th></tr></thead>
+    <tbody>
+      {{range .Procs}}
+      <tr><td class="num">{{.PID}}</td><td class="mono">{{.Name}}</td><td>{{.State}}</td><td class="num">{{humanBytes .RSS}}</td></tr>
+      {{end}}
+    </tbody>
+  </table></div>
+  <p class="muted">Top {{len .Procs}} by resident memory{{if .At}} · updated {{.At}}{{end}}. Read-only — Helmsman can't signal or kill processes.</p>
+  {{else}}
+  <p class="muted">No process data.</p>
+  {{end}}
+</section>
+{{end}}
+{{end}}
