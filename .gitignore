@@ -25,3 +25,7 @@
 # never matches tracked docs under docs/.
 /M20_PLAN.md
 /helmsman-*-patch.md
+
+# operator's local notes (never publish)
+promps.txt
+prompts.txt
