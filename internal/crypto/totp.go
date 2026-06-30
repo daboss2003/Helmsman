@@ -21,7 +21,7 @@ const (
 )
 
 // GenerateTOTPSecret returns a base32 (RFC 4648, no padding) secret suitable for
-// `helmsman gen-totp` and authenticator apps.
+// `mooring gen-totp` and authenticator apps.
 func GenerateTOTPSecret() (string, error) {
 	b := make([]byte, totpSecretBytes)
 	if _, err := rand.Read(b); err != nil {

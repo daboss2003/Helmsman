@@ -1,6 +1,6 @@
-// Package builder is Helmsman's build subsystem: it turns a declarative build spec
-// (from helmsman.yaml's compose.services[].build) into a hardened, multi-stage
-// Dockerfile. The operator never writes a Dockerfile — Helmsman owns it, the same way
+// Package builder is Mooring's build subsystem: it turns a declarative build spec
+// (from mooring.yaml's compose.services[].build) into a hardened, multi-stage
+// Dockerfile. The operator never writes a Dockerfile — Mooring owns it, the same way
 // it owns the compose. A registry of language builders covers the popular stacks; an
 // `auto` language detects the stack from the repo; a `generic` builder wraps the
 // operator's own base + commands as a best-effort fallback.
@@ -84,12 +84,12 @@ func SupportedLanguages() []string {
 	return []string{"node", "python", "go", "ruby", "php", "static", "generic"}
 }
 
-// DockerfilePath is the run_dir-relative path where Helmsman writes the generated
+// DockerfilePath is the run_dir-relative path where Mooring writes the generated
 // Dockerfile for a service (and the compose `build.dockerfile` value). Kept here so
 // the compose generator and the deploy-time writer always agree. The service name is
 // schema-validated ([a-z0-9][a-z0-9_-]*), so the path is traversal-free.
 func DockerfilePath(service string) string {
-	return ".helmsman/Dockerfile." + service
+	return ".mooring/Dockerfile." + service
 }
 
 // Resolve picks the builder for a spec: an explicit known language, `auto` detection

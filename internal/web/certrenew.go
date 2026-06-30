@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/git"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/git"
+	"github.com/daboss2003/mooring/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 // RunCertRenewWatcher closes the cert-renewal gap (plan §7.5): the edge auto-renews

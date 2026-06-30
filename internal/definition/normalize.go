@@ -13,7 +13,7 @@ import (
 // maxDefBytes caps a definition file (a decode-bomb defence; a real def is small).
 const maxDefBytes = 512 << 10
 
-// Parse turns helmsman.yaml bytes into a validated, typed App Definition. It is the
+// Parse turns mooring.yaml bytes into a validated, typed App Definition. It is the
 // parser-differential-resistant chokepoint (plan §7.7):
 //   - reject YAML anchors, aliases, and merge keys (<<) — they let one parser see a
 //     different document than another, smuggling a key past validation;
@@ -46,7 +46,7 @@ func Kind(raw []byte) (string, error) {
 	return env.Kind, nil
 }
 
-// PeekMetadata leniently reads metadata.slug + metadata.name from a helmsman file —
+// PeekMetadata leniently reads metadata.slug + metadata.name from a mooring file —
 // just enough to label a multi-file repo's chooser (which file → which app). It does
 // NOT validate the document; the slug it returns is re-checked by gitstore.Save (the
 // real gate) before any app is created, and the full hardened Parse runs at deploy.
@@ -94,7 +94,7 @@ func hardenAndDecode(raw []byte, target any) error {
 }
 
 // tier1Keys are the security/identity fields that live ONLY in the SSH-edited
-// /etc/helmsman/config.yaml (Tier 1, §7.8). They must never appear in a Tier-2 host
+// /etc/mooring/config.yaml (Tier 1, §7.8). They must never appear in a Tier-2 host
 // or Tier-3 app definition; seeing one is a hard reject with a pointer to SSH — no
 // web/CLI definition route ever touches the key/allowlist/bind (principle 4).
 var tier1Keys = map[string]bool{
@@ -126,7 +126,7 @@ func harden(n *yaml.Node) error {
 			}
 			seen[key.Value] = true
 			if tier1Keys[key.Value] {
-				return fmt.Errorf("%q is a Tier-1 security field — it lives only in /etc/helmsman/config.yaml (SSH-edit), never a host/app definition", key.Value)
+				return fmt.Errorf("%q is a Tier-1 security field — it lives only in /etc/mooring/config.yaml (SSH-edit), never a host/app definition", key.Value)
 			}
 		}
 	}
@@ -140,7 +140,7 @@ func harden(n *yaml.Node) error {
 
 // Canonical re-marshals a definition to canonical YAML (stable field order from the
 // struct) — what is written back to canonical.yaml on every successful apply, so the
-// stored form is always Helmsman's typed render, never the operator's raw bytes.
+// stored form is always Mooring's typed render, never the operator's raw bytes.
 func Canonical(d *Definition) ([]byte, error) { return marshalYAML(d) }
 
 func marshalYAML(v any) ([]byte, error) {

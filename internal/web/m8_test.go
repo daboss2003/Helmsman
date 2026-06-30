@@ -7,11 +7,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/provstore"
+	"github.com/daboss2003/mooring/internal/provstore"
 )
 
 // The single-service "New app" provision FORM was retired: apps are now defined by a
-// repo's helmsman.yaml. GET /apps/new redirects to the repo-connect flow.
+// repo's mooring.yaml. GET /apps/new redirects to the repo-connect flow.
 func TestNewAppRedirectsToRepoConnect(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	sess, _ := e.authed(t)

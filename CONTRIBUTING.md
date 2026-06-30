@@ -1,6 +1,6 @@
-# Contributing to Helmsman
+# Contributing to Mooring
 
-Thanks for your interest in Helmsman. Its **paramount requirement is safety** — hosting Helmsman
+Thanks for your interest in Mooring. Its **paramount requirement is safety** — hosting Mooring
 must never become the thing that gets a server hacked — so the contribution process is built around
 that. Please read this before opening a PR.
 

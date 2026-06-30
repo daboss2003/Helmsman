@@ -1,7 +1,7 @@
-# APT repository (`apt install helmsman`)
+# APT repository (`apt install mooring`)
 
 This is how the project hosts a **signed APT repository** so users can install and
-auto-update Helmsman with `apt`. GoReleaser already builds the `.deb` packages and
+auto-update Mooring with `apt`. GoReleaser already builds the `.deb` packages and
 attaches them (plus GPG-signed checksums) to each GitHub release; this step publishes
 those `.deb`s into an apt repo.
 
@@ -11,33 +11,33 @@ Once the repo is live, installing is three lines:
 
 ```bash
 # 1. Trust the signing key
-curl -fsSL https://daboss2003.github.io/Helmsman/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
+curl -fsSL https://daboss2003.github.io/mooring/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/mooring.gpg
 
 # 2. Add the repo
-echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github.io/Helmsman stable main" \
-  | sudo tee /etc/apt/sources.list.d/helmsman.list
+echo "deb [signed-by=/usr/share/keyrings/mooring.gpg] https://daboss2003.github.io/mooring stable main" \
+  | sudo tee /etc/apt/sources.list.d/mooring.list
 
 # 3. Install (and `apt upgrade` from then on)
-sudo apt update && sudo apt install helmsman
+sudo apt update && sudo apt install mooring
 ```
 
 ## Publishing (maintainers)
 
 The repo is built with [`aptly`](https://www.aptly.info) and signed with the same GPG
 key used for release checksums. Run `deploy/apt/publish.sh <version>` after a release:
-it downloads that release's `.deb`s, adds them to the `helmsman` aptly repo, publishes
+it downloads that release's `.deb`s, adds them to the `mooring` aptly repo, publishes
 a signed `stable` distribution to `./public/`, and exports the public key to
 `./public/gpg.key`.
 
 ### Hosting on GitHub Pages (this project's setup)
 
-The repo is served at `https://daboss2003.github.io/Helmsman/` via GitHub Pages.
+The repo is served at `https://daboss2003.github.io/mooring/` via GitHub Pages.
 Publish `./public/` to the `gh-pages` branch:
 
 ```bash
 GPG_KEY_ID=<your-fingerprint> deploy/apt/publish.sh vX.Y.Z   # writes ./public
 cd public
-git init -b gh-pages && git remote add origin git@github.com:daboss2003/Helmsman.git
+git init -b gh-pages && git remote add origin git@github.com:daboss2003/mooring.git
 git add -A && git commit -m "apt repo vX.Y.Z" && git push -f origin gh-pages
 ```
 

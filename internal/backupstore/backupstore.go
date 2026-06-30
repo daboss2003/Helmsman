@@ -1,7 +1,7 @@
-// Package backupstore manages Helmsman's own-state backups: a consistent snapshot of
+// Package backupstore manages Mooring's own-state backups: a consistent snapshot of
 // the SQLite database (via VACUUM INTO), AES-256-GCM-encrypted with the master key
 // (the chunked, tamper-evident stream from internal/backup), written under the data
-// dir and recorded in a catalog. This is the "recover Helmsman onto a fresh box"
+// dir and recorded in a catalog. This is the "recover Mooring onto a fresh box"
 // backup — it carries every app's config, definitions, edge routes, and (already-
 // encrypted) secrets. App-internal data volumes are a separate snapshot type.
 package backupstore
@@ -20,8 +20,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/backup"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/backup"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 var idRe = regexp.MustCompile(`^[a-f0-9]{24}$`)
@@ -68,7 +68,7 @@ func (s *Store) Create(ctx context.Context, now time.Time) (Record, error) {
 		return Record{}, err
 	}
 	tmp := filepath.Join(s.dir, "."+id+".snapshot")
-	final := filepath.Join(s.dir, id+".hmbk")
+	final := filepath.Join(s.dir, id+".mbk")
 	// Register cleanup BEFORE the snapshot, so a VACUUM that fails mid-write (disk full,
 	// I/O error, cancellation) can't leave a partial PLAINTEXT copy of the DB behind.
 	defer os.Remove(tmp)
@@ -106,7 +106,7 @@ func (s *Store) Create(ctx context.Context, now time.Time) (Record, error) {
 		os.Remove(final)
 		return Record{}, err
 	}
-	rec := Record{ID: id, CreatedAt: now.Unix(), SizeBytes: size, File: id + ".hmbk", SHA256: sum, Kind: "helmsman-state"}
+	rec := Record{ID: id, CreatedAt: now.Unix(), SizeBytes: size, File: id + ".mbk", SHA256: sum, Kind: "mooring-state"}
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO backups(id, created_at, size_bytes, file, sha256, kind, note) VALUES(?, ?, ?, ?, ?, ?, '')`,
 		rec.ID, rec.CreatedAt, rec.SizeBytes, rec.File, rec.SHA256, rec.Kind); err != nil {
@@ -154,7 +154,7 @@ func (s *Store) Get(ctx context.Context, id string) (Record, bool, error) {
 }
 
 // FilePath returns the absolute path of a record's archive, confined to the backups
-// dir (the stored file name is always a generated <id>.hmbk, never user input).
+// dir (the stored file name is always a generated <id>.mbk, never user input).
 func (s *Store) FilePath(r Record) string { return filepath.Join(s.dir, filepath.Base(r.File)) }
 
 // Delete removes the archive file and the catalog row.

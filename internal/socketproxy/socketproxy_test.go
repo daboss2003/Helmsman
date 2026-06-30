@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The embedded, Helmsman-owned proxy must stay locked down: loopback-only, capability-
+// The embedded, Mooring-owned proxy must stay locked down: loopback-only, capability-
 // stripped, and deny-by-default (only the read verbs enabled). This guards the one
 // component that fronts the docker socket from silently gaining write authority.
 // NOTE: read_only on the rootfs is deliberately NOT asserted — the haproxy-based image
@@ -19,7 +19,7 @@ func TestEmbeddedProxyIsLockedDown(t *testing.T) {
 	for _, must := range []string{
 		"127.0.0.1:2375:2375",                          // loopback bind only
 		"/var/run/docker.sock:/var/run/docker.sock:ro", // read-only socket mount
-		"cap_drop:",                                    // capabilities stripped
+		"cap_drop:", // capabilities stripped
 		"no-new-privileges:true",
 		`CONTAINERS: "1"`, `INFO: "1"`, `VERSION: "1"`, // read verbs allowed
 		`POST: "0"`, `EXEC: "0"`, `IMAGES: "0"`, `VOLUMES: "0"`, `NETWORKS: "0"`, `BUILD: "0"`, // write verbs denied
@@ -36,7 +36,7 @@ func TestEmbeddedProxyIsLockedDown(t *testing.T) {
 	}
 }
 
-// Helmsman auto-pulls and runs this image at boot with the raw docker socket mounted
+// Mooring auto-pulls and runs this image at boot with the raw docker socket mounted
 // in, so a mutable :tag would be a supply-chain swap into root. It MUST be digest-
 // pinned (matches the project's rule for setup.image and the Caddy binary).
 func TestEmbeddedProxyImageIsDigestPinned(t *testing.T) {

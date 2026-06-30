@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/netip"
 
-	"github.com/daboss2003/Helmsman/internal/session"
+	"github.com/daboss2003/mooring/internal/session"
 )
 
 type ctxKey int

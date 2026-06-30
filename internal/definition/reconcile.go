@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/builder"
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/edge"
-	"github.com/daboss2003/Helmsman/internal/provision"
+	"github.com/daboss2003/mooring/internal/builder"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/edge"
+	"github.com/daboss2003/mooring/internal/provision"
 )
 
 // memSizeRe matches a compose/docker byte-size string (mem_limit / mem_reservation):
@@ -61,7 +61,7 @@ func toProvisionSpec(d *Definition) provision.Spec {
 			MemLimit: svc.MemLimit, MemReservation: svc.MemReservation, StopGracePeriod: svc.StopGracePeriod,
 		}
 		if svc.Build != nil {
-			// Helmsman generates the Dockerfile into the run dir at deploy; the compose
+			// Mooring generates the Dockerfile into the run dir at deploy; the compose
 			// build context is the app's checkout (".").
 			s.Build = &provision.Build{Context: ".", Dockerfile: builder.DockerfilePath(name)}
 		} else {
@@ -73,7 +73,7 @@ func toProvisionSpec(d *Definition) provision.Spec {
 		for _, v := range svc.Volumes {
 			s.Volumes = append(s.Volumes, provision.Volume{Name: v.Name, Source: v.Source, Target: v.Target, ReadOnly: v.ReadOnly})
 		}
-		// Managed config-file / secret-file mounts (Helmsman renders the content into
+		// Managed config-file / secret-file mounts (Mooring renders the content into
 		// the run dir at deploy; here we emit the read-only bind into the compose).
 		for i, cf := range svc.ConfigFiles {
 			s.Volumes = append(s.Volumes, provision.Volume{Source: ManagedConfigPath(name, i), Target: cf.Mount, ReadOnly: true})
@@ -99,11 +99,11 @@ func toProvisionSpec(d *Definition) provision.Spec {
 }
 
 // ComposeBytes returns the compose document this definition would deploy: ALWAYS
-// generated from the typed services — Helmsman owns the compose. There is no raw
+// generated from the typed services — Mooring owns the compose. There is no raw
 // (repo_path/inline) source.
 func ComposeBytes(d *Definition) ([]byte, error) {
 	if src := d.Spec.Compose.Source; src != "" && src != SourceGenerated {
-		return nil, fmt.Errorf("compose.source %q is not supported — Helmsman generates the compose", src)
+		return nil, fmt.Errorf("compose.source %q is not supported — Mooring generates the compose", src)
 	}
 	ps := toProvisionSpec(d)
 	if err := ps.Validate(); err != nil { // field-level gate before generation

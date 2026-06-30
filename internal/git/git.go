@@ -14,8 +14,8 @@ import (
 
 // Ref names. The object store is per-app, so a single staged/deployed ref each.
 const (
-	StagedRef   = "refs/helmsman/staged"
-	DeployedRef = "refs/helmsman/deployed"
+	StagedRef   = "refs/mooring/staged"
+	DeployedRef = "refs/mooring/deployed"
 )
 
 const (
@@ -180,7 +180,7 @@ func (r *Repo) LsFiles(ctx context.Context, sha string) ([]string, error) {
 }
 
 // LsTreeRoot lists the names directly under the commit's ROOT tree (NOT recursive),
-// so callers that only care about top-level files (e.g. the helmsman*.yaml discovery)
+// so callers that only care about top-level files (e.g. the mooring*.yaml discovery)
 // never depend on a capped full-tree walk that could drop a root entry behind 5000
 // nested files. Bounded by the number of root entries (and the shared output cap).
 func (r *Repo) LsTreeRoot(ctx context.Context, sha string) ([]string, error) {
@@ -201,7 +201,7 @@ func (r *Repo) SetDeployedRef(ctx context.Context, sha string) error {
 	return nil
 }
 
-// RefSha returns the sha a local helmsman ref points at, or "" if unset.
+// RefSha returns the sha a local mooring ref points at, or "" if unset.
 func (r *Repo) RefSha(ctx context.Context, ref string) string {
 	out, _, err := r.run(ctx, nil, "rev-parse", "--verify", "--quiet", ref)
 	if err != nil {

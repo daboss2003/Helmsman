@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // RouteStore persists the declarative app_routes set (Layer 1). The edge config is
@@ -17,12 +17,12 @@ type RouteStore struct{ db *store.DB }
 func NewRouteStore(db *store.DB) *RouteStore { return &RouteStore{db: db} }
 
 // ReplaceProject atomically replaces all of one project's routes with the given set
-// — the deploy-time op so a repo's helmsman.yaml is the source of truth for its edge
+// — the deploy-time op so a repo's mooring.yaml is the source of truth for its edge
 // routes. Each route is validated first; a cross-app hostname collision trips the
 // UNIQUE(hostname, path_prefix) constraint and fails the whole transaction (nothing
 // changes), so a deploy can't hijack another app's hostname. Callers should only
 // invoke this when the definition DECLARES routes, so an app whose routes are managed
-// in the dashboard (none in helmsman.yaml) is never silently wiped.
+// in the dashboard (none in mooring.yaml) is never silently wiped.
 func (s *RouteStore) ReplaceProject(ctx context.Context, project string, routes []Route) error {
 	for i := range routes {
 		routes[i].AppID = project

@@ -180,7 +180,7 @@ func postTextWith(ctx context.Context, client *http.Client, target, body string,
 }
 
 // loopbackClient dials ONLY loopback — the inverse of guardedClient. It is used solely
-// by the managed-ntfy channel, whose publish target is Helmsman's OWN ntfy on
+// by the managed-ntfy channel, whose publish target is Mooring's OWN ntfy on
 // 127.0.0.1 (which guardedClient rightly blocks for every operator-supplied channel).
 // The positive loopback check means even a tampered config can't turn it into an
 // off-host SSRF.
@@ -235,7 +235,7 @@ func (c webhookChannel) Send(ctx context.Context, n Notification) error {
 	if c.Secret != "" {
 		mac := hmac.New(sha256.New, []byte(c.Secret))
 		mac.Write(b)
-		hdr["X-Helmsman-Signature"] = "sha256=" + hex.EncodeToString(mac.Sum(nil))
+		hdr["X-Mooring-Signature"] = "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	}
 	return postJSON(ctx, c.URL, json.RawMessage(b), hdr)
 }
@@ -273,8 +273,8 @@ func (c ntfyChannel) Send(ctx context.Context, n Notification) error {
 	return postText(ctx, target, n.Body, hdr)
 }
 
-// ntfyManagedChannel publishes to Helmsman's OWN managed ntfy over loopback. URL is set
-// by Helmsman (a 127.0.0.1 publish endpoint), Token is the WRITE-only token. SubUser,
+// ntfyManagedChannel publishes to Mooring's OWN managed ntfy over loopback. URL is set
+// by Mooring (a 127.0.0.1 publish endpoint), Token is the WRITE-only token. SubUser,
 // SubPass and BaseURL are carried so the dashboard can show the operator how to
 // subscribe; they are not used to send (the struct lists them so DisallowUnknownFields
 // accepts the config). Send re-checks the target is loopback and uses the loopback-only

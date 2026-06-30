@@ -2,7 +2,7 @@
 {{template "nav" .}}
 <main class="wrap">
   <h1><span>Apps</span></h1>
-  <p class="muted">Every app Helmsman manages. Open one to view logs and start, stop, restart, or redeploy it.</p>
+  <p class="muted">Every app Mooring manages. Open one to view logs and start, stop, restart, or redeploy it.</p>
 
   <section class="panel">
     <h2><span>All apps {{if .AppsRows}}<span class="muted">({{len .AppsRows}})</span>{{end}}</span> <a href="/git/new" class="btn btn-sm btn-primary">+ New app</a></h2>
@@ -26,7 +26,7 @@
       </tbody>
     </table></div>
     {{else}}
-    <p class="muted">No apps yet. <a href="/git/new">Connect a repo</a> — Helmsman reads its <code>helmsman.yaml</code> (and scaffolds a starter if it has none) and deploys it.</p>
+    <p class="muted">No apps yet. <a href="/git/new">Connect a repo</a> — Mooring reads its <code>mooring.yaml</code> (and scaffolds a starter if it has none) and deploys it.</p>
     {{end}}
   </section>
 </main>

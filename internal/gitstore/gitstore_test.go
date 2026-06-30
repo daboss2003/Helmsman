@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -52,53 +52,53 @@ func TestSaveGetRoundTrip(t *testing.T) {
 	}
 }
 
-// HelmsmanFile drives WHICH file in a multi-file repo is this app's definition. It
-// round-trips, defaults to helmsman.yaml on a fresh insert, and an empty value on a
+// MooringFile drives WHICH file in a multi-file repo is this app's definition. It
+// round-trips, defaults to mooring.yaml on a fresh insert, and an empty value on a
 // later Save KEEPS the stored one (the basic edit form never round-trips it).
-func TestHelmsmanFileRoundTripAndKeep(t *testing.T) {
+func TestMooringFileRoundTripAndKeep(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	// Fresh insert with no file → default helmsman.yaml.
+	// Fresh insert with no file → default mooring.yaml.
 	if err := s.Save(ctx, SaveInput{Project: "plain", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never"}); err != nil {
 		t.Fatal(err)
 	}
-	if c, _, _ := s.Get("plain"); c.HelmsmanFile != "helmsman.yaml" {
-		t.Errorf("default helmsman file = %q, want helmsman.yaml", c.HelmsmanFile)
+	if c, _, _ := s.Get("plain"); c.MooringFile != "mooring.yaml" {
+		t.Errorf("default mooring file = %q, want mooring.yaml", c.MooringFile)
 	}
 
 	// Insert with a variant.
-	if err := s.Save(ctx, SaveInput{Project: "stg", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never", HelmsmanFile: "helmsman.staging.yaml"}); err != nil {
+	if err := s.Save(ctx, SaveInput{Project: "stg", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never", MooringFile: "mooring.staging.yaml"}); err != nil {
 		t.Fatal(err)
 	}
-	if c, _, _ := s.Get("stg"); c.HelmsmanFile != "helmsman.staging.yaml" {
-		t.Fatalf("helmsman file = %q, want helmsman.staging.yaml", c.HelmsmanFile)
+	if c, _, _ := s.Get("stg"); c.MooringFile != "mooring.staging.yaml" {
+		t.Fatalf("mooring file = %q, want mooring.staging.yaml", c.MooringFile)
 	}
 	// A later edit that omits the file must KEEP the stored variant.
 	if err := s.Save(ctx, SaveInput{Project: "stg", RepoURL: "https://github.com/o/r2.git", Ref: "refs/heads/main", BuildPolicy: "never"}); err != nil {
 		t.Fatal(err)
 	}
-	if c, _, _ := s.Get("stg"); c.HelmsmanFile != "helmsman.staging.yaml" {
-		t.Errorf("after edit helmsman file = %q, want it KEPT as helmsman.staging.yaml", c.HelmsmanFile)
+	if c, _, _ := s.Get("stg"); c.MooringFile != "mooring.staging.yaml" {
+		t.Errorf("after edit mooring file = %q, want it KEPT as mooring.staging.yaml", c.MooringFile)
 	}
 
 	// A bogus file is rejected.
-	if err := s.Save(ctx, SaveInput{Project: "bad", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never", HelmsmanFile: "../etc/passwd"}); err == nil {
-		t.Error("expected rejection of a traversal helmsman file path")
+	if err := s.Save(ctx, SaveInput{Project: "bad", RepoURL: "https://github.com/o/r.git", Ref: "refs/heads/main", BuildPolicy: "never", MooringFile: "../etc/passwd"}); err == nil {
+		t.Error("expected rejection of a traversal mooring file path")
 	}
 }
 
-func TestValidHelmsmanFile(t *testing.T) {
-	good := []string{"helmsman.yaml", "helmsman.yml", "helmsman.staging.yaml", "helmsman.prod.yml", "helmsman.us-east-1.yaml"}
-	bad := []string{"", "Helmsman.yaml", "helmsman.YAML", "compose.yaml", "dir/helmsman.yaml", "../helmsman.yaml", "helmsman.yaml.bak", "helmsman..yaml", "helmsman.staging.json"}
+func TestValidMooringFile(t *testing.T) {
+	good := []string{"mooring.yaml", "mooring.yml", "mooring.staging.yaml", "mooring.prod.yml", "mooring.us-east-1.yaml"}
+	bad := []string{"", "Mooring.yaml", "mooring.YAML", "compose.yaml", "dir/mooring.yaml", "../mooring.yaml", "mooring.yaml.bak", "mooring..yaml", "mooring.staging.json"}
 	for _, g := range good {
-		if !ValidHelmsmanFile(g) {
-			t.Errorf("ValidHelmsmanFile(%q) = false, want true", g)
+		if !ValidMooringFile(g) {
+			t.Errorf("ValidMooringFile(%q) = false, want true", g)
 		}
 	}
 	for _, b := range bad {
-		if ValidHelmsmanFile(b) {
-			t.Errorf("ValidHelmsmanFile(%q) = true, want false", b)
+		if ValidMooringFile(b) {
+			t.Errorf("ValidMooringFile(%q) = true, want false", b)
 		}
 	}
 }

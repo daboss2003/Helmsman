@@ -11,7 +11,7 @@ import (
 )
 
 func TestGenerateDeployKeyRoundTrips(t *testing.T) {
-	k, err := GenerateDeployKey("helmsman:my-app")
+	k, err := GenerateDeployKey("mooring:my-app")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestGenerateDeployKeyRoundTrips(t *testing.T) {
 		t.Error("public line does not match the generated private key")
 	}
 	// Two keys differ.
-	k2, _ := GenerateDeployKey("helmsman:my-app")
+	k2, _ := GenerateDeployKey("mooring:my-app")
 	if k2.PublicLine == k.PublicLine {
 		t.Error("two generated keys must differ")
 	}
@@ -123,7 +123,7 @@ func TestCreateDeployKey(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(srv.Client(), srv.URL, srv.URL)
-	if err := c.CreateDeployKey(context.Background(), "gho_X", "octocat", "app", "helmsman:app", "ssh-ed25519 AAAA x"); err != nil {
+	if err := c.CreateDeployKey(context.Background(), "gho_X", "octocat", "app", "mooring:app", "ssh-ed25519 AAAA x"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	// A duplicate key (422) maps to ErrKeyExists (treat as already-installed).

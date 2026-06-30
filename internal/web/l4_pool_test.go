@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/l4"
+	"github.com/daboss2003/mooring/internal/l4"
 )
 
 // DiscoverL4Pools keeps running replicas of the route's (project, service), attaches the

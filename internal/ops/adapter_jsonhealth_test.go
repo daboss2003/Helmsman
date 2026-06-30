@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/opsclient"
+	"github.com/daboss2003/mooring/internal/opsclient"
 )
 
 // The registry seam is real: the second built-in adapter is registered and

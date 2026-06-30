@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 func newRouteStore(t *testing.T) *RouteStore {
@@ -49,7 +49,7 @@ func TestRouteStoreRejectsControlPlaneUpstream(t *testing.T) {
 	}
 }
 
-// ReplaceProject makes helmsman.yaml the source of truth: it swaps one project's
+// ReplaceProject makes mooring.yaml the source of truth: it swaps one project's
 // routes atomically and never touches another project's, and a cross-app hostname
 // collision is rejected (the original owner survives).
 func TestReplaceProject(t *testing.T) {

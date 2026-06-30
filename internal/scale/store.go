@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // Store persists scaling policies (operator opt-in + thresholds) and controller

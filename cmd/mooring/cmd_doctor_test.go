@@ -12,7 +12,7 @@ func TestCheckBinary(t *testing.T) {
 	if got := checkBinary("sh", "shell", "fix"); got.state != "ok" {
 		t.Errorf("sh should be ok, got %q", got.state)
 	}
-	missing := checkBinary("helmsman-no-such-binary-xyz", "thing", "do the fix")
+	missing := checkBinary("mooring-no-such-binary-xyz", "thing", "do the fix")
 	if missing.state != "fail" {
 		t.Errorf("missing binary should fail, got %q", missing.state)
 	}
@@ -25,7 +25,7 @@ func TestCheckBinary(t *testing.T) {
 // An absent unit (or no systemctl, e.g. on the macOS dev box) must report "ok" — never
 // a false alarm. (Only an active/enabled unit is a "fail"; can't assert that portably.)
 func TestCheckDistroServiceNoFalseAlarm(t *testing.T) {
-	r := checkDistroService("helmsman-no-such-service-xyz", ":80/:443")
+	r := checkDistroService("mooring-no-such-service-xyz", ":80/:443")
 	if r.state != "ok" {
 		t.Errorf("absent distro service = %q, want ok (no false alarm)", r.state)
 	}
@@ -33,7 +33,7 @@ func TestCheckDistroServiceNoFalseAlarm(t *testing.T) {
 
 func TestReportPrint(t *testing.T) {
 	var r report
-	r.add(result{"caddy", "fail", "MISSING", "sudo helmsman setup --yes"})
+	r.add(result{"caddy", "fail", "MISSING", "sudo mooring setup --yes"})
 	r.add(result{"docker", "ok", "found", ""})
 	if !r.hasFail() {
 		t.Error("hasFail should be true")
@@ -44,7 +44,7 @@ func TestReportPrint(t *testing.T) {
 	if !strings.Contains(out, "✗ caddy") || !strings.Contains(out, "✓ docker") {
 		t.Errorf("missing status icons:\n%s", out)
 	}
-	if !strings.Contains(out, "→ sudo helmsman setup --yes") {
+	if !strings.Contains(out, "→ sudo mooring setup --yes") {
 		t.Errorf("fix hint not printed for a failing check:\n%s", out)
 	}
 	// An ok check must not print a fix arrow.

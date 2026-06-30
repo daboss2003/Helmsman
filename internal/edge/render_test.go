@@ -8,7 +8,7 @@ import (
 
 func baseCfg() BaseConfig {
 	return BaseConfig{
-		AdminListen: "unix//run/helmsman/caddy-admin.sock",
+		AdminListen: "unix//run/mooring/caddy-admin.sock",
 		ACMEEmail:   "ops@example.com", ACMECA: "https://acme.example/directory",
 	}
 }
@@ -30,7 +30,7 @@ func mustRender(t *testing.T, base BaseConfig, routes []Route) map[string]any {
 // directory + trusted roots); everything else stays on the default issuer.
 func TestRenderPerCAPolicies(t *testing.T) {
 	base := baseCfg()
-	base.CAs = []CA{{Name: "internal", DirectoryURL: "https://ca.lan/acme/acme/directory", Email: "pki@lan", TrustedRoots: []string{"/etc/helmsman/internal-ca.pem"}}}
+	base.CAs = []CA{{Name: "internal", DirectoryURL: "https://ca.lan/acme/acme/directory", Email: "pki@lan", TrustedRoots: []string{"/etc/mooring/internal-ca.pem"}}}
 	out, err := Render(base, []Route{
 		{Hostname: "pub.example.com", Upstream: "web:8080", UpstreamScheme: "http", Enabled: true},                 // default CA
 		{Hostname: "api.lan", Upstream: "api:3000", UpstreamScheme: "http", Enabled: true, CA: "internal"},         // private CA
@@ -73,7 +73,7 @@ func TestRenderPerCAPolicies(t *testing.T) {
 	if caBySubject["mqtt.lan"] != "https://ca.lan/acme/acme/directory" {
 		t.Errorf("cert-only mqtt.lan should use the private CA, got %q", caBySubject["mqtt.lan"])
 	}
-	if len(rootsBySubject["api.lan"]) != 1 || rootsBySubject["api.lan"][0] != "/etc/helmsman/internal-ca.pem" {
+	if len(rootsBySubject["api.lan"]) != 1 || rootsBySubject["api.lan"][0] != "/etc/mooring/internal-ca.pem" {
 		t.Errorf("api.lan missing the private CA trusted roots: %v", rootsBySubject["api.lan"])
 	}
 	if caBySubject["pub.example.com"] != "https://acme.example/directory" {

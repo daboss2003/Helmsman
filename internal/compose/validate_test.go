@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const runDir = "/var/lib/helmsman/apps/shop"
+const runDir = "/var/lib/mooring/apps/shop"
 
 func validate(t *testing.T, yaml string, env Env) Result {
 	t.Helper()
@@ -165,12 +165,12 @@ func TestMultiDocumentRejected(t *testing.T) {
 	mustReject(t, "services:\n  web:\n    image: x\n---\nservices:\n  evil:\n    image: y\n    privileged: true\n", nil, "single YAML document")
 }
 
-// review #17: a bind into a Helmsman-protected dir is rejected.
+// review #17: a bind into a Mooring-protected dir is rejected.
 func TestProtectedHostPathRejected(t *testing.T) {
-	r := ValidateBytes([]byte("services:\n  web:\n    image: x\n    volumes:\n      - /var/lib/helmsman:/data\n"),
-		Env{}, "/srv/app", Options{ProtectedPaths: []string{"/var/lib/helmsman", "/etc/helmsman"}})
+	r := ValidateBytes([]byte("services:\n  web:\n    image: x\n    volumes:\n      - /var/lib/mooring:/data\n"),
+		Env{}, "/srv/app", Options{ProtectedPaths: []string{"/var/lib/mooring", "/etc/mooring"}})
 	if r.OK() {
-		t.Error("bind into a protected Helmsman dir was accepted")
+		t.Error("bind into a protected Mooring dir was accepted")
 	}
 }
 
@@ -218,12 +218,12 @@ func TestRejectsReservedHostPortsIPv6(t *testing.T) {
 	}
 }
 
-// §5.6 build-context confinement: a Helmsman-generated build directive (context "."
+// §5.6 build-context confinement: a Mooring-generated build directive (context "."
 // + a run_dir-relative Dockerfile) passes; an abs/traversing context or Dockerfile is
 // rejected so a build can't read or send host files outside the app's checkout.
 func TestBuildContextConfinement(t *testing.T) {
 	ok := []string{
-		"services:\n  web:\n    build:\n      context: .\n      dockerfile: .helmsman/Dockerfile.web\n",
+		"services:\n  web:\n    build:\n      context: .\n      dockerfile: .mooring/Dockerfile.web\n",
 		"services:\n  web:\n    build: ./sub\n",
 	}
 	for _, y := range ok {

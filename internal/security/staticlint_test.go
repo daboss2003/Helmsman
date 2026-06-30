@@ -270,7 +270,7 @@ func findDynamicTemplateConversion(gf goFile) []string {
 // shellExecAllowed: ONLY the setup sandbox may build `<shell> -c <script>` — its
 // purpose is to run the operator's setup script via /bin/sh -c INSIDE a disposable,
 // egress-restricted, non-privileged, dropped-caps container (plan §9); the shell is
-// the sandboxed payload, not a Helmsman command-injection surface. Everything else
+// the sandboxed payload, not a Mooring command-injection surface. Everything else
 // uses static argv with no shell, ever (§15 Phase 2).
 var shellExecAllowed = map[string]bool{"internal/sandbox": true}
 

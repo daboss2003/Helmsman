@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/edge"
-	"github.com/daboss2003/Helmsman/internal/ntfy"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/edge"
+	"github.com/daboss2003/mooring/internal/ntfy"
 )
 
 // hostnameRe matches a fully-qualified DNS hostname (it must resolve to this server for
@@ -25,21 +25,21 @@ func validHostname(h string) bool {
 	return len(h) <= 253 && hostnameRe.MatchString(h)
 }
 
-// provisionManagedNtfy stands up the Helmsman-hosted ntfy for one alert channel: it
-// generates a write token (Helmsman publishes) + a read-only subscriber password (the
+// provisionManagedNtfy stands up the Mooring-hosted ntfy for one alert channel: it
+// generates a write token (Mooring publishes) + a read-only subscriber password (the
 // operator signs into the ntfy app/web UI with username+password), brings the
 // locked-down ntfy container up, exposes it via the managed edge at the operator's
 // hostname (auto-HTTPS), and saves the channel. The container is only ever started
 // here — it is NOT run by default.
 func (s *Server) provisionManagedNtfy(w http.ResponseWriter, r *http.Request, name string) {
 	if name == "" {
-		name = "Helmsman ntfy"
+		name = "Mooring ntfy"
 	}
 	hostname := strings.ToLower(strings.TrimSpace(r.PostFormValue("ntfy_hostname")))
 	topic := strings.TrimSpace(r.PostFormValue("ntfy_topic"))
 
 	if s.runner == nil || s.edgeRoutes == nil || s.edgeRecon == nil {
-		s.redirectAlertsErr(w, r, "Helmsman-hosted ntfy needs the managed edge — it can't expose ntfy without it.")
+		s.redirectAlertsErr(w, r, "Mooring-hosted ntfy needs the managed edge — it can't expose ntfy without it.")
 		return
 	}
 	if !validHostname(hostname) {
@@ -51,7 +51,7 @@ func (s *Server) provisionManagedNtfy(w http.ResponseWriter, r *http.Request, na
 	// Enforce it server-side (the form also hides the option). A same-name resubmit is an
 	// in-place reconfigure and is allowed.
 	if info, ok, _ := s.alertStore.ManagedNtfy(); ok && info.Name != name {
-		s.redirectAlertsErr(w, r, "A Helmsman-hosted ntfy is already configured ("+info.Name+") — delete it first to reconfigure.")
+		s.redirectAlertsErr(w, r, "A Mooring-hosted ntfy is already configured ("+info.Name+") — delete it first to reconfigure.")
 		return
 	}
 	// The first run pulls the image (can exceed WriteTimeout) — exempt this handler.

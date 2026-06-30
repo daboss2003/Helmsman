@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/selfheal"
+	"github.com/daboss2003/mooring/internal/selfheal"
 )
 
 // The Incidents screen is the operator's "what needs me right now" view: it pulls
@@ -56,7 +56,7 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Unhealthy apps from the latest snapshot. Protected/managed projects (the
-	// read-plane proxy) are Helmsman's own infrastructure — surfaced as System tiles,
+	// read-plane proxy) are Mooring's own infrastructure — surfaced as System tiles,
 	// never as operator-actionable incidents.
 	if snap := s.snapshot(); snap != nil {
 		for _, a := range snap.Apps {
@@ -99,7 +99,7 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, r, "incidents.html", tmplData{
-		Title:     "Incidents — Helmsman",
+		Title:     "Incidents — Mooring",
 		CSRFToken: CSRFToken(r.Context()),
 		Incidents: iv,
 	})

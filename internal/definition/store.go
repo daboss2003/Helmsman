@@ -7,11 +7,11 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // ErrTampered means a stored definition's HMAC did not verify (changed outside
-// Helmsman). It is never loaded — fail-closed.
+// Mooring). It is never loaded — fail-closed.
 var ErrTampered = errors.New("definition HMAC mismatch (tampered)")
 
 // Store persists applied canonical definitions (the history; the latest per slug is
@@ -26,7 +26,7 @@ type Store struct {
 // NewStore derives a domain-separated HMAC key from the encryption key.
 func NewStore(db *store.DB, encKey []byte) *Store {
 	h := sha256.New()
-	h.Write([]byte("helmsman/definition-hmac/v1\x00"))
+	h.Write([]byte("mooring/definition-hmac/v1\x00"))
 	h.Write(encKey)
 	return &Store{db: db, key: h.Sum(nil)}
 }

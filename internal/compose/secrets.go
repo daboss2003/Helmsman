@@ -7,7 +7,7 @@ import (
 )
 
 // FileSecret is a compose top-level file-mounted secret (a TLS keypair, a
-// credential file). Helmsman shows these as present/missing by stat only and
+// credential file). Mooring shows these as present/missing by stat only and
 // NEVER reads their contents (plan §7 file-secrets vs env).
 type FileSecret struct {
 	Name string

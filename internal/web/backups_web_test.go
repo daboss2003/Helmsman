@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/backupstore"
+	"github.com/daboss2003/mooring/internal/backupstore"
 )
 
 // withBackups attaches an enabled backup store (same package, so we can set the

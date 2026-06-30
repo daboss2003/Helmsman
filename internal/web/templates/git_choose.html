@@ -4,9 +4,9 @@
   {{with .Discovery}}
   <p><a href="/git/new">← Connect a repository</a></p>
   <h1>Choose a configuration</h1>
-  <p class="muted">This repository has more than one helmsman file. <strong>Each one is its own app
-    instance</strong> — pick the one to deploy now. The plain <code>helmsman.yaml</code> is the default;
-    variants are named by the text between <code>helmsman.</code> and <code>.yaml</code>. You can come back
+  <p class="muted">This repository has more than one mooring file. <strong>Each one is its own app
+    instance</strong> — pick the one to deploy now. The plain <code>mooring.yaml</code> is the default;
+    variants are named by the text between <code>mooring.</code> and <code>.yaml</code>. You can come back
     and connect another one later.</p>
   <p class="muted small mono">{{.RepoURL}} @ {{.Ref}}</p>
   {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
@@ -43,7 +43,7 @@
   {{if .Skipped}}
   <section class="panel">
     <h2>Skipped</h2>
-    <p class="muted">These helmsman files were found but can't be deployed as-is. Give each a valid, distinct
+    <p class="muted">These mooring files were found but can't be deployed as-is. Give each a valid, distinct
       <code>metadata.slug</code> (lowercase, e.g. <code>slug: myapp</code>) and reconnect.</p>
     <ul>
       {{range .Skipped}}<li class="mono">{{.Path}} <span class="muted">— {{.Reason}}</span></li>{{end}}

@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -230,7 +230,7 @@ func TestReconcileConcurrentIsSerialized(t *testing.T) {
 // not allowed: unix"; an empty Origin → 403 "client is not allowed to access from
 // origin ”". So base host and origin host must both be allowed.
 func TestUnixAdminHostIsAllowedOrigin(t *testing.T) {
-	a := NewAdmin("unix//run/helmsman/caddy-admin.sock")
+	a := NewAdmin("unix//run/mooring/caddy-admin.sock")
 	allowed := map[string]bool{"http://127.0.0.1": true, "http://[::1]": true, "http://localhost": true}
 	if !allowed[a.base] {
 		t.Errorf("unix admin base = %q — its Host is not in Caddy's admin origin allow-list, so /load is 403'd (host not allowed). want one of %v", a.base, allowed)

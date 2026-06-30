@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const goodDef = `apiVersion: helmsman/v1
+const goodDef = `apiVersion: mooring/v1
 kind: App
 metadata:
   slug: shop
@@ -48,8 +48,8 @@ func TestParseHappyPath(t *testing.T) {
 
 func TestParseRejectsBadEnvelope(t *testing.T) {
 	cases := map[string]string{
-		"wrong apiVersion":  strings.Replace(goodDef, "helmsman/v1", "helmsman/v2", 1),
-		"future apiVersion": strings.Replace(goodDef, "helmsman/v1", "helmsman/v1beta", 1),
+		"wrong apiVersion":  strings.Replace(goodDef, "mooring/v1", "mooring/v2", 1),
+		"future apiVersion": strings.Replace(goodDef, "mooring/v1", "mooring/v1beta", 1),
 		"wrong kind":        strings.Replace(goodDef, "kind: App", "kind: Host", 1),
 		"bad slug":          strings.Replace(goodDef, "slug: shop", "slug: Shop_Bad", 1),
 	}
@@ -64,33 +64,33 @@ func TestParseRejectsBadEnvelope(t *testing.T) {
 // keys, and a second document are hard-rejected (independent of compose content).
 func TestParseRejectsParserDifferentialConstructs(t *testing.T) {
 	cases := map[string]string{
-		"anchor+alias": `apiVersion: helmsman/v1
+		"anchor+alias": `apiVersion: mooring/v1
 kind: App
 metadata: &m
   slug: shop
 spec:
   compose: { source: generated, services: {web: {image: nginx:1}} }
 extra: *m`,
-		"merge key": `apiVersion: helmsman/v1
+		"merge key": `apiVersion: mooring/v1
 kind: App
 metadata:
   slug: shop
   <<: {kind: Host}
 spec:
   compose: { source: generated, services: {web: {image: nginx:1}} }`,
-		"duplicate key": `apiVersion: helmsman/v1
+		"duplicate key": `apiVersion: mooring/v1
 kind: App
 kind: Host
 metadata: { slug: shop }
 spec:
   compose: { source: generated, services: {web: {image: nginx:1}} }`,
-		"unknown key": `apiVersion: helmsman/v1
+		"unknown key": `apiVersion: mooring/v1
 kind: App
 metadata: { slug: shop }
 spec:
   compose: { source: generated, services: {web: {image: nginx:1}} }
   danger: true`,
-		"second document": goodDef + "\n---\napiVersion: helmsman/v1\nkind: App\nmetadata: {slug: evil}\nspec: {compose: {source: generated, services: {web: {image: nginx:1}}}}\n",
+		"second document": goodDef + "\n---\napiVersion: mooring/v1\nkind: App\nmetadata: {slug: evil}\nspec: {compose: {source: generated, services: {web: {image: nginx:1}}}}\n",
 	}
 	for name, src := range cases {
 		if _, err := Parse([]byte(src)); err == nil {
@@ -99,21 +99,21 @@ spec:
 	}
 }
 
-// Helmsman owns the compose: legacy repo_path/inline, compose.path, an unknown source,
+// Mooring owns the compose: legacy repo_path/inline, compose.path, an unknown source,
 // and a service-less generated compose are all rejected.
 func TestParseRejectsLegacyComposeSources(t *testing.T) {
 	bad := map[string]string{
-		"inline source": `apiVersion: helmsman/v1
+		"inline source": `apiVersion: mooring/v1
 kind: App
 metadata: {slug: shop}
 spec:
   compose: { source: inline, inline: "services: {}" }`,
-		"repo_path source": `apiVersion: helmsman/v1
+		"repo_path source": `apiVersion: mooring/v1
 kind: App
 metadata: {slug: shop}
 spec:
   compose: { source: repo_path, path: docker-compose.yml }`,
-		"compose.path set": `apiVersion: helmsman/v1
+		"compose.path set": `apiVersion: mooring/v1
 kind: App
 metadata: {slug: shop}
 spec:
@@ -121,12 +121,12 @@ spec:
     source: generated
     path: docker-compose.yml
     services: {web: {image: nginx:1}}`,
-		"unknown source": `apiVersion: helmsman/v1
+		"unknown source": `apiVersion: mooring/v1
 kind: App
 metadata: {slug: shop}
 spec:
   compose: { source: magic, services: {web: {image: nginx:1}} }`,
-		"no services": `apiVersion: helmsman/v1
+		"no services": `apiVersion: mooring/v1
 kind: App
 metadata: {slug: shop}
 spec:
@@ -134,7 +134,7 @@ spec:
 	}
 	for name, src := range bad {
 		if _, err := Parse([]byte(src)); err == nil {
-			t.Errorf("%s: must be rejected (Helmsman owns the compose; generated-only)", name)
+			t.Errorf("%s: must be rejected (Mooring owns the compose; generated-only)", name)
 		}
 	}
 }
@@ -142,7 +142,7 @@ spec:
 func TestParseRejectsControlPlanePortAndBadRefs(t *testing.T) {
 	cases := map[string]string{
 		"control-plane service port": strings.Replace(goodDef, "internal: 8080", "internal: 9000", 1),
-		"undeclared secret ref": `apiVersion: helmsman/v1
+		"undeclared secret ref": `apiVersion: mooring/v1
 kind: App
 metadata: {slug: shop}
 spec:
@@ -153,7 +153,7 @@ spec:
         image: nginx:1
         env:
           TOK: { secret: NOPE }`,
-		"edge route literal (no service)": `apiVersion: helmsman/v1
+		"edge route literal (no service)": `apiVersion: mooring/v1
 kind: App
 metadata: {slug: shop}
 spec:

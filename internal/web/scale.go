@@ -7,11 +7,11 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/scale"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/scale"
 )
 
 // Scale makes *Server the auto-scaler's Scaler: it changes a service's replica count
@@ -92,7 +92,7 @@ func (s *Server) handleScalingSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Write-back: a dashboard edit updates the CANONICAL helmsman.yaml (the source of
+	// Write-back: a dashboard edit updates the CANONICAL mooring.yaml (the source of
 	// truth) and reconciles the scale store FROM it — so editing here is the same as
 	// editing the file. If the app has no canonical yet (never deployed under the
 	// canonical store), fall back to writing the projection directly.

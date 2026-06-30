@@ -5,7 +5,7 @@
   <p><a href="/apps/{{pathEscape .Project}}">← {{.Project}}</a></p>
   <h1>Setup script — {{.Project}} <span class="badge">Mode 3 · advanced</span></h1>
   <div class="error" role="alert">
-    ⚠ A setup script runs operator-supplied code. Helmsman runs it ONLY in a throwaway, unprivileged,
+    ⚠ A setup script runs operator-supplied code. Mooring runs it ONLY in a throwaway, unprivileged,
     no-network, no-docker.sock, read-only jail whose posture is self-tested before every run, and treats
     all output as hostile data. It still bootstraps an APP only — it can never stand up the edge or reach
     the host. Off by default.
@@ -23,9 +23,9 @@
   </section>
 
   <section class="panel">
-    <h2>Script <span class="muted">(declared in <code>helmsman.yaml</code> · <code>spec.setup</code>)</span></h2>
-    <p class="muted">The setup script is part of your <code>helmsman.yaml</code> — you don't type it here.
-      Upload your <code>helmsman.yaml</code> to sync <code>spec.setup</code> into Helmsman; running it is a
+    <h2>Script <span class="muted">(declared in <code>mooring.yaml</code> · <code>spec.setup</code>)</span></h2>
+    <p class="muted">The setup script is part of your <code>mooring.yaml</code> — you don't type it here.
+      Upload your <code>mooring.yaml</code> to sync <code>spec.setup</code> into Mooring; running it is a
       separate, confirmed step below.</p>
     {{if .Script}}
     <div class="table-scroll"><table class="grid"><tbody>
@@ -38,10 +38,10 @@
     {{end}}
     <form method="post" action="/apps/{{pathEscape .Project}}/setup/sync" class="stack" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <label>helmsman.yaml <span class="muted">(only <code>spec.setup</code> is read)</span>
+      <label>mooring.yaml <span class="muted">(only <code>spec.setup</code> is read)</span>
         <input type="file" name="definition" accept=".yaml,.yml" required></label>
       <div class="queue-actions">
-        <button type="submit">Sync from helmsman.yaml</button>
+        <button type="submit">Sync from mooring.yaml</button>
         {{if .Script}}
         <form method="post" action="/apps/{{pathEscape .Project}}/setup/delete" class="inline" data-confirm="Delete the synced setup script for {{.Project}}?">
           <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">

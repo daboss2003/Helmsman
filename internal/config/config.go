@@ -1,4 +1,4 @@
-// Package config loads and validates /etc/helmsman/config.yaml — the root of
+// Package config loads and validates /etc/mooring/config.yaml — the root of
 // trust (plan §5.1). Everything here is fail-closed: any precondition violation
 // returns an error and the binary refuses to boot. No web route ever reads or
 // writes this file; it is edited only over SSH.
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/mooring/internal/crypto"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,7 +24,7 @@ import (
 var edgeCANameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 
 // DefaultPath is where the root-of-trust config lives in production.
-const DefaultPath = "/etc/helmsman/config.yaml"
+const DefaultPath = "/etc/mooring/config.yaml"
 
 // EdgeMode is the managed/external switch (plan §3.1). Default managed.
 type EdgeMode string
@@ -74,7 +74,7 @@ type Config struct {
 
 	DataDir string `yaml:"data_dir"`
 
-	// ProtectedProjects are Compose projects Helmsman must never start/stop/
+	// ProtectedProjects are Compose projects Mooring must never start/stop/
 	// redeploy (the socket-proxy, and later the edge) — plan §3 protected set.
 	ProtectedProjects []string `yaml:"protected_projects"`
 
@@ -93,7 +93,7 @@ type ServerConfig struct {
 	// FileRoots are directories the operator may browse READ-ONLY in the Server
 	// tab (e.g. an app's log dir). Each needs a stable name (used in the URL).
 	FileRoots []ServerFileRoot `yaml:"file_roots"`
-	// DebCacheDir is the directory the operator downloads Helmsman .deb packages
+	// DebCacheDir is the directory the operator downloads Mooring .deb packages
 	// into; the Server tab can delete OLD ones there (never the running version),
 	// behind password+TOTP re-auth. Must be absolute. It also must be within the
 	// service's writable paths for the delete to succeed (see docs).
@@ -162,7 +162,7 @@ type EdgeConfig struct {
 }
 
 // EdgeCA is an additional ACME issuer — a private/internal CA (e.g. step-ca). A
-// helmsman.yaml edge route or cert binding opts into it by Name; everything else keeps
+// mooring.yaml edge route or cert binding opts into it by Name; everything else keeps
 // using the default edge.acme_ca. Defined ONLY here in the root-of-trust config (an app
 // repo must never be able to introduce a trusted CA).
 type EdgeCA struct {
@@ -192,13 +192,13 @@ type AdminConfig struct {
 	Listen   string `yaml:"listen"`
 }
 
-// DockerConfig points at the read-only docker-socket-proxy (plan §3). Helmsman
+// DockerConfig points at the read-only docker-socket-proxy (plan §3). Mooring
 // NEVER talks to the raw socket; ProxyAddr must be a loopback endpoint.
 //
-// By default Helmsman MANAGES this proxy itself: at boot it brings up the embedded,
-// Helmsman-owned read-only proxy compose so the operator never runs a docker command
-// (they only ever write helmsman.yaml). Set external_proxy: true if you run your own
-// proxy/endpoint at proxy_addr and want Helmsman to leave it alone.
+// By default Mooring MANAGES this proxy itself: at boot it brings up the embedded,
+// Mooring-owned read-only proxy compose so the operator never runs a docker command
+// (they only ever write mooring.yaml). Set external_proxy: true if you run your own
+// proxy/endpoint at proxy_addr and want Mooring to leave it alone.
 type DockerConfig struct {
 	ProxyAddr     string `yaml:"proxy_addr"`
 	ExternalProxy bool   `yaml:"external_proxy"`
@@ -211,7 +211,7 @@ type MonitorConfig struct {
 }
 
 // GitConfig tunes the connected-repo auto-fetch poller. So a repo connected in the
-// dashboard "just works" with no webhook setup, Helmsman fetches every connected repo
+// dashboard "just works" with no webhook setup, Mooring fetches every connected repo
 // on this cadence — READ-PLANE ONLY: the poller never deploys, it just surfaces an
 // "update available" the operator then deploys with a click. (Push-to-deploy stays an
 // explicit opt-in via the webhook + auto_deploy, never the background poller.)
@@ -234,7 +234,7 @@ func (g GitConfig) PollIntervalD() time.Duration {
 // GitHubConfig holds the optional "Connect with GitHub" OAuth App credentials. The
 // operator registers an OAuth App once in their GitHub settings and pastes the id +
 // secret here (install-time, SSH — never a browser). When both are set, the dashboard
-// offers one-click repo connect (pick a repo; Helmsman installs a read-only deploy key
+// offers one-click repo connect (pick a repo; Mooring installs a read-only deploy key
 // for it — no key pasting). Empty = the feature is simply off.
 type GitHubConfig struct {
 	ClientID     string `yaml:"client_id"`
@@ -369,7 +369,7 @@ func applyDefaults(c *Config) {
 		c.ComposeValidation.Mode = EditorStrict
 	}
 	if c.DataDir == "" {
-		c.DataDir = "/var/lib/helmsman"
+		c.DataDir = "/var/lib/mooring"
 	}
 	if c.Docker.ProxyAddr == "" {
 		c.Docker.ProxyAddr = "127.0.0.1:2375"
@@ -467,7 +467,7 @@ func Parse(raw []byte) (*Config, error) {
 // ownership/permission enforcement for LOCAL DEVELOPMENT only. It is read from
 // the environment (never from the config file itself) so the file can never
 // disable its own root-of-trust checks (review #6).
-const DevInsecurePermsEnv = "HELMSMAN_DEV_INSECURE_PERMS"
+const DevInsecurePermsEnv = "MOORING_DEV_INSECURE_PERMS"
 
 func devInsecurePerms() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(DevInsecurePermsEnv)))
@@ -505,7 +505,7 @@ func checkPerms(path string) error {
 	// If the group can read (0640), the group must be the service's own group so
 	// only the service account — not an arbitrary group — can read the master key.
 	// Skip this when running as ROOT (euid 0): root reads regardless of group, and a
-	// root tool (e.g. `sudo helmsman doctor`) is not the service, so os.Getgid() is the
+	// root tool (e.g. `sudo mooring doctor`) is not the service, so os.Getgid() is the
 	// invoking shell's group, not the service's — comparing to it false-alarms. `serve`
 	// runs non-root as the service, so it still enforces this (the real chokepoint).
 	if perm&0o040 != 0 && gid != 0 && os.Geteuid() != 0 && gid != uint32(os.Getgid()) {
@@ -585,12 +585,12 @@ func (c *Config) Validate() error {
 		add("auth.username: required")
 	}
 	if c.Auth.PasswordHash == "" {
-		add("auth.password_hash: required (run `helmsman hash-password`)")
+		add("auth.password_hash: required (run `mooring hash-password`)")
 	} else if _, _, _, err := crypto.ParseArgon2(c.Auth.PasswordHash); err != nil {
 		add("auth.password_hash: %v", err)
 	}
 	if c.Auth.TOTPSecret != "" && !validBase32(c.Auth.TOTPSecret) {
-		add("auth.totp_secret: not valid base32 (run `helmsman gen-totp`)")
+		add("auth.totp_secret: not valid base32 (run `mooring gen-totp`)")
 	}
 
 	// --- bind address: admin UI binds loopback only (plan §3) ---

@@ -1,18 +1,18 @@
-# Helmsman-OWNED read-only docker-socket-proxy (plan §3). This file is EMBEDDED in
-# the binary and written + brought up by Helmsman itself at boot — the operator never
+# Mooring-OWNED read-only docker-socket-proxy (plan §3). This file is EMBEDDED in
+# the binary and written + brought up by Mooring itself at boot — the operator never
 # runs a docker command for it. It is the security boundary for the READ plane: the
-# raw /var/run/docker.sock is mounted ONLY here (read-only), and Helmsman polls
+# raw /var/run/docker.sock is mounted ONLY here (read-only), and Mooring polls
 # container state through this proxy on loopback :2375. Deny-by-default: only the
 # CONTAINERS / INFO / VERSION read verbs are enabled; every write verb stays 0.
 # (Write-plane actions never use this proxy — they shell out to `docker compose`.)
 services:
   docker-socket-proxy:
-    # Digest-PINNED (plan §15): Helmsman auto-pulls and runs this at boot with the raw
+    # Digest-PINNED (plan §15): Mooring auto-pulls and runs this at boot with the raw
     # docker socket mounted in, so its integrity is the read-plane boundary. A mutable
     # :tag would let a registry/tag swap gain socket access — pin by sha256 (this is
     # docker-socket-proxy 0.3.0).
     image: ghcr.io/tecnativa/docker-socket-proxy@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
-    container_name: helmsman-socket-proxy
+    container_name: mooring-socket-proxy
     restart: unless-stopped
     # NOTE: NOT read_only. This image (haproxy-based) renders /usr/local/etc/haproxy/
     # haproxy.cfg from a baked template at startup; a read-only rootfs makes that write

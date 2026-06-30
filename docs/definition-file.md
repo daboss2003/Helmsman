@@ -1,17 +1,17 @@
-# `helmsman.yaml` — Definition File Reference
+# `mooring.yaml` — Definition File Reference
 
-The **definition file** (`helmsman.yaml`) lives in your app's Git repo and is the **single source of truth** for the app. You describe your **stack** — one or more services, each either pulling an image or built from your repo, plus env, secrets (by reference), config files, cert bindings, edge routes, scaling, and GitOps behaviour — and **Helmsman generates and owns the `docker-compose.yml` and the Dockerfile**. You never hand-write a compose file or a Dockerfile.
+The **definition file** (`mooring.yaml`) lives in your app's Git repo and is the **single source of truth** for the app. You describe your **stack** — one or more services, each either pulling an image or built from your repo, plus env, secrets (by reference), config files, cert bindings, edge routes, scaling, and GitOps behaviour — and **Mooring generates and owns the `docker-compose.yml` and the Dockerfile**. You never hand-write a compose file or a Dockerfile.
 
-**To create an app you connect its repo.** There is no dashboard "New app" form; "New app" is the **connect-a-repo** flow. If the repo has no `helmsman.yaml` yet, Helmsman scaffolds a starter from the detected stack so the first deploy works — commit a real one when you want full control.
+**To create an app you connect its repo.** There is no dashboard "New app" form; "New app" is the **connect-a-repo** flow. If the repo has no `mooring.yaml` yet, Mooring scaffolds a starter from the detected stack so the first deploy works — commit a real one when you want full control.
 
-**The dashboard is read-only for the app's deploy-time shape.** A service's image/build, ports, volumes, depends_on, and the **edge & L4 routes** are read from this file — the dashboard *shows* them and you change them by editing `helmsman.yaml` and deploying. The **operational** pieces stay editable in the dashboard (and config files, cert bindings, and scaling can also be declared here, where this file seeds them):
+**The dashboard is read-only for the app's deploy-time shape.** A service's image/build, ports, volumes, depends_on, and the **edge & L4 routes** are read from this file — the dashboard *shows* them and you change them by editing `mooring.yaml` and deploying. The **operational** pieces stay editable in the dashboard (and config files, cert bindings, and scaling can also be declared here, where this file seeds them):
 
 - **secret VALUES** (the env page; this file declares secret *names* only),
 - **config files** and **cert bindings** (you can edit them in the dashboard; declaring them here is optional),
 - the **auto-scaling policy** (operational tuning, set on the service page), and
 - **lifecycle ACTIONS** (deploy / restart / scale-now / pause-resume the queue / clear a self-heal circuit).
 
-Everything reaches the runtime through **one validator** — the same one whether you `helmsman validate` in CI or deploy. Nothing in this file reaches `docker compose` unvalidated. Helmsman's git access is **fetch-only**: it reads your repo at a pinned commit and **never pushes to it**.
+Everything reaches the runtime through **one validator** — the same one whether you `mooring validate` in CI or deploy. Nothing in this file reaches `docker compose` unvalidated. Mooring's git access is **fetch-only**: it reads your repo at a pinned commit and **never pushes to it**.
 
 > **See also:** [README](../README.md) · [Managed config files](./config-files-and-secrets.md) · [Cert bindings](./edge-and-tls.md) · [GitOps](./gitops.md) · [Managed edge & routes](./edge-and-tls.md) · [Secrets](./config-files-and-secrets.md) · [Auto-scaling](./scaling-and-self-healing.md) · [Self-healing](./scaling-and-self-healing.md) · [CLI reference](./cli.md)
 
@@ -50,7 +50,7 @@ Everything reaches the runtime through **one validator** — the same one whethe
 Every definition file is a Kubernetes-style envelope:
 
 ```yaml
-apiVersion: helmsman/v1     # exact-match, fail-closed
+apiVersion: mooring/v1     # exact-match, fail-closed
 kind: App                   # an app definition (the host-level definition uses kind: Host)
 metadata:
   slug: my-app              # immutable after the first deploy
@@ -60,19 +60,19 @@ spec:
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `apiVersion` | string | yes | **Must be exactly `helmsman/v1`.** See the version gate below. |
+| `apiVersion` | string | yes | **Must be exactly `mooring/v1`.** See the version gate below. |
 | `kind` | string | yes | `App` for an app. The host-level definition (`host.yaml`) uses `kind: Host` — see [the host file](./host-file.md). |
 | `metadata.slug` | string | yes | The app identity. `^[a-z][a-z0-9-]{1,30}$`. **Fixed at connect** — the slug is read from the file you connect and becomes the project/run-dir name and secret namespace key. It never changes afterwards: editing `metadata.slug` in the repo is **ignored** on later deploys (the connect-time slug always wins), so a repo can't rename or re-home an app — and can't hijack another app's slug. |
 | `spec` | object | yes | The whole app: services, secrets, edge routes, scaling, self-healing, ops, and GitOps (see [The `spec` sections](#the-spec-sections)). |
 
-> **One repo, several apps.** A repo can hold more than one helmsman file — the plain `helmsman.yaml` plus named variants like `helmsman.staging.yaml` and `helmsman.prod.yaml` — and **each file is deployed as its own app**, identified by its own `metadata.slug`. When you connect such a repo, Helmsman lets you pick which file to deploy (the plain `helmsman.yaml` is the default; variants are labelled by the text between `helmsman.` and `.yaml`); connect again to add another. Give each variant a **distinct slug** (e.g. `myapp-staging`, `myapp-prod`). If you only ever have one `helmsman.yaml`, nothing changes. See [Deploy from Git → Several apps from one repo](./gitops.md#several-apps-from-one-repo).
+> **One repo, several apps.** A repo can hold more than one mooring file — the plain `mooring.yaml` plus named variants like `mooring.staging.yaml` and `mooring.prod.yaml` — and **each file is deployed as its own app**, identified by its own `metadata.slug`. When you connect such a repo, Mooring lets you pick which file to deploy (the plain `mooring.yaml` is the default; variants are labelled by the text between `mooring.` and `.yaml`); connect again to add another. Give each variant a **distinct slug** (e.g. `myapp-staging`, `myapp-prod`). If you only ever have one `mooring.yaml`, nothing changes. See [Deploy from Git → Several apps from one repo](./gitops.md#several-apps-from-one-repo).
 
 ### The version gate is exact-match and fail-closed
 
 `apiVersion` is matched **exactly**. There is no "best-effort parse of a future version," no minor-version tolerance, no forward-compat guessing:
 
-- `helmsman/v1` → accepted.
-- `helmsman/v2`, `helmsman/v1beta1`, `v1`, `helmsman/V1`, anything else → **hard reject at parse**.
+- `mooring/v1` → accepted.
+- `mooring/v2`, `mooring/v1beta1`, `v1`, `mooring/V1`, anything else → **hard reject at parse**.
 
 **Why so strict (the honest trade-off):** a definition file is an input to a security-sensitive reconciler. A parser that *guesses* at an unknown schema is a parser-differential waiting to happen — the same bytes could mean different things to two versions, and that gap is where a key gets smuggled past validation. Exact-match means an old binary never half-understands a newer file, and a hand-typo never silently lands in a degraded interpretation. If you upgrade the schema, you upgrade the binary; the file says exactly which contract it speaks.
 
@@ -80,7 +80,7 @@ spec:
 
 ## How parsing works (and what is rejected)
 
-`helmsman.yaml` is the expected name. The loader also accepts `.yml` and `.toml`, but **all three normalize through one JSON intermediate** into a single typed definition before anything is validated. The format you author in is an input encoding; the typed model is what every validator and generator sees.
+`mooring.yaml` is the expected name. The loader also accepts `.yml` and `.toml`, but **all three normalize through one JSON intermediate** into a single typed definition before anything is validated. The format you author in is an input encoding; the typed model is what every validator and generator sees.
 
 Hard rejections at parse time (fail-closed, every one is a stop, not a warning):
 
@@ -103,21 +103,21 @@ After a clean parse, `${VAR}` / `.env` interpolation is **resolved first** (vali
 
 | Section | What it configures | Default if omitted |
 |---|---|---|
-| `compose` | your **stack** — the services Helmsman generates the compose from | **required** |
+| `compose` | your **stack** — the services Mooring generates the compose from | **required** |
 | `setup` | an advanced per-app setup script | none |
 | `secrets` | secret **names** (declared here; values are set out-of-band) | empty |
 | `edge.routes` | public HTTPS routes (the managed edge) | empty (no public exposure) |
 | `edge.l4_routes` | TCP/UDP stream listeners (the L4 load balancer) | empty |
 | `scaling` | opt-in auto-scaling, one policy per service | disabled |
 | `self_healing` | per-app tuning of the self-healing supervisor | built-in defaults |
-| `ops_interface` | an ops endpoint Helmsman probes for rich health/metrics | disabled |
+| `ops_interface` | an ops endpoint Mooring probes for rich health/metrics | disabled |
 | `git` | GitOps behaviour (repo, ref, auto-deploy) | `auto_deploy: false` |
 
 Per-service, you also declare `env`, `secret_files`, `config_files`, `cert_bindings`, `volumes`, `ops_interface`, and (for built services) `build` — all under `compose.services`, below.
 
 ### `spec.compose`
 
-Helmsman **generates and owns** the compose — `source` is always `generated` (the default; the old
+Mooring **generates and owns** the compose — `source` is always `generated` (the default; the old
 `repo_path`/`inline` sources are gone). You declare your services under `compose.services`, a **map
 keyed by service name**.
 
@@ -150,12 +150,12 @@ compose:
 
 | Field | Notes |
 |---|---|
-| `image` **XOR** `build` | pull a registry image, or have Helmsman build it from your repo (below). Exactly one. |
+| `image` **XOR** `build` | pull a registry image, or have Mooring build it from your repo (below). Exactly one. |
 | `ports` | a list of `{ internal, publish, public, protocol, published }`. `internal` is the container port; omit `publish` for internal-only (the usual case — expose it with an `edge` route). `publish: true` maps it to the host loopback; add `public: true` for all interfaces (e.g. a non-HTTP TLS port like MQTT). `protocol` is `tcp` (default) or `udp` — declare two entries to publish both on one port (e.g. DNS on 53). `published` is the **host** port (defaults to `internal`); set it to map a privileged host port to an unprivileged container port — see below. Control-plane ports (9000/2019/2375) are rejected; host ports 80/443 belong to the edge and are rejected too. |
-| | **Binding privileged ports (<1024) without root:** Helmsman runs containers as non-root, which can't bind ports like 53/853. Instead of running as root, let the container listen on a high port and map the privileged host port to it — Docker's (root) daemon does the privileged bind, your app stays non-root: `{ internal: 8853, published: 853, publish: true, public: true }` → clients reach `:853`, the resolver binds `8853`. |
+| | **Binding privileged ports (<1024) without root:** Mooring runs containers as non-root, which can't bind ports like 53/853. Instead of running as root, let the container listen on a high port and map the privileged host port to it — Docker's (root) daemon does the privileged bind, your app stays non-root: `{ internal: 8853, published: 853, publish: true, public: true }` → clients reach `:853`, the resolver binds `8853`. |
 | `env` | a **map**: `KEY: value` (a non-secret literal, rendered inline) or `KEY: { secret: NAME }` (a reference to a declared secret, resolved from the encrypted store at deploy — the value never touches the YAML). A literal containing `${…}` is rejected (use a secret reference). |
 | `secret_files` | a list of declared secret names; each is written to a file and mounted at `/run/secrets/<name>` (the `*_FILE` pattern). |
-| `config_files` | app config files Helmsman renders and bind-mounts read-only — see [`config_files`](#specconfig_files). |
+| `config_files` | app config files Mooring renders and bind-mounts read-only — see [`config_files`](#specconfig_files). |
 | `cert_bindings` | a managed cert synced into the service — see [`cert_bindings`](#speccert_bindings). |
 | `volumes` | `{ name, target }` (a managed named volume) or `{ source, target, read_only }` (a bind under the app's directory; the directory is created for you). |
 | `depends_on` / `healthcheck` / `command` / `restart` | sibling services / exec-array / exec-array / enum. |
@@ -166,9 +166,9 @@ The dangerous keys (`privileged`, `cap_add`, host namespaces, host binds, host-p
 expressed** — no input can generate them, and the generated compose is re-checked by the validator
 anyway.
 
-#### `build:` — Helmsman generates the Dockerfile
+#### `build:` — Mooring generates the Dockerfile
 
-A `build:` service has no Dockerfile for you to write — you declare the build and Helmsman generates a
+A `build:` service has no Dockerfile for you to write — you declare the build and Mooring generates a
 hardened, non-root, multi-stage Dockerfile.
 
 ```yaml
@@ -190,7 +190,7 @@ build:
   monorepo — e.g. a Go service in `dns-resolver/` of a Node repo: set `language: go` (or rely on
   auto-detect, which then reads `dns-resolver/`'s files) and `dir: dns-resolver`. Omit it to build the
   repo root (the default).
-- For a stack Helmsman doesn't recognise, use `language: generic` with your own `base:` image plus
+- For a stack Mooring doesn't recognise, use `language: generic` with your own `base:` image plus
   `install` / `build` / `start`.
 - `install` / `build` run as build steps; each must be a single line (a newline is rejected so a value
   can't inject extra build steps). The build context is your repo checkout, confined to the app's
@@ -226,7 +226,7 @@ Declares secret **names** (and an optional generate hint). **It never contains v
 secrets:
   - name: MONGODB_URI                # you provide the value out-of-band
   - name: WEBHOOK_SECRET
-    generate: hex:32                 # Helmsman mints this once, on first deploy
+    generate: hex:32                 # Mooring mints this once, on first deploy
   - name: EMQX_DASHBOARD_PASSWORD
     generate: base64:24
   - name: JWT_KEY
@@ -238,11 +238,11 @@ secrets:
 | `name` | string | required | The secret's name within **this app's** namespace. |
 | `generate` | string | — | Auto-mint the value on first deploy (see below). Omit it and you provide the value yourself. |
 
-A secret you don't `generate` is set out-of-band — `helmsman secret import` (from a `.env`) or the dashboard. The file holds **names only**, never values, which is what keeps it safe to commit.
+A secret you don't `generate` is set out-of-band — `mooring secret import` (from a `.env`) or the dashboard. The file holds **names only**, never values, which is what keeps it safe to commit.
 
 #### Auto-generating a secret
 
-Declaring `generate` is the declarative replacement for a bootstrap script's `openssl rand` / `openssl genrsa` lines: Helmsman mints the value **server-side on the first deploy where it's missing**, stores it encrypted, and never displays it.
+Declaring `generate` is the declarative replacement for a bootstrap script's `openssl rand` / `openssl genrsa` lines: Mooring mints the value **server-side on the first deploy where it's missing**, stores it encrypted, and never displays it.
 
 | `generate` | Produces |
 |---|---|
@@ -252,7 +252,7 @@ Declaring `generate` is the declarative replacement for a bootstrap script's `op
 | `rsa:2048` \| `rsa:3072` \| `rsa:4096` | an RSA private key (PEM) **plus** the derived public key |
 | `ed25519` | an Ed25519 private key (PEM) **plus** the derived public key |
 
-- **Idempotent.** Minted only when no value exists yet; a later deploy **never rotates a live secret**. (Set the value yourself before the first deploy and Helmsman won't generate one.)
+- **Idempotent.** Minted only when no value exists yet; a later deploy **never rotates a live secret**. (Set the value yourself before the first deploy and Mooring won't generate one.)
 - **Keypairs** mint *two* secrets: the private key under `<name>` and the public key under `<name>_PUB`. They're PEM, so consume them as files via [`secret_files`](#config_files-per-service), not as `env` values.
 - **Never displayed** — like any secret, the value only ever leaves via the audited reveal endpoint.
 
@@ -260,9 +260,9 @@ This replaces the whole `create_random_secret` / `create_jwt_keys` section of a 
 
 ### `config_files` (per service)
 
-An app config file Helmsman renders and bind-mounts **read-only** into a service — declared **on the
+An app config file Mooring renders and bind-mounts **read-only** into a service — declared **on the
 service** (e.g. an `emqx.conf`, an nginx snippet, a prometheus config). The content comes from a path
-in your repo (read at the pinned commit) **or** an inline body. Helmsman writes the file under the
+in your repo (read at the pinned commit) **or** an inline body. Mooring writes the file under the
 app's own directory and mounts it; you never place it yourself.
 
 ```yaml
@@ -305,7 +305,7 @@ config_files:
 ### `secret_files` (per service)
 
 Mount declared secrets as files (the `*_FILE` pattern). Each name must be a declared `spec.secrets`
-entry; Helmsman writes its value `0600` under the app's directory and mounts it at
+entry; Mooring writes its value `0600` under the app's directory and mounts it at
 `/run/secrets/<name>`.
 
 ```yaml
@@ -317,7 +317,7 @@ services:
 
 ### `cert_bindings` (per service)
 
-Sync a managed cert (issued + renewed by Helmsman's edge) into a service — so a broker like EMQX can
+Sync a managed cert (issued + renewed by Mooring's edge) into a service — so a broker like EMQX can
 terminate its own TLS without you running a cert-reload sidecar. Declared on the service.
 
 ```yaml
@@ -325,18 +325,18 @@ services:
   emqx:
     image: emqx/emqx:5.8.3
     cert_bindings:
-      - hostname: mqtt.example.com    # a hostname Helmsman's edge issues a cert for
+      - hostname: mqtt.example.com    # a hostname Mooring's edge issues a cert for
         mount: /etc/certs             # the cert is synced into this directory
         ca: internal                  # optional: issue from a private CA (config.yaml edge.cas)
 ```
 
 | Field | Notes |
 |---|---|
-| `hostname` | the FQDN Helmsman issues/renews the cert for. |
+| `hostname` | the FQDN Mooring issues/renews the cert for. |
 | `mount` | absolute container path the cert directory is mounted at. |
 | `ca` | optional — name of a **private CA** (defined in `config.yaml` [`edge.cas`](#using-a-private-ca)) to issue this cert from, instead of the default `edge.acme_ca`. An undefined name fails the deploy. Omit it for the default CA. Ideal for an internal MQTT/DB host issued by your own CA. |
 
-Helmsman's edge issues and renews the certificate for `hostname`, then **at deploy** syncs the files into `mount` as `tls.crt` (0644) and `tls.key` (0600) and recreates the service so it loads them. The deploy **waits automatically** until they exist (it fails fast with a reason if the cert can't issue), so the container never has to poll. Your app reads the files straight from `mount` — there are no cert template tokens.
+Mooring's edge issues and renews the certificate for `hostname`, then **at deploy** syncs the files into `mount` as `tls.crt` (0644) and `tls.key` (0600) and recreates the service so it loads them. The deploy **waits automatically** until they exist (it fails fast with a reason if the cert can't issue), so the container never has to poll. Your app reads the files straight from `mount` — there are no cert template tokens.
 
 > **Renewal is autonomous.** The edge auto-renews the leaf (~30 days before expiry), and a background watcher re-syncs the new leaf into `mount` and **recreates the affected service** so it loads it — no manual redeploy. The recreate briefly bounces that one service; it's suppressed from self-healing while it happens. See [Cert bindings](./edge-and-tls.md).
 
@@ -376,23 +376,23 @@ edge:
 The default issuer is `edge.acme_ca` in the operator's `config.yaml`. To issue *some* hostnames from a private/internal CA (e.g. [`step-ca`](https://smallstep.com/docs/step-ca/)) while the rest keep using the default, the operator defines named CAs in `config.yaml` (the root of trust — an app repo can never introduce a trusted CA):
 
 ```yaml
-# /etc/helmsman/config.yaml
+# /etc/mooring/config.yaml
 edge:
   acme_ca: https://acme-v02.api.letsencrypt.org/directory   # the default
   cas:
     - name: internal
       directory_url: https://ca.lan/acme/acme/directory
       email: pki@lan                 # optional; falls back to acme_email
-      trusted_root: /etc/helmsman/internal-ca.pem   # optional: a PEM Caddy trusts for the CA's own HTTPS
+      trusted_root: /etc/mooring/internal-ca.pem   # optional: a PEM Caddy trusts for the CA's own HTTPS
 ```
 
-Then in any app's `helmsman.yaml`, point a route (or a [`cert_binding`](#cert_bindings-per-service)) at it by name with `ca: internal`. Each CA gets its own ACME issuer; everything without a `ca` keeps using the default. So you can have, say, `mqtt.lan` (a cert binding) and `api.lan` (a route) issued by your internal CA, while your public hostnames stay on Let's Encrypt — all from the same dashboard/deploy.
+Then in any app's `mooring.yaml`, point a route (or a [`cert_binding`](#cert_bindings-per-service)) at it by name with `ca: internal`. Each CA gets its own ACME issuer; everything without a `ca` keeps using the default. So you can have, say, `mqtt.lan` (a cert binding) and `api.lan` (a route) issued by your internal CA, while your public hostnames stay on Let's Encrypt — all from the same dashboard/deploy.
 
 The `edge.routes` block is **parsed into the typed edge model and re-marshalled** (read-and-render, never run verbatim). The save fails if it shadows a managed hostname, touches `admin`/`tls.automation`/`pki`, targets `9000/2019/2375`, grabs `:80/:443`, or weakens XFF. **The definition file contributes only Layer-1 routes** — never the protected Layer-0 base. See [Managed edge & routes](./edge-and-tls.md).
 
 ### `spec.edge.l4_routes` (TCP/UDP load balancing)
 
-The HTTP edge fronts `edge.routes`. For a **non-HTTP** stream service — DNS (53), DoT (853), MQTTS (8883) — an `l4_route` makes Helmsman's L4 load balancer own the public port and fan traffic across the service's **internal** replicas. That's what lets a fixed-port service be **auto-scaled**: it stops publishing a host port (the LB owns it), so it passes scaling candidacy as an "L4 upstream" instead of being disqualified for grabbing a host port.
+The HTTP edge fronts `edge.routes`. For a **non-HTTP** stream service — DNS (53), DoT (853), MQTTS (8883) — an `l4_route` makes Mooring's L4 load balancer own the public port and fan traffic across the service's **internal** replicas. That's what lets a fixed-port service be **auto-scaled**: it stops publishing a host port (the LB owns it), so it passes scaling candidacy as an "L4 upstream" instead of being disqualified for grabbing a host port.
 
 ```yaml
 spec:
@@ -420,8 +420,8 @@ spec:
 | `tls` | enum | `passthrough` | `passthrough` only for now — the LB forwards raw bytes and the **app** terminates TLS (issue its cert with a [`cert_binding`](#speccert_bindings)). `terminate` is not yet supported. |
 
 > **Prerequisites (the L4 LB is opt-in and not bundled):**
-> 1. Install **nginx + its stream module** on the host yourself — on Debian/Ubuntu `sudo apt install nginx libnginx-mod-stream` (the `stream` module is a *separate* package there). Helmsman's generated config already `include`s `/etc/nginx/modules-enabled/*.conf` so the module loads, but the package must be present or nginx rejects the config with `unknown directive "stream"`. Helmsman does **not** ship or pull nginx; it's only needed for L4 routes.
-> 2. Set `edge.l4_enabled: true` in `config.yaml`, then **restart** Helmsman (`sudo systemctl restart helmsman`) — edge settings are read at startup, so a reload won't pick this up ([reload vs restart](./installation.md#editing-the-config-file-reload-vs-restart)).
+> 1. Install **nginx + its stream module** on the host yourself — on Debian/Ubuntu `sudo apt install nginx libnginx-mod-stream` (the `stream` module is a *separate* package there). Mooring's generated config already `include`s `/etc/nginx/modules-enabled/*.conf` so the module loads, but the package must be present or nginx rejects the config with `unknown directive "stream"`. Mooring does **not** ship or pull nginx; it's only needed for L4 routes.
+> 2. Set `edge.l4_enabled: true` in `config.yaml`, then **restart** Mooring (`sudo systemctl restart mooring`) — edge settings are read at startup, so a reload won't pick this up ([reload vs restart](./installation.md#editing-the-config-file-reload-vs-restart)).
 > 3. Binding privileged ports (53/853) needs `CAP_NET_BIND_SERVICE` — the shipped unit **already grants it** (the supervised nginx inherits it), so there's nothing to do. (Or map a privileged host port to a high container port and keep the service unprivileged.)
 > 4. **If you bind `:53` (DNS): free it from `systemd-resolved` first.** On a default systemd host the `systemd-resolved` stub listener already holds `127.0.0.53:53` (and `127.0.0.54:53` on systemd ≥ 249). The supervised nginx binds the wildcard `0.0.0.0:53`, which collides with that bind → nginx fails to start (`address already in use`) and the L4 reconcile fails closed. Disable the stub listener, then keep host DNS working by pointing `resolv.conf` at the real upstreams (not the now-dead stub):
 >    ```bash
@@ -457,7 +457,7 @@ scaling:
 
 A deploy persists each policy (unset thresholds default to 80/40, with a positive breach window + down-lazy cooldowns); a policy that violates the controller contract (e.g. a <20-pt dead band) blocks the deploy. Omitted services are left as-is. Scaling a **non-HTTP** service additionally needs an [`l4_route`](#specedgel4_routes-tcpudp-load-balancing) + nginx (see that section).
 
-> **Auto-scaling is a dashboard exception.** Unlike the rest of the structure, the scaling policy is **operational tuning you can also set on the service page** (a thresholds/min/max form) so you can react without a redeploy. The policy you author here is the starting point; what's live is whatever was last set. To capture the current policy back into your repo, download the deployed definition from the app page (`GET /apps/<slug>/definition.yaml`) and commit it — Helmsman never writes to your repo.
+> **Auto-scaling is a dashboard exception.** Unlike the rest of the structure, the scaling policy is **operational tuning you can also set on the service page** (a thresholds/min/max form) so you can react without a redeploy. The policy you author here is the starting point; what's live is whatever was last set. To capture the current policy back into your repo, download the deployed definition from the app page (`GET /apps/<slug>/definition.yaml`) and commit it — Mooring never writes to your repo.
 
 | Field (per list entry) | Type | Default | Notes |
 |---|---|---|---|
@@ -466,7 +466,7 @@ A deploy persists each policy (unset thresholds default to 80/40, with a positiv
 | `min` / `max` | int | `1`/`1` | Replica bounds. On a small box `effective_max` **collapses to 1** — scaling becomes a permanent safe no-op and a wanted scale-up fires `scale_refused_no_capacity` rather than queuing a docker child. |
 | `up_cpu_pct` / `down_cpu_pct` | float | — | Scale up above / down below this sustained CPU %. Hysteresis is up-eager / down-lazy with a dead band between them. |
 | `up_mem_pct` / `down_mem_pct` | float | — | Optional memory triggers, with the same hysteresis. The percentage is RSS ÷ the container's memory limit — so set the service's [`mem_limit`](#a-service) for a true per-service signal; without one, the kernel reports the limit as the host's total RAM and the trigger is box-relative. |
-| `per_replica_mem_mib` | int | — | Per-replica memory reservation (MiB). Feeds the host-capacity guard; if a replica's real RSS exceeds it, Helmsman clamps and alerts. |
+| `per_replica_mem_mib` | int | — | Per-replica memory reservation (MiB). Feeds the host-capacity guard; if a replica's real RSS exceeds it, Mooring clamps and alerts. |
 | `per_replica_cpu_milli` | int | — | Optional per-replica CPU reservation (millicores). |
 
 > Authoring `scaling` for a stateful service is not a knob you can force — it is rejected at candidacy. Brokers/DBs are precisely the `config_files` / `cert_binding` apps of §7.4, not scaling candidates. See [Auto-scaling](./scaling-and-self-healing.md).
@@ -495,11 +495,11 @@ self_healing:
 | `backoff_base_secs` / `backoff_max_secs` | int | Exponential backoff base/ceiling between attempts (`max >= base`). |
 | `redeploy_enabled` | bool | Opt in to the rung-3 redeploy (still gated on host headroom). |
 
-> Self-healing has no separate dashboard editor — `helmsman.yaml` is the source of truth. The supervisor reads the policy each tick, so a redeploy re-tunes it without a restart. See [Self-healing](./scaling-and-self-healing.md).
+> Self-healing has no separate dashboard editor — `mooring.yaml` is the source of truth. The supervisor reads the policy each tick, so a redeploy re-tunes it without a restart. See [Self-healing](./scaling-and-self-healing.md).
 
 ### `spec.ops_interface` / `services.<name>.ops_interface`
 
-An optional **ops endpoint** (§4) Helmsman probes for RICH health, queues, and open-ended **metric cards** (database, cache, routes, system, …). It can be set **per service** under `services.<name>.ops_interface` (recommended — each service gets its own rich view on its page) or app-level under `spec.ops_interface`. Everything here is operator config **except the shared-secret value** — set the value in the dashboard, or declare a secret and point `secret` at it; the value **never** lives in this file.
+An optional **ops endpoint** (§4) Mooring probes for RICH health, queues, and open-ended **metric cards** (database, cache, routes, system, …). It can be set **per service** under `services.<name>.ops_interface` (recommended — each service gets its own rich view on its page) or app-level under `spec.ops_interface`. Everything here is operator config **except the shared-secret value** — set the value in the dashboard, or declare a secret and point `secret` at it; the value **never** lives in this file.
 
 > **Full contract + JSON examples (health, queues, metrics): [App Ops Interface](./app-ops-interface.md).**
 
@@ -523,11 +523,11 @@ ops_interface:
 | `mode` | enum | `auto` (default) \| `rich` \| `basic`. |
 | `adapter` | string | Response adapter (default `ops.v1`). |
 
-> **The structure is read from this file; only the shared-secret VALUE is a dashboard input.** Set the secret value on the env page (or declare a secret and point `secret` at it). The endpoint, paths, headers, and mode come from `helmsman.yaml`.
+> **The structure is read from this file; only the shared-secret VALUE is a dashboard input.** Set the secret value on the env page (or declare a secret and point `secret` at it). The endpoint, paths, headers, and mode come from `mooring.yaml`.
 
 ### `spec.git`
 
-The GitOps fields. **Fetch is automatic (read-plane); deploy is manual (write-plane, sha-pinned).** Helmsman's git access is **fetch-only — it never pushes to your repo.** `auto_deploy` defaults to **false**.
+The GitOps fields. **Fetch is automatic (read-plane); deploy is manual (write-plane, sha-pinned).** Mooring's git access is **fetch-only — it never pushes to your repo.** `auto_deploy` defaults to **false**.
 
 ```yaml
 git:
@@ -548,7 +548,7 @@ A push triggers a **fetch only** (`git fetch` → advance `staged_commit` → co
 
 ## The `{{hm.KEY}}` binding delimiter
 
-Managed config files (`spec.config_files`) are rendered by a **single-pass byte scanner**, not a template engine. It matches **exactly** Helmsman's own namespaced delimiter and **nothing else**:
+Managed config files (`spec.config_files`) are rendered by a **single-pass byte scanner**, not a template engine. It matches **exactly** Mooring's own namespaced delimiter and **nothing else**:
 
 | Touched (resolved) | Left byte-identical (data) |
 |---|---|
@@ -574,7 +574,7 @@ So a TLS cert reaches a config file as a **path token** (`{cert: …}`) pointing
 
 Every resolved value is scrubbed: **NUL is always rejected**, and **CR/LF is rejected in every resolved value regardless of the declared `format`** (a secret with an embedded newline must not inject a second config line). Output is **emitted, never re-scanned** — a secret whose value happens to contain `{{hm.X}}` can never trigger a second substitution pass.
 
-> **Why the app's `${...}` is sacred:** the whole point is that an app keeps its own runtime templating (its entrypoint still expands `${clientid}` at container start). Helmsman fills *only* the deploy-time blanks it owns and gets out of the way. A blanket `envsubst` would clobber the app's own placeholders — which is exactly the bug this design refuses to make.
+> **Why the app's `${...}` is sacred:** the whole point is that an app keeps its own runtime templating (its entrypoint still expands `${clientid}` at container start). Mooring fills *only* the deploy-time blanks it owns and gets out of the way. A blanket `envsubst` would clobber the app's own placeholders — which is exactly the bug this design refuses to make.
 
 ---
 
@@ -588,7 +588,7 @@ The rules, all enforced:
 2. **Every reference resolves within the referencing app's own `(slug, NAME)` namespace.** This applies to a `{ secret: NAME }` env value and a `{ secret: NAME }` binding in a `config_files` entry.
 3. **No cross-app reads.** A name owned by another app resolves as **missing / fail-closed, with zero disclosure** — a committed file cannot exfiltrate another app's secret by guessing its name.
 4. **Values arrive only out-of-band:**
-   - `helmsman secret import` — reads the values from a `.env` file you pass with `--from`, **never from argv** (so a secret never lands in `ps`, shell history, or audit).
+   - `mooring secret import` — reads the values from a `.env` file you pass with `--from`, **never from argv** (so a secret never lands in `ps`, shell history, or audit).
    - the dashboard secret panel.
    - the SSH-edited root-owned config.
    …into the AES-256-GCM store under the master key.
@@ -600,7 +600,7 @@ The rules, all enforced:
 
 ## How a change is applied
 
-**The repo file is the source; the dashboard reflects it.** To change app structure you edit `helmsman.yaml`, push, and deploy. Helmsman **fetches** your repo (read-only — it never pushes back), and an explicit, **sha-pinned Deploy** is what advances the live app. A push by itself only marks an update *available*; nothing goes live until you deploy (unless you opt into [`git.auto_deploy`](#specgit), which auto-clicks the **same** gated deploy path).
+**The repo file is the source; the dashboard reflects it.** To change app structure you edit `mooring.yaml`, push, and deploy. Mooring **fetches** your repo (read-only — it never pushes back), and an explicit, **sha-pinned Deploy** is what advances the live app. A push by itself only marks an update *available*; nothing goes live until you deploy (unless you opt into [`git.auto_deploy`](#specgit), which auto-clicks the **same** gated deploy path).
 
 Whatever triggers it, a deploy runs the **one reconciler** — there is no second path that does more:
 
@@ -624,9 +624,9 @@ Properties to rely on:
 - **Idempotent.** A deploy with no changes produces an **empty plan = no-op**.
 - **Ordered.** Env first, edge route re-render last. Cert-sync makes the deploy wait until the cert files exist.
 - **All-or-nothing.** Any step failing rolls the **entire app** back to its prior definition. There is no half-applied state.
-- **Checkable ahead of time.** `helmsman validate` runs the **exact same validator** read-only, so you can verify a `helmsman.yaml` in CI before it ever reaches the write plane — a file that validates there is one a deploy accepts.
+- **Checkable ahead of time.** `mooring validate` runs the **exact same validator** read-only, so you can verify a `mooring.yaml` in CI before it ever reaches the write plane — a file that validates there is one a deploy accepts.
 
-You can **download the deployed definition** at any time from the app page (`GET /apps/<slug>/definition.yaml`). That is how you capture a dashboard-set [auto-scaling](#specscaling) policy back into your repo so the file and the live app agree — Helmsman never writes to your repo for you.
+You can **download the deployed definition** at any time from the app page (`GET /apps/<slug>/definition.yaml`). That is how you capture a dashboard-set [auto-scaling](#specscaling) policy back into your repo so the file and the live app agree — Mooring never writes to your repo for you.
 
 ### The CLI surface
 
@@ -634,28 +634,28 @@ The CLI is the **root of trust plus a read-plane checker** — the write plane (
 
 | Read-plane (safe anywhere) | Root-of-trust & store (over SSH) |
 |---|---|
-| `validate` — parse + validate a `helmsman.yaml` | `gen-key` · `hash-password` · `gen-totp` · `verify-key` |
-| `init` — scaffold a starter `helmsman.yaml` | `secret import` — load a `.env` into the encrypted store |
+| `validate` — parse + validate a `mooring.yaml` | `gen-key` · `hash-password` · `gen-totp` · `verify-key` |
+| `init` — scaffold a starter `mooring.yaml` | `secret import` — load a `.env` into the encrypted store |
 | | `token mint` / `list` / `revoke` |
 | | `restore` — restore the DB from a backup |
 
-> **Trust model:** SSH is the highest tier. An operator who can edit the root-owned config already holds the master key, so `helmsman secret import` grants nothing new — which is *why* the CLI may write secrets but **no web route ever reads the key, allowlist, or bind address.**
+> **Trust model:** SSH is the highest tier. An operator who can edit the root-owned config already holds the master key, so `mooring secret import` grants nothing new — which is *why* the CLI may write secrets but **no web route ever reads the key, allowlist, or bind address.**
 
 ---
 
 ## Where your app's files live
 
 You write **relative** paths (a bind `source:`, a repo path); a `config_files` `mount` is a *container*
-path. **Helmsman owns the location on disk** — you never need an absolute host path. Each app gets its
+path. **Mooring owns the location on disk** — you never need an absolute host path. Each app gets its
 own directory on the server:
 
 ```
-/var/lib/helmsman-apps/<app>/
+/var/lib/mooring-apps/<app>/
 ```
 
-(`/var/lib/helmsman` is the data dir; the app tree is the sibling `…-apps`.) Relative paths resolve
-inside that directory — a bind `source: data` becomes `…/<app>/data` — and Helmsman writes the
-generated compose, the generated Dockerfile(s) (`.helmsman/Dockerfile.<svc>`), rendered config files,
+(`/var/lib/mooring` is the data dir; the app tree is the sibling `…-apps`.) Relative paths resolve
+inside that directory — a bind `source: data` becomes `…/<app>/data` — and Mooring writes the
+generated compose, the generated Dockerfile(s) (`.mooring/Dockerfile.<svc>`), rendered config files,
 and materialized secret files there, creating the directories for you. Everything is confined to the
 app's own folder; a bind or config file can't point outside it.
 
@@ -663,22 +663,22 @@ app's own folder; a bind or config file can't point outside it.
 
 ## Worked example A — a multi-service stack (API + broker)
 
-A NestJS API **built from the repo**, plus an EMQX broker that terminates its own MQTT/TLS. Helmsman
+A NestJS API **built from the repo**, plus an EMQX broker that terminates its own MQTT/TLS. Mooring
 generates and owns the compose and the API's Dockerfile; the edge fronts the API over HTTPS and issues
 the broker's cert.
 
 ```yaml
-apiVersion: helmsman/v1            # exact-match; an unknown version is rejected, never best-effort parsed
+apiVersion: mooring/v1            # exact-match; an unknown version is rejected, never best-effort parsed
 kind: App
 metadata:
   slug: credlock                   # immutable after first deploy
 
 spec:
   compose:
-    source: generated              # Helmsman generates & owns the compose
+    source: generated              # Mooring generates & owns the compose
     services:
       api:
-        build:                     # no Dockerfile to write — Helmsman generates a hardened one
+        build:                     # no Dockerfile to write — Mooring generates a hardened one
           language: node
           version: "22"
           install: npm ci
@@ -711,20 +711,20 @@ spec:
           - { name: emqx_data, target: /opt/emqx/data }
         restart: unless-stopped
 
-  secrets:                          # NAMES only — values set out-of-band (`helmsman secret import` / dashboard)
+  secrets:                          # NAMES only — values set out-of-band (`mooring secret import` / dashboard)
     - name: MONGODB_URI
     - name: jwt_private_key
     - name: EMQX_DASHBOARD_PASSWORD
 
   edge:
     routes:
-      - hostname: api.example.com   # Helmsman terminates HTTPS and routes to api:3000
+      - hostname: api.example.com   # Mooring terminates HTTPS and routes to api:3000
         service: api
         port: 3000
 ```
 
 Notice what you did **not** write: a `docker-compose.yml`, a Dockerfile, a Caddy config, or a
-cert-reload sidecar. Helmsman generates the compose and the API's Dockerfile, fronts the API over
+cert-reload sidecar. Mooring generates the compose and the API's Dockerfile, fronts the API over
 HTTPS, and issues the broker's cert — and the dangerous compose keys (`privileged`, host mounts, host
 namespaces) simply cannot be expressed here.
 
@@ -735,7 +735,7 @@ namespaces) simply cannot be expressed here.
 A stateless HTTP API: an edge route, an **opt-in scaling policy**, and a healthcheck driven by self-healing. Secrets are by reference, as always.
 
 ```yaml
-apiVersion: helmsman/v1
+apiVersion: mooring/v1
 kind: App
 metadata:
   slug: web-api                    # immutable after first deploy
@@ -745,7 +745,7 @@ spec:
     source: generated
     services:
       api:
-        build: { language: auto }            # Helmsman detects the stack + generates the Dockerfile
+        build: { language: auto }            # Mooring detects the stack + generates the Dockerfile
         ports: [{ internal: 8080 }]          # internal — reached via the edge route
         env:
           LOG_LEVEL: info
@@ -754,7 +754,7 @@ spec:
         restart: unless-stopped
 
   secrets:
-    - name: DATABASE_URL                     # imported via `helmsman secret import` or set in the dashboard
+    - name: DATABASE_URL                     # imported via `mooring secret import` or set in the dashboard
     - name: SHARED_AUTH_TOKEN                # a SHARED auth secret is fine for a stateless service (not an identity)
 
   # ---- a public edge route; the upstream is a SELECTOR against this app's containers
@@ -790,10 +790,10 @@ This API is a legitimate scaling candidate because every C1–C7 condition holds
 
 ## Complete minimal example
 
-The smallest valid `helmsman.yaml` — one image-based service, no public route. Drop this in your repo, connect the repo, and deploy:
+The smallest valid `mooring.yaml` — one image-based service, no public route. Drop this in your repo, connect the repo, and deploy:
 
 ```yaml
-apiVersion: helmsman/v1
+apiVersion: mooring/v1
 kind: App
 metadata:
   slug: hello
@@ -805,7 +805,7 @@ spec:
         ports: [{ internal: 80 }]   # internal-only; add an edge.route to expose it publicly
 ```
 
-`source: generated` is the default, so you can omit it. To expose `web` over HTTPS, add an [`edge.route`](#specedgeroutes); to build from your repo instead of pulling an image, replace `image:` with a [`build:`](#build--helmsman-generates-the-dockerfile) block. Run `helmsman validate` (read-only, safe in CI) before you commit.
+`source: generated` is the default, so you can omit it. To expose `web` over HTTPS, add an [`edge.route`](#specedgeroutes); to build from your repo instead of pulling an image, replace `image:` with a [`build:`](#build--mooring-generates-the-dockerfile) block. Run `mooring validate` (read-only, safe in CI) before you commit.
 
 ---
 
@@ -813,7 +813,7 @@ spec:
 
 | Path | Type | Required | Default |
 |---|---|---|---|
-| `apiVersion` | string (`helmsman/v1`) | yes | — |
+| `apiVersion` | string (`mooring/v1`) | yes | — |
 | `kind` | string (`App`) | yes | — |
 | `metadata.slug` | string (immutable) | yes | — |
 | `spec.compose.source` | `generated` | no (default) | `generated` |
@@ -879,7 +879,7 @@ spec:
 | `spec.setup.trigger` | `never` \| `on_demand` \| `on_first_deploy` \| `before_each_deploy` | no | `never` |
 | `spec.setup.produces[]` | list (`env:NAME` / `file:PATH`) | no | — |
 
-> Unknown keys anywhere are a **hard reject** (`additionalProperties: false`). When in doubt, run `helmsman validate` — it is read-plane and safe on any host.
+> Unknown keys anywhere are a **hard reject** (`additionalProperties: false`). When in doubt, run `mooring validate` — it is read-plane and safe on any host.
 
 ---
 

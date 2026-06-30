@@ -1,4 +1,4 @@
-module github.com/daboss2003/Helmsman
+module github.com/daboss2003/mooring
 
 go 1.25.7
 

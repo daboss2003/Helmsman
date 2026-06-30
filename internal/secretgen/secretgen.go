@@ -1,8 +1,8 @@
 // Package secretgen mints values for `spec.secrets[].generate` — the declarative
 // "auto-generate this secret on first deploy" field. It is the typed, server-side
 // replacement for the hand-rolled `openssl rand` / `openssl genrsa` lines in a
-// bootstrap script: the operator declares a name + a generate spec in helmsman.yaml
-// and Helmsman mints the value once, stores it encrypted, and never displays it.
+// bootstrap script: the operator declares a name + a generate spec in mooring.yaml
+// and Mooring mints the value once, stores it encrypted, and never displays it.
 //
 // Grammar (the `generate:` string):
 //

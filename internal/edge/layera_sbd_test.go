@@ -109,7 +109,7 @@ func TestLayerA_SBD6_ACMEBoundedAndPinned(t *testing.T) {
 
 // SBD-7: the config is rendered ENTIRELY from typed structs — there is no
 // operator-supplied Caddy input path (the raw editor was removed; the operator only
-// authors helmsman.yaml / the typed route model). The renderer is total and
+// authors mooring.yaml / the typed route model). The renderer is total and
 // deterministic: the same inputs render byte-identically.
 func TestLayerA_SBD7_TypedRenderDeterministic(t *testing.T) {
 	a, err := Render(baseCfg(), []Route{{Hostname: "app.example.com", Upstream: "web:8080", UpstreamScheme: "http", HSTS: true, SecurityHeaders: true, Enabled: true}}, nil)

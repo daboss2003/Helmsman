@@ -10,9 +10,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/apitoken"
-	"github.com/daboss2003/Helmsman/internal/config"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/apitoken"
+	"github.com/daboss2003/mooring/internal/config"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // cmdToken is the SSH-only scoped-API-token surface (plan §17.1). Minting lives ONLY
@@ -21,7 +21,7 @@ import (
 // is stored.
 func cmdToken(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: helmsman token <mint|list|revoke> [flags]")
+		return fmt.Errorf("usage: mooring token <mint|list|revoke> [flags]")
 	}
 	switch args[0] {
 	case "mint":
@@ -40,7 +40,7 @@ func openTokenStore(configPath string) (*store.DB, *apitoken.Store, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	db, err := store.Open(filepath.Join(cfg.DataDir, "helmsman.db"))
+	db, err := store.Open(filepath.Join(cfg.DataDir, "mooring.db"))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -62,7 +62,7 @@ func cmdTokenMint(args []string) error {
 		return err
 	}
 	if *scopesCSV == "" || *cidrsCSV == "" || *ttl <= 0 {
-		return fmt.Errorf("usage: helmsman token mint --scopes <list> --cidrs <list> --ttl <dur> [--label <s>]")
+		return fmt.Errorf("usage: mooring token mint --scopes <list> --cidrs <list> --ttl <dur> [--label <s>]")
 	}
 	scopes := splitCSV(*scopesCSV)
 	cidrs := splitCSV(*cidrsCSV)
@@ -92,7 +92,7 @@ func cmdTokenMint(args []string) error {
 	fmt.Printf("expires: %s\n", time.Unix(m.Record.ExpiresAt, 0).UTC().Format(time.RFC3339))
 	fmt.Println()
 	fmt.Println("the IP gate admits the token's CIDRs only after a reload:")
-	fmt.Println("  systemctl reload helmsman   (or: kill -HUP <pid>)")
+	fmt.Println("  systemctl reload mooring   (or: kill -HUP <pid>)")
 	return nil
 }
 
@@ -141,7 +141,7 @@ func cmdTokenRevoke(args []string) error {
 		return err
 	}
 	if *id == "" {
-		return fmt.Errorf("usage: helmsman token revoke --id <token-id>")
+		return fmt.Errorf("usage: mooring token revoke --id <token-id>")
 	}
 	db, ts, err := openTokenStore(*configPath)
 	if err != nil {

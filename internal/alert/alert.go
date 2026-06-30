@@ -1,4 +1,4 @@
-// Package alert is Helmsman's read-and-notify alert engine (plan §8): ONE
+// Package alert is Mooring's read-and-notify alert engine (plan §8): ONE
 // evaluator that reads the poller's snapshot (zero network I/O, zero docker
 // writes, side-effect-free) and drives a per-(rule,target) state machine, and a
 // SEPARATE rate-limited notifier that drains an outbox. It defers to an app that
@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/ops"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/ops"
 )
 
 // Phase is the per-(rule,target) state-machine phase.

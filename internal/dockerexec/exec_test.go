@@ -89,7 +89,7 @@ func TestRunStreamsAndGates(t *testing.T) {
 	}
 }
 
-// RunInternal must run Helmsman-owned infra (the socket-proxy) even when the
+// RunInternal must run Mooring-owned infra (the socket-proxy) even when the
 // write-plane RAM gate is CLOSED — the read plane has to work on a small box.
 func TestRunInternalIsUngated(t *testing.T) {
 	dir := t.TempDir()

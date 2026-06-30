@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/docker"
-	"github.com/daboss2003/Helmsman/internal/hostmon"
-	"github.com/daboss2003/Helmsman/internal/ops"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/docker"
+	"github.com/daboss2003/mooring/internal/hostmon"
+	"github.com/daboss2003/mooring/internal/ops"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // ServiceStatus is the normalized BASIC record for one container/service.

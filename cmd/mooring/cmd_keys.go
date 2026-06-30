@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/daboss2003/Helmsman/internal/config"
-	"github.com/daboss2003/Helmsman/internal/crypto"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/config"
+	"github.com/daboss2003/mooring/internal/crypto"
+	"github.com/daboss2003/mooring/internal/store"
 	"golang.org/x/term"
 )
 
@@ -39,7 +39,7 @@ func cmdGenKey(args []string) error {
 	}
 	key := crypto.RandomBytes(32)
 	fmt.Printf("encryption_key: %q\n", base64.StdEncoding.EncodeToString(key))
-	fmt.Fprintln(os.Stderr, "Paste this into /etc/helmsman/config.yaml (0600 root:root). Back it up offsite, separately from the DB.")
+	fmt.Fprintln(os.Stderr, "Paste this into /etc/mooring/config.yaml (0600 root:root). Back it up offsite, separately from the DB.")
 	return nil
 }
 
@@ -76,7 +76,7 @@ func cmdHashPassword(args []string) error {
 func cmdGenTOTP(args []string) error {
 	fs := flag.NewFlagSet("gen-totp", flag.ContinueOnError)
 	account := fs.String("account", "operator", "account label for the otpauth URL")
-	issuer := fs.String("issuer", "Helmsman", "issuer label for the otpauth URL")
+	issuer := fs.String("issuer", "Mooring", "issuer label for the otpauth URL")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func cmdVerifyKey(args []string) error {
 	if err != nil {
 		return err
 	}
-	db, err := store.Open(filepath.Join(cfg.DataDir, "helmsman.db"))
+	db, err := store.Open(filepath.Join(cfg.DataDir, "mooring.db"))
 	if err != nil {
 		return err
 	}

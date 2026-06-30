@@ -2,7 +2,7 @@
 
 package hostmon
 
-// Non-Linux stubs (Helmsman targets Linux/systemd). These keep the binary
+// Non-Linux stubs (Mooring targets Linux/systemd). These keep the binary
 // building on dev machines; Sample surfaces ErrUnsupported, which the monitor
 // logs once and treats as "host metrics unavailable" without failing app polling.
 

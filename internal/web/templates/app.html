@@ -16,9 +16,9 @@
 
   {{if .Protected}}
   <section class="panel">
-    <h2>Managed by Helmsman</h2>
-    <p class="muted">This is the read-plane proxy — Helmsman's own infrastructure, not an app.
-      It is brought up, supervised, and pinned by Helmsman itself. Lifecycle, scaling, env, and
+    <h2>Managed by Mooring</h2>
+    <p class="muted">This is the read-plane proxy — Mooring's own infrastructure, not an app.
+      It is brought up, supervised, and pinned by Mooring itself. Lifecycle, scaling, env, and
       config actions are intentionally unavailable here; its state below is read-only.</p>
   </section>
   {{else if .WriteDisabledReason}}
@@ -89,7 +89,7 @@
   <section class="panel">
     <h2>Auto-scaling <span class="muted">(opt-in, per service)</span></h2>
     <p class="muted">Configure auto-scaling on each service's own page — click a service name in the table above.
-      Helmsman scales replicas of a <strong>stateless, edge-fronted HTTP</strong> service with load, and refuses
+      Mooring scales replicas of a <strong>stateless, edge-fronted HTTP</strong> service with load, and refuses
       (rather than risk host memory) for anything stateful.
       {{if .Scaling}}<br>Currently scaling: {{range $svc, $n := .Scaling}}<a href="/apps/{{pathEscape $.App.Project}}/services/{{pathEscape $svc}}"><code>{{$svc}}={{$n}}</code></a> {{end}}{{end}}</p>
   </section>

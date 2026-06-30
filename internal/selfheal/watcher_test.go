@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/hostmon"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/hostmon"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // fakeActioner records remediation calls instead of running docker.

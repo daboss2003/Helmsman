@@ -60,7 +60,7 @@ func Open(path string) (*DB, error) {
 }
 
 // Inspect opens path READ-ONLY and returns the highest recorded schema version,
-// erroring if the file is not a Helmsman database (missing/empty schema_meta). Unlike
+// erroring if the file is not a Mooring database (missing/empty schema_meta). Unlike
 // Open it never creates or migrates — restore uses it to reject a blank or foreign
 // archive before it would otherwise be installed as the live DB.
 func Inspect(path string) (int, error) {
@@ -71,10 +71,10 @@ func Inspect(path string) (int, error) {
 	defer db.Close()
 	var v int
 	if err := db.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_meta`).Scan(&v); err != nil {
-		return 0, fmt.Errorf("not a Helmsman database (no schema_meta): %w", err)
+		return 0, fmt.Errorf("not a Mooring database (no schema_meta): %w", err)
 	}
 	if v == 0 {
-		return 0, errors.New("not a Helmsman database (empty schema)")
+		return 0, errors.New("not a Mooring database (empty schema)")
 	}
 	return v, nil
 }

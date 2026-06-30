@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/backup"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/backup"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 func newStore(t *testing.T) (*Store, *store.DB, []byte) {

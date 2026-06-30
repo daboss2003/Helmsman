@@ -3,9 +3,9 @@ package web
 import (
 	"net/http"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/ops"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/ops"
 )
 
 // handleOpsConfigGet renders the per-app App Ops Interface configuration form.
@@ -69,7 +69,7 @@ func (s *Server) handleOpsConfigPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // opsWriteBack persists the just-applied ops config (everything but the secret VALUE)
-// into the canonical helmsman.yaml, so "the file, dashboard-updated last" stays true
+// into the canonical mooring.yaml, so "the file, dashboard-updated last" stays true
 // and an export/redeploy reflects the edit. It reads the NORMALIZED config back from
 // the ops store (so the canonical matches exactly what was applied) and preserves any
 // existing secret reference — the value lives only in the encrypted ops store. It is
@@ -121,7 +121,7 @@ func (s *Server) handleQueueAction(w http.ResponseWriter, r *http.Request) {
 	queue := r.PathValue("queue")
 	action := r.PathValue("action")
 
-	// Protected/managed projects (the read-plane proxy, edge) are Helmsman's own
+	// Protected/managed projects (the read-plane proxy, edge) are Mooring's own
 	// infrastructure — never app-controllable, mirroring lifecycle/scale/env (plan §3).
 	// Checked first so the policy holds regardless of whether ops is available.
 	if s.cfg.IsProtectedProject(project) {

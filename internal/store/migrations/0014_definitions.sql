@@ -1,4 +1,4 @@
--- M15 helmsman.yaml definition file (plan §7.7). definition_versions is the history
+-- M15 mooring.yaml definition file (plan §7.7). definition_versions is the history
 -- of successfully-applied CANONICAL definitions per app; the latest row is the live
 -- canonical (last applied = source of truth). Each row is HMAC-protected so a DB
 -- tamper can't become a loaded definition: every read RE-PARSES + RE-VALIDATES the

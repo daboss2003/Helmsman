@@ -1,6 +1,6 @@
 // Package provision is the app provisioning core (plan §7): a typed form spec
-// (helmsman.yaml under the hood) deterministically GENERATED into a safe compose.
-// Helmsman OWNS the compose — there is no raw-compose/Dockerfile paste path — so
+// (mooring.yaml under the hood) deterministically GENERATED into a safe compose.
+// Mooring OWNS the compose — there is no raw-compose/Dockerfile paste path — so
 // the dangerous compose keys (privileged, cap_add, host namespaces, host binds,
 // :80/:443 publishes) SIMPLY DO NOT EXIST in its typed model (no input can produce
 // them), and the generated YAML is still re-run through §5.6 as defense in depth.
@@ -20,7 +20,7 @@ var (
 	imageRe   = regexp.MustCompile(`^[A-Za-z0-9._/:@-]+$`)
 )
 
-// controlPorts are Helmsman's own ports; a generated service may never publish or
+// controlPorts are Mooring's own ports; a generated service may never publish or
 // target them (plan §7 red-team).
 var controlPorts = map[int]bool{9000: true, 2019: true, 2375: true}
 
@@ -55,7 +55,7 @@ type EnvVar struct {
 }
 
 // Service is one generated service. Only safe fields exist here by construction. A
-// service is `Image` (pull) XOR `Build` (Helmsman generates the Dockerfile).
+// service is `Image` (pull) XOR `Build` (Mooring generates the Dockerfile).
 type Service struct {
 	Name        string   `json:"name"`
 	Image       string   `json:"image"`
@@ -77,9 +77,9 @@ type Service struct {
 	StopGracePeriod string `json:"stop_grace_period,omitempty"`
 }
 
-// Build marks a service whose image Helmsman BUILDS from a generated Dockerfile.
+// Build marks a service whose image Mooring BUILDS from a generated Dockerfile.
 // Context is the build context (run_dir-relative; "." = the app's checkout) and
-// Dockerfile is the run_dir-relative path of the Helmsman-generated Dockerfile. Both
+// Dockerfile is the run_dir-relative path of the Mooring-generated Dockerfile. Both
 // stay under the run dir — the §5.6 validator re-confines the context at deploy time.
 type Build struct {
 	Context    string `json:"context"`

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/gitstore"
-	"github.com/daboss2003/Helmsman/internal/sandbox"
+	"github.com/daboss2003/mooring/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/sandbox"
 )
 
 // reqUpload posts a single-file multipart form (with the CSRF token in the header so
@@ -43,18 +43,18 @@ func (e *testEnv) reqUpload(t *testing.T, path, peer, csrf, field, filename, con
 	return rec.Result()
 }
 
-// setupYAML builds a helmsman.yaml whose spec.setup is the script under test.
+// setupYAML builds a mooring.yaml whose spec.setup is the script under test.
 func setupYAML(slug, script, trigger string, produces ...string) string {
 	q := make([]string, len(produces))
 	for i, p := range produces {
 		q[i] = strconv.Quote(p)
 	}
-	return "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: " + slug + "}\n" +
+	return "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: " + slug + "}\n" +
 		"spec:\n  compose: {source: generated, services: {web: {image: nginx:1}}}\n" +
 		"  setup: {script: " + strconv.Quote(script) + ", trigger: " + trigger + ", produces: [" + strings.Join(q, ", ") + "]}\n"
 }
 
-// Setup is DECLARED in helmsman.yaml and synced via upload; the page then shows it
+// Setup is DECLARED in mooring.yaml and synced via upload; the page then shows it
 // read-only and reports disabled (the default).
 func TestSetupSyncAndGet(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
@@ -62,7 +62,7 @@ func TestSetupSyncAndGet(t *testing.T) {
 	cookies := []*http.Cookie{sess, csrf}
 
 	yaml := setupYAML("shop", "#!/bin/sh\necho hi\n", "on_demand", "env:TOKEN")
-	resp := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies)
+	resp := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "mooring.yaml", yaml, cookies)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("sync = %d, want 303", resp.StatusCode)
 	}
@@ -82,7 +82,7 @@ func TestSetupScriptShownReadOnly(t *testing.T) {
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
 	yaml := setupYAML("shop", "#!/bin/sh\necho hello-marker\n", "on_demand")
-	if r := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies); r.StatusCode != http.StatusSeeOther {
+	if r := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "mooring.yaml", yaml, cookies); r.StatusCode != http.StatusSeeOther {
 		t.Fatalf("sync = %d, want 303", r.StatusCode)
 	}
 	body := readBody(e.req(t, "GET", "/apps/shop/setup", "127.0.0.1:1", nil, cookies, nil))
@@ -102,7 +102,7 @@ func TestSetupRejectsAutoWithAutoDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	yaml := setupYAML("shop", "echo hi", "on_first_deploy")
-	resp := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies)
+	resp := e.reqUpload(t, "/apps/shop/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "mooring.yaml", yaml, cookies)
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("auto_deploy + on_first_deploy = %d, want 422", resp.StatusCode)
 	}
@@ -114,7 +114,7 @@ func TestSetupSyncProtectedRejected(t *testing.T) {
 	sess, csrf := e.authed(t)
 	cookies := []*http.Cookie{sess, csrf}
 	yaml := setupYAML("edge", "echo hi", "on_demand")
-	resp := e.reqUpload(t, "/apps/edge/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "helmsman.yaml", yaml, cookies)
+	resp := e.reqUpload(t, "/apps/edge/setup/sync", "127.0.0.1:1", csrf.Value, "definition", "mooring.yaml", yaml, cookies)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("protected setup sync = %d, want 403", resp.StatusCode)
 	}
@@ -200,7 +200,7 @@ func TestCaptureRejectsSymlinkedParent(t *testing.T) {
 	}
 }
 
-// A symlinked .helmsman.env must not be followed (no host-file read via env capture).
+// A symlinked .mooring.env must not be followed (no host-file read via env capture).
 func TestCaptureEnvRejectsSymlink(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	scratch := t.TempDir()
@@ -208,7 +208,7 @@ func TestCaptureEnvRejectsSymlink(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("STOLEN=hostsecret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(scratch, ".helmsman.env")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(scratch, ".mooring.env")); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
 	ss := sandbox.ScriptSet{Script: "x", Trigger: "on_demand", Produces: []string{"env:STOLEN"}}
@@ -226,7 +226,7 @@ func TestCaptureEnvHostileDataAndDeclaredOnly(t *testing.T) {
 	scratch := t.TempDir()
 
 	// A value with a ${...} interpolation sequence is rejected.
-	if err := os.WriteFile(filepath.Join(scratch, ".helmsman.env"), []byte("BAD=x${INJECT}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(scratch, ".mooring.env"), []byte("BAD=x${INJECT}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ssBad := sandbox.ScriptSet{Script: "x", Trigger: "on_demand", Produces: []string{"env:BAD"}}
@@ -235,7 +235,7 @@ func TestCaptureEnvHostileDataAndDeclaredOnly(t *testing.T) {
 	}
 
 	// A clean DECLARED key is captured as a secret; an undeclared key is ignored.
-	if err := os.WriteFile(filepath.Join(scratch, ".helmsman.env"), []byte("TOKEN=abc123\nUNDECLARED=zzz\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(scratch, ".mooring.env"), []byte("TOKEN=abc123\nUNDECLARED=zzz\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ssOK := sandbox.ScriptSet{Script: "x", Trigger: "on_demand", Produces: []string{"env:TOKEN"}}

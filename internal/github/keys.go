@@ -11,7 +11,7 @@ import (
 )
 
 // DeployKey is a freshly generated ed25519 keypair for one repository: the private
-// half (OpenSSH PEM) Helmsman keeps encrypted and fetches with, and the public half
+// half (OpenSSH PEM) Mooring keeps encrypted and fetches with, and the public half
 // (authorized_keys line) installed on the repo as a READ-ONLY deploy key.
 type DeployKey struct {
 	PrivatePEM string // OpenSSH "BEGIN OPENSSH PRIVATE KEY" PEM
@@ -19,7 +19,7 @@ type DeployKey struct {
 }
 
 // GenerateDeployKey makes a new ed25519 deploy keypair. comment is a human label
-// embedded in both halves (e.g. "helmsman:my-app"). ed25519 is small, fast, and the
+// embedded in both halves (e.g. "mooring:my-app"). ed25519 is small, fast, and the
 // modern default — no key-size choices to get wrong.
 func GenerateDeployKey(comment string) (DeployKey, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)

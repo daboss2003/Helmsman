@@ -3,7 +3,7 @@ package web
 import (
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/definition"
+	"github.com/daboss2003/mooring/internal/definition"
 )
 
 // TestBindingSourceRoundTrip checks the editor source grammar round-trips through

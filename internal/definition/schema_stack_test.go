@@ -4,7 +4,7 @@ import "testing"
 
 // docWith wraps a spec body (indented under `spec:`) into a full App document.
 func docWith(specBody string) string {
-	return "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: shop}\nspec:\n" + specBody
+	return "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: shop}\nspec:\n" + specBody
 }
 
 func TestServiceImageXorBuild(t *testing.T) {

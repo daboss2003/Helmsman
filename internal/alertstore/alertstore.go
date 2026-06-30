@@ -11,9 +11,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/alert"
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/alert"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // Store persists alerting state.
@@ -77,7 +77,7 @@ func (s *Store) ListChannels() ([]ChannelMeta, error) {
 	return out, rows.Err()
 }
 
-// NtfyManagedInfo is the display-safe subset of a Helmsman-hosted ntfy channel — the
+// NtfyManagedInfo is the display-safe subset of a Mooring-hosted ntfy channel — the
 // subscribe URL, topic, and the read-only USERNAME+PASSWORD the operator signs into the
 // ntfy app/web UI with. The publisher's write token is never returned.
 type NtfyManagedInfo struct {
@@ -88,7 +88,7 @@ type NtfyManagedInfo struct {
 	Password string
 }
 
-// ManagedNtfy returns the configured Helmsman-hosted ntfy channel's subscribe info, or
+// ManagedNtfy returns the configured Mooring-hosted ntfy channel's subscribe info, or
 // ok=false if none is configured. Decrypts the channel config but exposes only the
 // read-only subscriber credentials (the operator must see them to subscribe), never the
 // publisher write token.
@@ -141,7 +141,7 @@ func (s *Store) channel(id int64) (alert.Channel, error) {
 // ChannelByID builds a single channel (for the "send test" button).
 func (s *Store) ChannelByID(id int64) (alert.Channel, error) { return s.channel(id) }
 
-// AllChannels builds every enabled channel. Used for Helmsman-originated infra
+// AllChannels builds every enabled channel. Used for Mooring-originated infra
 // alerts (plan §8.4), which are never deferred and route to all channels. A channel
 // that fails to build is skipped (a broken channel can't block the others).
 func (s *Store) AllChannels() ([]alert.Channel, error) {
@@ -170,7 +170,7 @@ func (s *Store) AllChannels() ([]alert.Channel, error) {
 	return out, nil
 }
 
-// EnqueueInfra appends a Helmsman-originated infra notification (rule_id=0 sentinel,
+// EnqueueInfra appends a Mooring-originated infra notification (rule_id=0 sentinel,
 // never deferred). It is deduped against pending rows so a re-paged condition each
 // tick can't pile up — at most one un-sent row per (dedupe_key, transition).
 func (s *Store) EnqueueInfra(ctx context.Context, o alert.Outbox) error {

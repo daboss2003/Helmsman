@@ -1,8 +1,8 @@
 # App Ops Interface (rich per-service monitoring)
 
-Any service can expose a small HTTP **ops endpoint**, and Helmsman turns it into a rich, live view on that **service's page** — dependency health, queues, and open-ended metric cards (database, cache, routes, system, memory, …). It's opt-in, per-service, and degrades safely: if a service doesn't implement it (or the response doesn't match), the service just shows its basic Docker-derived status.
+Any service can expose a small HTTP **ops endpoint**, and Mooring turns it into a rich, live view on that **service's page** — dependency health, queues, and open-ended metric cards (database, cache, routes, system, memory, …). It's opt-in, per-service, and degrades safely: if a service doesn't implement it (or the response doesn't match), the service just shows its basic Docker-derived status.
 
-This is the self-hosted analogue of a Laravel Pulse / Horizon dashboard — but driven by a tiny JSON contract your app implements, shown inside Helmsman next to the service's logs and controls.
+This is the self-hosted analogue of a Laravel Pulse / Horizon dashboard — but driven by a tiny JSON contract your app implements, shown inside Mooring next to the service's logs and controls.
 
 See also: [The definition file](./definition-file.md) · [Secrets & config files](./config-files-and-secrets.md)
 
@@ -18,7 +18,7 @@ Open an app, click a **service name** in its table → the service's page. When 
 
 It's **per service** — each service is probed independently, so `api`, `worker`, and `resolver` each get their own ops view.
 
-## Enable it (per service, in `helmsman.yaml`)
+## Enable it (per service, in `mooring.yaml`)
 
 ```yaml
 spec:
@@ -32,17 +32,17 @@ spec:
           enabled: true
           base_url: http://api:8080   # in-cluster origin (never loopback)
           base_path: /ops             # optional prefix for the endpoints below
-          secret_header: X-Ops-Secret # Helmsman sends the secret in this header on every probe
+          secret_header: X-Ops-Secret # Mooring sends the secret in this header on every probe
           secret: ops_secret          # references spec.secrets[].name (value resolved from the secret store)
           mode: auto                  # auto (discover) | rich (probe directly) | basic (off)
           adapter: ops.v1
 ```
 
-Set the `ops_secret` value on the app's **Environment** page (it's write-only/masked). Helmsman sends it in `secret_header` on every request, so your app can require it and reject anyone else.
+Set the `ops_secret` value on the app's **Environment** page (it's write-only/masked). Mooring sends it in `secret_header` on every request, so your app can require it and reject anyone else.
 
 ## What your app implements
 
-All paths are under `base_path` (default none). Every response is treated as **untrusted**: size-capped, schema-checked, element-count-capped; any mismatch just drops that part — it never crashes Helmsman.
+All paths are under `base_path` (default none). Every response is treated as **untrusted**: size-capped, schema-checked, element-count-capped; any mismatch just drops that part — it never crashes Mooring.
 
 ### 1. Discovery — `GET /.well-known/ops` (for `mode: auto`)
 
@@ -50,7 +50,7 @@ All paths are under `base_path` (default none). Every response is treated as **u
 { "opsInterfaceVersion": "1.0", "capabilities": ["health", "queues", "metrics"], "basePath": "/ops" }
 ```
 
-Helmsman speaks **major version 1**. List only the capabilities you implement. With `mode: rich` you can skip this and Helmsman probes the endpoints directly.
+Mooring speaks **major version 1**. List only the capabilities you implement. With `mode: rich` you can skip this and Mooring probes the endpoints directly.
 
 ### 2. Health — `GET {basePath}/health/live`  (capability `health`)
 
@@ -70,7 +70,7 @@ Terminus-style; each entry becomes a health tile:
 
 ### 3. Metrics — `GET {basePath}/metrics`  (capability `metrics`)
 
-**Open-ended** — you name the groups; Helmsman renders each as a card. `value` may be a string or a number; `unit` and `status` (for coloring) are optional.
+**Open-ended** — you name the groups; Mooring renders each as a card. `value` may be a string or a number; `unit` and `status` (for coloring) are optional.
 
 ```json
 {
@@ -104,11 +104,11 @@ Use as many groups/items as you like — Database, Cache, Routes, System, Memory
 { "queues": [ { "name": "default", "isPaused": false, "counts": { "waiting": 3, "active": 1, "failed": 0 } } ] }
 ```
 
-Each response may also be wrapped in a `{ "status": ..., "data": ... }` envelope — Helmsman unwraps it.
+Each response may also be wrapped in a `{ "status": ..., "data": ... }` envelope — Mooring unwraps it.
 
 ## Auth
 
-Helmsman sends the configured `secret_header: <your secret>` on every request and validates TLS/SSRF on its side (it only dials the in-cluster `base_url`, never loopback). Require that header in your ops handlers so only Helmsman can read them.
+Mooring sends the configured `secret_header: <your secret>` on every request and validates TLS/SSRF on its side (it only dials the in-cluster `base_url`, never loopback). Require that header in your ops handlers so only Mooring can read them.
 
 ## Modes
 

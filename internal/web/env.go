@@ -11,13 +11,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/cfgfile"
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/envimport"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/cfgfile"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/envimport"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 // envKeyForm validates an env var name typed in the dashboard.
@@ -223,7 +223,7 @@ func (s *Server) handleEnvRemoveLiteral(w http.ResponseWriter, r *http.Request) 
 
 // handleEnvImport ingests an uploaded .env file (pick-a-file): it is parsed,
 // hygiene-checked, and CLASSIFIED (biased toward secret) by the same code path as
-// `helmsman secret import`, with the override-proof literal-secret HARD STOP — so an
+// `mooring secret import`, with the override-proof literal-secret HARD STOP — so an
 // obvious secret in the file is stored masked, never as a clear literal. Parsed
 // entries are upserted into the current set (existing keys updated, others kept).
 func (s *Server) handleEnvImport(w http.ResponseWriter, r *http.Request) {
@@ -464,9 +464,9 @@ func resolveEnvValues(env compose.Env) compose.Env {
 	return env
 }
 
-// renderEnvFile writes the merged env to a 0600 Helmsman-owned file and returns
+// renderEnvFile writes the merged env to a 0600 Mooring-owned file and returns
 // its path + cleanup, but only when the store holds entries (else compose loads
-// the project .env itself — identical result). Helmsman owns the live env.
+// the project .env itself — identical result). Mooring owns the live env.
 func (s *Server) renderEnvFile(app *monitor.App, env compose.Env) (string, func(), error) {
 	noop := func() {}
 	if s.envStore == nil {

@@ -18,17 +18,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/config"
+	"github.com/daboss2003/mooring/internal/config"
 )
 
-// cmd_doctor.go is the host-prerequisites helper. Helmsman's RUNTIME service is
+// cmd_doctor.go is the host-prerequisites helper. Mooring's RUNTIME service is
 // deliberately unprivileged — it can't install packages, edit host DNS, or grant
 // capabilities (that's the security model: a compromised dashboard must not be able
 // to either). So prerequisites are an explicit, admin-run, root, install-time job —
 // which this makes one command instead of a scavenger hunt:
 //
-//	helmsman doctor   — read-only: report what's missing + the exact fix (any user).
-//	helmsman setup    — print a fix PLAN (dry run); `--yes` applies it (root, apt).
+//	mooring doctor   — read-only: report what's missing + the exact fix (any user).
+//	mooring setup    — print a fix PLAN (dry run); `--yes` applies it (root, apt).
 //
 // `setup` only performs SAFE, idempotent, well-understood mutations (install Caddy /
 // nginx+stream, cap Docker's logs). It NEVER auto-rewrites host DNS or frees :53 —
@@ -41,7 +41,7 @@ const (
 	caddySources  = "deb [signed-by=" + caddyKeyPath + "] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main\n"
 	// Legacy drop-in path: the base unit now grants CAP_NET_BIND_SERVICE by default, so
 	// setup no longer installs this. checkCapsActive still reads it as a fallback signal.
-	capsDst = "/etc/systemd/system/helmsman.service.d/helmsman-privileged-ports.conf"
+	capsDst = "/etc/systemd/system/mooring.service.d/mooring-privileged-ports.conf"
 )
 
 func cmdDoctor(args []string) error {
@@ -52,17 +52,17 @@ func cmdDoctor(args []string) error {
 		return err
 	}
 	if runtime.GOOS != "linux" {
-		fmt.Println("helmsman doctor: host checks run on Linux only.")
+		fmt.Println("mooring doctor: host checks run on Linux only.")
 		return nil
 	}
 	cfg, cfgWarn := loadDoctorConfig(*configPath)
 	rep := preflight(*l4, cfg, true)
 	if cfgWarn != "" {
-		rep.add(result{"config", "warn", cfgWarn, "pass --config, or run where /etc/helmsman/config.yaml is readable (runtime checks fall back to defaults)"})
+		rep.add(result{"config", "warn", cfgWarn, "pass --config, or run where /etc/mooring/config.yaml is readable (runtime checks fall back to defaults)"})
 	}
 	rep.print(os.Stdout)
 	if rep.hasFail() {
-		fmt.Println("\nRun `sudo helmsman setup` to review a fix plan, then `sudo helmsman setup --yes` to apply it.")
+		fmt.Println("\nRun `sudo mooring setup` to review a fix plan, then `sudo mooring setup --yes` to apply it.")
 	} else {
 		fmt.Println("\nRequired prerequisites are present.")
 	}
@@ -84,7 +84,7 @@ func cmdSetup(args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	yes := fs.Bool("yes", false, "apply the changes (default: print the plan only)")
 	l4 := fs.Bool("l4", false, "also install the L4 prerequisites (nginx + stream module)")
-	restart := fs.Bool("restart", false, "restart the helmsman service after applying")
+	restart := fs.Bool("restart", false, "restart the mooring service after applying")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -92,12 +92,12 @@ func cmdSetup(args []string) error {
 		return fmt.Errorf("setup runs on Linux only")
 	}
 	if !have("apt-get") {
-		fmt.Println("helmsman setup auto-installs via apt (Debian/Ubuntu). On other distros, install")
-		fmt.Println("Caddy (and nginx + the stream module for L4) per docs/installation.md, then `helmsman doctor`.")
+		fmt.Println("mooring setup auto-installs via apt (Debian/Ubuntu). On other distros, install")
+		fmt.Println("Caddy (and nginx + the stream module for L4) per docs/installation.md, then `mooring doctor`.")
 		return nil
 	}
 	if *yes && os.Geteuid() != 0 {
-		return fmt.Errorf("applying changes needs root — run: sudo helmsman setup --yes")
+		return fmt.Errorf("applying changes needs root — run: sudo mooring setup --yes")
 	}
 
 	// setup runs at onboarding (before config/service start), so skip the runtime-state
@@ -116,7 +116,7 @@ func cmdSetup(args []string) error {
 		fmt.Printf("  %d. %s\n", i+1, s.desc)
 	}
 	if !*yes {
-		fmt.Println("\nThis was a DRY RUN — nothing changed. Re-run as `sudo helmsman setup --yes` to apply.")
+		fmt.Println("\nThis was a DRY RUN — nothing changed. Re-run as `sudo mooring setup --yes` to apply.")
 		printDNSGuidance(*l4)
 		return nil
 	}
@@ -149,12 +149,12 @@ func plan(apply, l4, restart bool) []step {
 			step{"install caddy", func() error { return run(apply, "apt-get", "install", "-y", "caddy") }},
 		)
 	}
-	// ALWAYS disable the packaged caddy.service when it exists — Helmsman supervises its
+	// ALWAYS disable the packaged caddy.service when it exists — Mooring supervises its
 	// OWN Caddy child; the distro unit squats :80/:443 and crash-loops the edge. This is
 	// NOT gated on a fresh install (that was the bug: a host where caddy was already
 	// present skipped the disable). Idempotent; skipped when the unit isn't installed.
 	if unitExists("caddy.service") {
-		steps = append(steps, step{"disable the distro caddy.service (Helmsman supervises its own child)",
+		steps = append(steps, step{"disable the distro caddy.service (Mooring supervises its own child)",
 			func() error { return run(apply, "systemctl", "disable", "--now", "caddy") }})
 	}
 	if l4 && !have("nginx") {
@@ -163,7 +163,7 @@ func plan(apply, l4, restart bool) []step {
 		)
 	}
 	if l4 && unitExists("nginx.service") {
-		steps = append(steps, step{"disable the distro nginx.service (Helmsman supervises its own child)",
+		steps = append(steps, step{"disable the distro nginx.service (Mooring supervises its own child)",
 			func() error { return run(apply, "systemctl", "disable", "--now", "nginx") }})
 	}
 	// CAP_NET_BIND_SERVICE is granted by the base unit now (no drop-in step needed).
@@ -174,7 +174,7 @@ func plan(apply, l4, restart bool) []step {
 		)
 	}
 	if restart {
-		steps = append(steps, step{"restart the helmsman service", func() error { return run(apply, "systemctl", "restart", "helmsman") }})
+		steps = append(steps, step{"restart the mooring service", func() error { return run(apply, "systemctl", "restart", "mooring") }})
 	}
 	return steps
 }
@@ -204,7 +204,7 @@ func (r report) state(name string) string {
 	return ""
 }
 
-// printGuidance prints the copy-paste steps for the host changes Helmsman won't make
+// printGuidance prints the copy-paste steps for the host changes Mooring won't make
 // automatically (they're global/disruptive): Docker log rotation when uncapped, and
 // freeing :53 from systemd-resolved when L4 is in play.
 func printGuidance(rep report, l4 bool) {
@@ -230,7 +230,7 @@ func (r report) print(w io.Writer) {
 func preflight(l4 bool, cfg *config.Config, runtimeChecks bool) report {
 	managed := cfg == nil || cfg.Edge.Mode == config.EdgeManaged // default mode is managed
 	var r report
-	r.add(checkBinary("caddy", "managed HTTPS edge (:80/:443 + ACME)", "sudo helmsman setup --yes"))
+	r.add(checkBinary("caddy", "managed HTTPS edge (:80/:443 + ACME)", "sudo mooring setup --yes"))
 	if managed {
 		r.add(checkDistroService("caddy", ":80/:443 (edge)"))
 	}
@@ -243,7 +243,7 @@ func preflight(l4 bool, cfg *config.Config, runtimeChecks bool) report {
 		r.add(checkTOTP(cfg))
 	}
 	if l4 {
-		r.add(checkBinary("nginx", "L4 (TCP/UDP) load balancer", "sudo helmsman setup --l4 --yes"))
+		r.add(checkBinary("nginx", "L4 (TCP/UDP) load balancer", "sudo mooring setup --l4 --yes"))
 		r.add(checkDistroService("nginx", ":53/:853 + :80 (L4)"))
 		r.add(checkStreamModule())
 		r.add(checkResolvedStub())
@@ -265,14 +265,14 @@ func doctorDataDir(cfg *config.Config) string {
 	if cfg != nil && cfg.DataDir != "" {
 		return cfg.DataDir
 	}
-	return "/var/lib/helmsman"
+	return "/var/lib/mooring"
 }
 
 func doctorAdminListen(cfg *config.Config) string {
 	if cfg != nil {
 		return edgeAdminListen(cfg)
 	}
-	return "unix//run/helmsman/caddy-admin.sock"
+	return "unix//run/mooring/caddy-admin.sock"
 }
 
 func doctorProxyAddr(cfg *config.Config) string {
@@ -282,10 +282,10 @@ func doctorProxyAddr(cfg *config.Config) string {
 	return "127.0.0.1:2375"
 }
 
-// systemctlShow reads one property of the live helmsman unit. ok=false when systemctl
+// systemctlShow reads one property of the live mooring unit. ok=false when systemctl
 // is unavailable (so callers degrade rather than false-alarm).
 func systemctlShow(prop string) (string, bool) {
-	out, err := exec.Command("systemctl", "show", "helmsman", "-p", prop, "--value").Output() // literal: SEC-1 safe (no -c)
+	out, err := exec.Command("systemctl", "show", "mooring", "-p", prop, "--value").Output() // literal: SEC-1 safe (no -c)
 	if err != nil {
 		return "", false
 	}
@@ -300,7 +300,7 @@ func checkBinary(bin, what, fix string) result {
 }
 
 // checkDistroService flags a packaged caddy/nginx unit that is active or enabled — it
-// fights Helmsman's supervised child for its ports (the #1 "edge child exited: address
+// fights Mooring's supervised child for its ports (the #1 "edge child exited: address
 // already in use" cause, which otherwise shows up only as a mysterious cert failure at
 // deploy time). Literal binary, no shell — SEC-1 safe.
 func checkDistroService(name, ports string) result {
@@ -309,8 +309,8 @@ func checkDistroService(name, ports string) result {
 	a, e := strings.TrimSpace(string(active)), strings.TrimSpace(string(enabled))
 	if a == "active" || e == "enabled" {
 		return result{name + " conflict", "fail",
-			"distro " + name + ".service is " + a + "/" + e + " — it squats " + ports + " and crash-loops Helmsman's supervised child",
-			"sudo systemctl disable --now " + name + "   (or: sudo helmsman setup --yes)"}
+			"distro " + name + ".service is " + a + "/" + e + " — it squats " + ports + " and crash-loops Mooring's supervised child",
+			"sudo systemctl disable --now " + name + "   (or: sudo mooring setup --yes)"}
 	}
 	return result{name + " conflict", "ok", "no conflicting distro " + name + ".service", ""}
 }
@@ -340,11 +340,11 @@ func checkCapsActive(need bool) result {
 		// The base unit grants it by default; if it's not active the installed unit is
 		// stale (pre-upgrade) or overridden — reload + restart, don't reinstall.
 		return result{"net-bind cap", miss, "CAP_NET_BIND_SERVICE not active — the edge/L4 can't bind :80/:443/:53",
-			"sudo systemctl daemon-reload && sudo systemctl restart helmsman (the base unit grants it)"}
+			"sudo systemctl daemon-reload && sudo systemctl restart mooring (the base unit grants it)"}
 	}
 	// systemctl unavailable → can't confirm; the base unit grants it by default.
 	return result{"net-bind cap", "warn", "could not confirm CAP_NET_BIND_SERVICE is active",
-		"verify: systemctl show helmsman -p AmbientCapabilities"}
+		"verify: systemctl show mooring -p AmbientCapabilities"}
 }
 
 func checkStreamModule() result {
@@ -355,7 +355,7 @@ func checkStreamModule() result {
 		"sudo apt install libnginx-mod-stream (else nginx rejects the L4 config)"}
 }
 
-// checkStateDirs verifies the writable state dirs exist, are helmsman-owned, and are
+// checkStateDirs verifies the writable state dirs exist, are mooring-owned, and are
 // in the unit's ReadWritePaths — the silent "deploy hangs / edge won't start" trap
 // when a dir is missing, root-owned, or data_dir was changed without updating the unit.
 func checkStateDirs(cfg *config.Config, managed bool) result {
@@ -371,13 +371,13 @@ func checkStateDirs(cfg *config.Config, managed bool) result {
 			bad = append(bad, d+" (missing)")
 			continue
 		}
-		if !ownedByHelmsman(fi) {
-			bad = append(bad, d+" (not owned by helmsman)")
+		if !ownedByMooring(fi) {
+			bad = append(bad, d+" (not owned by mooring)")
 		}
 	}
 	if len(bad) > 0 {
 		return result{"state dirs", "fail", "writable-dir problem: " + strings.Join(bad, ", "),
-			"sudo install -d -o helmsman -g helmsman -m0700 <dir> (and add it to the unit's ReadWritePaths)"}
+			"sudo install -d -o mooring -g mooring -m0700 <dir> (and add it to the unit's ReadWritePaths)"}
 	}
 	if rwp, ok := systemctlShow("ReadWritePaths"); ok {
 		for _, d := range []string{dd, dd + "-apps"} {
@@ -387,25 +387,25 @@ func checkStateDirs(cfg *config.Config, managed bool) result {
 			}
 		}
 	}
-	return result{"state dirs", "ok", "state dirs exist, helmsman-owned, in ReadWritePaths", ""}
+	return result{"state dirs", "ok", "state dirs exist, mooring-owned, in ReadWritePaths", ""}
 }
 
 // checkRunDir verifies the parent dir of the Caddy admin unix socket exists (the
-// /run/helmsman crash-loop), and that it is backed by RuntimeDirectory (a hand-mkdir
+// /run/mooring crash-loop), and that it is backed by RuntimeDirectory (a hand-mkdir
 // under /run vanishes on reboot).
 func checkRunDir(cfg *config.Config) result {
 	listen := doctorAdminListen(cfg)
 	if !strings.HasPrefix(listen, "unix/") {
 		return result{"run dir", "ok", "admin endpoint is loopback TCP (no runtime dir needed)", ""}
 	}
-	dir := filepath.Dir(strings.TrimPrefix(listen, "unix/")) // "unix//run/helmsman/x" → "/run/helmsman"
+	dir := filepath.Dir(strings.TrimPrefix(listen, "unix/")) // "unix//run/mooring/x" → "/run/mooring"
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return result{"run dir", "fail", dir + " is missing — the edge can't bind its admin socket (crash-loop)",
-			"add RuntimeDirectory=helmsman to the unit, then daemon-reload + restart"}
+			"add RuntimeDirectory=mooring to the unit, then daemon-reload + restart"}
 	}
-	if rd, ok := systemctlShow("RuntimeDirectory"); ok && strings.HasPrefix(dir, "/run/") && !strings.Contains(rd, "helmsman") {
+	if rd, ok := systemctlShow("RuntimeDirectory"); ok && strings.HasPrefix(dir, "/run/") && !strings.Contains(rd, "mooring") {
 		return result{"run dir", "warn", dir + " exists but the unit has no RuntimeDirectory= (lost on reboot)",
-			"add RuntimeDirectory=helmsman to the unit"}
+			"add RuntimeDirectory=mooring to the unit"}
 	}
 	return result{"run dir", "ok", dir + " present for the admin socket", ""}
 }
@@ -418,7 +418,7 @@ func checkEgress() result {
 	deny, ok := systemctlShow("IPAddressDeny")
 	if !ok {
 		return result{"egress", "warn", "could not read the unit's egress filter",
-			"systemctl show helmsman -p IPAddressDeny -p IPAddressAllow"}
+			"systemctl show mooring -p IPAddressDeny -p IPAddressAllow"}
 	}
 	if !strings.Contains(deny, "any") && !strings.Contains(deny, "0.0.0.0/0") && !strings.Contains(deny, "::/0") {
 		return result{"egress", "ok", "no cgroup egress lockdown (in-process dialers guard SSRF)", ""}
@@ -440,7 +440,7 @@ func checkTOTP(cfg *config.Config) result {
 		return result{"2fa (totp)", "ok", "two-factor auth is enabled in the config", ""}
 	}
 	return result{"2fa (totp)", "warn", "two-factor auth is DISABLED — login is password-only",
-		"helmsman gen-totp → paste the printed totp_secret under `auth:` in config.yaml → sudo systemctl reload helmsman"}
+		"mooring gen-totp → paste the printed totp_secret under `auth:` in config.yaml → sudo systemctl reload mooring"}
 }
 
 // checkDeployEnv verifies the live unit exports a writable HOME. Deploys AND the
@@ -451,13 +451,13 @@ func checkTOTP(cfg *config.Config) result {
 func checkDeployEnv() result {
 	env, ok := systemctlShow("Environment")
 	if !ok {
-		return result{"deploy env", "warn", "could not read the unit's Environment", "systemctl show helmsman -p Environment"}
+		return result{"deploy env", "warn", "could not read the unit's Environment", "systemctl show mooring -p Environment"}
 	}
 	if strings.Contains(env, "HOME=") {
 		return result{"deploy env", "ok", "unit sets a writable HOME for compose/build children", ""}
 	}
 	return result{"deploy env", "fail", "unit has no HOME — `docker compose --build` and the socket-proxy will exit 125",
-		"upgrade, then sudo systemctl daemon-reload && sudo systemctl restart helmsman (the shipped unit sets HOME)"}
+		"upgrade, then sudo systemctl daemon-reload && sudo systemctl restart mooring (the shipped unit sets HOME)"}
 }
 
 // checkSocketProxy probes the read-plane loopback endpoint (liveness, not security).
@@ -479,10 +479,10 @@ func checkSocketProxy(cfg *config.Config) result {
 	return result{"socket-proxy", "ok", "managed socket-proxy answering on " + addr, ""}
 }
 
-// ownedByHelmsman reports whether fi is owned by the helmsman user. If the user can't
+// ownedByMooring reports whether fi is owned by the mooring user. If the user can't
 // be resolved (e.g. doctor run on a dev box), it returns true (don't false-alarm).
-func ownedByHelmsman(fi os.FileInfo) bool {
-	u, err := user.Lookup("helmsman")
+func ownedByMooring(fi os.FileInfo) bool {
+	u, err := user.Lookup("mooring")
 	if err != nil {
 		return true
 	}
@@ -516,8 +516,8 @@ func checkResolvedStub() result {
 
 // checkDockerLogRotation flags the one place container logs CAN grow unbounded:
 // Docker's default json-file driver keeps every container's stdout on disk forever
-// unless log-opts.max-size is set. Helmsman streams logs (it never stores them), so
-// this is a host/disk concern, not a Helmsman-memory one — but it's the gap worth
+// unless log-opts.max-size is set. Mooring streams logs (it never stores them), so
+// this is a host/disk concern, not a Mooring-memory one — but it's the gap worth
 // catching on a small VPS.
 func checkDockerLogRotation() result {
 	b, _ := os.ReadFile("/etc/docker/daemon.json") // absent → Docker's uncapped json-file default
@@ -525,7 +525,7 @@ func checkDockerLogRotation() result {
 		return result{"docker logs", "ok", "container log rotation is configured", ""}
 	}
 	return result{"docker logs", "warn", "json-file driver has no size cap — container logs can fill the disk",
-		"sudo helmsman setup --yes (caps it), or set log-opts.max-size by hand (snippet below)"}
+		"sudo mooring setup --yes (caps it), or set log-opts.max-size by hand (snippet below)"}
 }
 
 // dockerLogRotated reports whether Docker's container-log driver bounds on-disk size.
@@ -550,7 +550,7 @@ func dockerLogRotated(daemonJSON []byte) bool {
 // the read-only `doctor`. (`setup` applies it as a reviewable plan step instead.)
 func printDockerLogGuidance() {
 	fmt.Println("\nDocker log rotation — the default json-file driver never caps container logs,")
-	fmt.Println("so on a small VPS they can fill the disk. `sudo helmsman setup --yes` caps it, or add")
+	fmt.Println("so on a small VPS they can fill the disk. `sudo mooring setup --yes` caps it, or add")
 	fmt.Println("to /etc/docker/daemon.json by hand:")
 	fmt.Println(`  { "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }`)
 	fmt.Println("  sudo systemctl restart docker   # applies to newly created containers")
@@ -580,16 +580,16 @@ func applyDockerLogCap(apply bool) error {
 		fmt.Println("       already capped (or a non-json-file driver) — nothing to do")
 		return nil
 	}
-	fmt.Printf("       write %s (+ %s.helmsman.bak)\n", dockerDaemonJSON, dockerDaemonJSON)
+	fmt.Printf("       write %s (+ %s.mooring.bak)\n", dockerDaemonJSON, dockerDaemonJSON)
 	if !apply {
 		return nil
 	}
 	if len(cur) > 0 {
-		if err := writeRootFile(dockerDaemonJSON+".helmsman.bak", cur); err != nil {
+		if err := writeRootFile(dockerDaemonJSON+".mooring.bak", cur); err != nil {
 			return err
 		}
 	}
-	tmp := dockerDaemonJSON + ".helmsman.tmp"
+	tmp := dockerDaemonJSON + ".mooring.tmp"
 	if err := writeRootFile(tmp, out); err != nil {
 		return err
 	}

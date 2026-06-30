@@ -73,7 +73,7 @@
     {{end}}
   </div>
   {{else if $snap}}
-  <p class="muted">No apps yet. <a href="/git/new">Connect a repo</a> — Helmsman reads its <code>helmsman.yaml</code> (and scaffolds a starter if it has none) and deploys it.</p>
+  <p class="muted">No apps yet. <a href="/git/new">Connect a repo</a> — Mooring reads its <code>mooring.yaml</code> (and scaffolds a starter if it has none) and deploys it.</p>
   {{else}}
   <p class="muted">Collecting…</p>
   {{end}}
@@ -81,9 +81,9 @@
 
 {{if $.SystemApps}}
 <section class="panel">
-  <h2><span>System <span class="muted">(managed by Helmsman — read-only)</span></span></h2>
-  <p class="muted small">Helmsman's own infrastructure (the read-plane proxy that fronts the Docker
-    socket). Shown for visibility — it is controlled by Helmsman and has no app actions.</p>
+  <h2><span>System <span class="muted">(managed by Mooring — read-only)</span></span></h2>
+  <p class="muted small">Mooring's own infrastructure (the read-plane proxy that fronts the Docker
+    socket). Shown for visibility — it is controlled by Mooring and has no app actions.</p>
   <div class="tiles">
     {{range $.SystemApps}}
     <a class="tile tile-system {{if .Degraded}}tile-degraded{{else}}tile-ok{{end}}" href="/apps/{{pathEscape .Project}}">
@@ -191,7 +191,7 @@
         {{if eq $phase "CIRCUIT_OPEN"}}
           <span class="badge badge-warn" title="Self-healing gave up; investigate, then clear to retry.">circuit open</span>
           {{if and (not $wdr) (not $prot)}}
-          <form method="post" action="/apps/{{pathEscape $proj}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Helmsman try again?">
+          <form method="post" action="/apps/{{pathEscape $proj}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Mooring try again?">
             <input type="hidden" name="csrf_token" value="{{$csrf}}"><input type="hidden" name="service" value="{{.Service}}">
             <button type="submit" class="link">clear</button>
           </form>

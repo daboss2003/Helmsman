@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/opsclient"
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/opsclient"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // resolveBase rewrites a service-name base_url to the backing container's bridge IP

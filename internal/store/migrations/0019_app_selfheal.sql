@@ -1,6 +1,6 @@
 -- Per-app self-healing policy (plan §8.5). The supervisor ships a conservative
 -- built-in default (selfheal.DefaultPolicy); a row here tunes the ladder for ONE
--- app (its services). Written from helmsman.yaml's spec.self_healing at deploy —
+-- app (its services). Written from mooring.yaml's spec.self_healing at deploy —
 -- yaml is the source of truth (there is no separate dashboard editor). An app with
 -- no row uses the built-in default.
 CREATE TABLE app_selfheal (

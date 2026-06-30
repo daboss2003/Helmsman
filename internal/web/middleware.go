@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/session"
+	"github.com/daboss2003/mooring/internal/session"
 )
 
 // The request pipeline, in the exact order the security model mandates (plan §5):

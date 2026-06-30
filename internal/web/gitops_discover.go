@@ -11,29 +11,29 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/crypto"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/git"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/crypto"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/git"
+	"github.com/daboss2003/mooring/internal/gitstore"
 )
 
-// A repo may carry SEVERAL helmsman files — the plain helmsman.yaml plus named
-// variants like helmsman.staging.yaml / helmsman.prod.yaml — and EACH becomes its
+// A repo may carry SEVERAL mooring files — the plain mooring.yaml plus named
+// variants like mooring.staging.yaml / mooring.prod.yaml — and EACH becomes its
 // own deployed app instance (its own slug, taken from that file's metadata.slug).
-// On connect, Helmsman does a throwaway discovery fetch, lists the helmsman files,
+// On connect, Mooring does a throwaway discovery fetch, lists the mooring files,
 // reads each one's slug, and:
 //   - 0 files  → scaffold a default (the operator supplies a name);
 //   - 1 file   → create the app straight away;
-//   - >1 files → present a chooser (plain helmsman.yaml preferred), one app per file.
+//   - >1 files → present a chooser (plain mooring.yaml preferred), one app per file.
 // If the chosen file's slug already names an app, the operator is redirected to it
 // rather than overwriting — connect-new never silently repoints an existing app.
 
 var connectSlugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
-// discoveredFile is one helmsman*.yaml found at the repo's connect-time commit.
+// discoveredFile is one mooring*.yaml found at the repo's connect-time commit.
 type discoveredFile struct {
-	Path string // root-level file name (helmsman.yaml | helmsman.staging.yaml | ...)
+	Path string // root-level file name (mooring.yaml | mooring.staging.yaml | ...)
 	Slug string // metadata.slug peeked from the file (may be empty/invalid)
 	Name string // metadata.name peeked from the file (optional, display only)
 }
@@ -43,7 +43,7 @@ type discoveryCandidate struct {
 	Path    string
 	Slug    string
 	Name    string
-	Label   string // variant label: "default" for helmsman.yaml, else the middle text
+	Label   string // variant label: "default" for mooring.yaml, else the middle text
 	Exists  bool   // an app with this slug is already connected → "Open" instead of "Create"
 	Invalid bool   // not creatable (surfaced as skipped)
 	Reason  string // why it was skipped (when Invalid)
@@ -121,11 +121,11 @@ func (f *discoveryFlash) take(handle string) (*discoveryStash, bool) {
 	return st, true
 }
 
-// helmsmanVariantLabel maps a file name to its instance label: helmsman.yaml →
-// "default", helmsman.staging.yaml → "staging", helmsman.prod.yaml → "prod".
-func helmsmanVariantLabel(path string) string {
+// mooringVariantLabel maps a file name to its instance label: mooring.yaml →
+// "default", mooring.staging.yaml → "staging", mooring.prod.yaml → "prod".
+func mooringVariantLabel(path string) string {
 	s := strings.TrimSuffix(strings.TrimSuffix(path, ".yaml"), ".yml")
-	s = strings.TrimPrefix(s, "helmsman")
+	s = strings.TrimPrefix(s, "mooring")
 	s = strings.TrimPrefix(s, ".")
 	if s == "" {
 		return "default"
@@ -133,11 +133,11 @@ func helmsmanVariantLabel(path string) string {
 	return s
 }
 
-// discoverHelmsmanFiles fetches the ref into a throwaway object store and returns the
-// root-level helmsman*.yaml files at its tip, each with its peeked slug/name. The temp
+// discoverMooringFiles fetches the ref into a throwaway object store and returns the
+// root-level mooring*.yaml files at its tip, each with its peeked slug/name. The temp
 // store is removed before returning — the real per-app fetch happens later, keyed by
 // the chosen slug. Read-plane only (no checkout, nothing runs).
-func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string, creds git.Creds) ([]discoveredFile, error) {
+func (s *Server) discoverMooringFiles(ctx context.Context, repoURL, ref string, creds git.Creds) ([]discoveredFile, error) {
 	dir := filepath.Join(s.cfg.DataDir, "git-discovery", crypto.RandomToken(12))
 	// Create + schedule cleanup BEFORE git.Open so the scratch dir is removed even if
 	// Open fails after it has already MkdirAll'd the path.
@@ -157,7 +157,7 @@ func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string,
 		return nil, err // already classified by the git layer
 	}
 	// Only the ROOT tree (not a recursive walk) — a repo with thousands of nested files
-	// can't push a root-level helmsman*.yaml past a cap, and an attacker can't force a
+	// can't push a root-level mooring*.yaml past a cap, and an attacker can't force a
 	// huge recursive listing here.
 	names, err := repo.LsTreeRoot(ctx, sha)
 	if err != nil {
@@ -165,10 +165,10 @@ func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string,
 	}
 	var out []discoveredFile
 	for _, name := range names {
-		if strings.Contains(name, "/") || !gitstore.ValidHelmsmanFile(name) {
-			continue // root-level helmsman*.yaml only
+		if strings.Contains(name, "/") || !gitstore.ValidMooringFile(name) {
+			continue // root-level mooring*.yaml only
 		}
-		if len(out) >= maxHelmsmanFiles {
+		if len(out) >= maxMooringFiles {
 			break // bound the per-connect CatFile/parse fan-out (DoS guard)
 		}
 		b, cerr := repo.CatFile(ctx, sha, name)
@@ -181,10 +181,10 @@ func (s *Server) discoverHelmsmanFiles(ctx context.Context, repoURL, ref string,
 	return out, nil
 }
 
-// maxHelmsmanFiles bounds how many root-level helmsman*.yaml files one connect will
+// maxMooringFiles bounds how many root-level mooring*.yaml files one connect will
 // read+parse — a real repo has a handful; the cap stops a hostile repo from forcing
 // thousands of git subprocesses + YAML parses under the shared git lock.
-const maxHelmsmanFiles = 50
+const maxMooringFiles = 50
 
 // sweepDiscoveryScratch best-effort removes any leftover discovery scratch dirs at
 // startup. Each is single-use and removed on its own path, but a hard crash mid-
@@ -210,7 +210,7 @@ func (s *Server) handleGitConnect(w http.ResponseWriter, r *http.Request) {
 	if ref == "" {
 		ref = "refs/heads/main"
 	}
-	fallbackName := strings.TrimSpace(r.PostFormValue("name")) // only used if the repo has no helmsman file
+	fallbackName := strings.TrimSpace(r.PostFormValue("name")) // only used if the repo has no mooring file
 	autoDeploy := r.PostFormValue("auto_deploy") == "on"
 	credKind := r.PostFormValue("cred_kind")
 	cred := r.PostFormValue("cred")
@@ -244,7 +244,7 @@ func (s *Server) handleGitConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "a git operation is already in progress; try again shortly", http.StatusConflict)
 		return
 	}
-	files, derr := s.discoverHelmsmanFiles(r.Context(), repoURL, ref, gc)
+	files, derr := s.discoverMooringFiles(r.Context(), repoURL, ref, gc)
 	s.gitDeploy.Release()
 	if derr != nil {
 		s.renderConnectError(w, r, "could not read the repository: "+derr.Error())
@@ -255,7 +255,7 @@ func (s *Server) handleGitConnect(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case len(candidates) == 1 && len(skipped) == 0:
-		// Exactly one helmsman file → no choice needed.
+		// Exactly one mooring file → no choice needed.
 		c := candidates[0]
 		if c.Exists {
 			http.Redirect(w, r, "/apps/"+c.Slug+"/git", http.StatusSeeOther)
@@ -276,18 +276,18 @@ func (s *Server) handleGitConnect(w http.ResponseWriter, r *http.Request) {
 		})
 	case len(skipped) >= 1:
 		// Files exist but none has a usable slug.
-		s.renderConnectError(w, r, "found helmsman files but none has a valid metadata.slug — add one (lowercase, e.g. slug: myapp) and reconnect")
+		s.renderConnectError(w, r, "found mooring files but none has a valid metadata.slug — add one (lowercase, e.g. slug: myapp) and reconnect")
 	default:
-		// No helmsman file at all → scaffold from the detected stack; needs a name.
+		// No mooring file at all → scaffold from the detected stack; needs a name.
 		if !connectSlugRe.MatchString(fallbackName) {
-			s.renderConnectError(w, r, "this repository has no helmsman.yaml — enter an app name and Helmsman will scaffold one from the detected stack")
+			s.renderConnectError(w, r, "this repository has no mooring.yaml — enter an app name and Mooring will scaffold one from the detected stack")
 			return
 		}
 		if _, exists, _ := s.gitStore.Get(fallbackName); exists {
 			http.Redirect(w, r, "/apps/"+fallbackName+"/git", http.StatusSeeOther)
 			return
 		}
-		s.finishConnect(w, r, fallbackName, repoURL, ref, "helmsman.yaml", cred, credKind, knownHosts, autoDeploy)
+		s.finishConnect(w, r, fallbackName, repoURL, ref, "mooring.yaml", cred, credKind, knownHosts, autoDeploy)
 	}
 }
 
@@ -333,17 +333,17 @@ func (s *Server) handleGitChoose(w http.ResponseWriter, r *http.Request) {
 
 // finishConnect persists the app's repo config, kicks an initial fetch so a staged
 // commit is ready to review+deploy, and lands the operator on its git page.
-func (s *Server) finishConnect(w http.ResponseWriter, r *http.Request, slug, repoURL, ref, helmsmanFile, cred, credKind, knownHosts string, autoDeploy bool) {
+func (s *Server) finishConnect(w http.ResponseWriter, r *http.Request, slug, repoURL, ref, mooringFile, cred, credKind, knownHosts string, autoDeploy bool) {
 	if s.cfg.IsProtectedProject(slug) {
 		http.Error(w, "protected project", http.StatusForbidden)
 		return
 	}
 	in := gitstore.SaveInput{
-		Project:      slug,
-		RepoURL:      repoURL,
-		Ref:          ref,
-		HelmsmanFile: helmsmanFile,
-		AutoDeploy:   autoDeploy,
+		Project:     slug,
+		RepoURL:     repoURL,
+		Ref:         ref,
+		MooringFile: mooringFile,
+		AutoDeploy:  autoDeploy,
 	}
 	if strings.TrimSpace(cred) != "" && (credKind == "token" || credKind == "ssh") {
 		in.NewCred = &cred
@@ -354,7 +354,7 @@ func (s *Server) finishConnect(w http.ResponseWriter, r *http.Request, slug, rep
 		s.renderConnectError(w, r, "repository config rejected: "+err.Error())
 		return
 	}
-	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "git_connect", Target: slug, Outcome: audit.OK, Level: audit.Security, Detail: helmsmanFile})
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "git_connect", Target: slug, Outcome: audit.OK, Level: audit.Security, Detail: mooringFile})
 	// Land on the git page; the operator clicks "Fetch now" to stage a commit (matching
 	// the established flow — connect never auto-fetches).
 	http.Redirect(w, r, "/apps/"+slug+"/git", http.StatusSeeOther)
@@ -379,7 +379,7 @@ func (s *Server) renderConnectError(w http.ResponseWriter, r *http.Request, msg 
 func (s *Server) buildCandidates(files []discoveredFile) (candidates, skipped []discoveryCandidate) {
 	seen := map[string]bool{}
 	for _, f := range files {
-		c := discoveryCandidate{Path: f.Path, Slug: f.Slug, Name: f.Name, Label: helmsmanVariantLabel(f.Path)}
+		c := discoveryCandidate{Path: f.Path, Slug: f.Slug, Name: f.Name, Label: mooringVariantLabel(f.Path)}
 		switch {
 		case !connectSlugRe.MatchString(f.Slug):
 			c.Invalid, c.Reason = true, "no valid metadata.slug"
@@ -398,7 +398,7 @@ func (s *Server) buildCandidates(files []discoveredFile) (candidates, skipped []
 	return candidates, skipped
 }
 
-// sortCandidates puts the plain helmsman.yaml ("default") first, then the rest
+// sortCandidates puts the plain mooring.yaml ("default") first, then the rest
 // alphabetically by label, so the chooser always offers the obvious default on top.
 func sortCandidates(c []discoveryCandidate) {
 	sort.SliceStable(c, func(i, j int) bool {

@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/alert"
-	"github.com/daboss2003/Helmsman/internal/alertstore"
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/alert"
+	"github.com/daboss2003/mooring/internal/alertstore"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 // Config tunes the engine (from config.AlertingConfig).
@@ -128,7 +128,7 @@ func (e *Engine) drain(ctx context.Context) {
 			e.store.MarkSent(ctx, row.ID, true, maxNotifyAttempts)
 			continue
 		}
-		// Helmsman-originated infra alert (plan §8.4): rule_id=0, NEVER deferred to an
+		// Mooring-originated infra alert (plan §8.4): rule_id=0, NEVER deferred to an
 		// app and not tied to a rule/silence — route straight to ALL channels.
 		if row.RuleID == 0 {
 			channels, err := e.store.AllChannels()

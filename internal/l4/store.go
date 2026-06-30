@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
-// RouteStore persists the L4 routes an app declares (helmsman.yaml edge.l4_routes),
+// RouteStore persists the L4 routes an app declares (mooring.yaml edge.l4_routes),
 // keyed by project. The L4 LB config is rendered from the union of all projects'
 // routes — never stored as nginx text. A listener (listen+protocol) is globally
 // unique (DB constraint), so two apps can't claim the same public port.
@@ -18,7 +18,7 @@ type RouteStore struct{ db *store.DB }
 func NewRouteStore(db *store.DB) *RouteStore { return &RouteStore{db: db} }
 
 // ReplaceProject atomically replaces all of one project's L4 routes with the given
-// set (the deploy-time op: an app's helmsman.yaml is the source of truth for its
+// set (the deploy-time op: an app's mooring.yaml is the source of truth for its
 // routes). Every route is validated first; a cross-project listener collision trips
 // the UNIQUE(listen, protocol) constraint and fails the whole transaction (nothing
 // is changed) so the deploy is blocked with a clear error rather than hijacking a

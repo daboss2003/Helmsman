@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/crypto"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/crypto"
+	"github.com/daboss2003/mooring/internal/dockerexec"
 )
 
 // dockerDownAcquireTimeout bounds how long a delete waits for the shared git/deploy
@@ -87,7 +87,7 @@ func (s *Server) handleAppDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// appExists reports whether the slug names any app Helmsman knows about (repo-backed,
+// appExists reports whether the slug names any app Mooring knows about (repo-backed,
 // provisioned, or currently running in the snapshot).
 func (s *Server) appExists(slug string) bool {
 	if s.gitStore != nil {

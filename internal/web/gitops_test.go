@@ -15,16 +15,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
-// repoHelmsmanYAML is a clean generated-stack definition committed into test repos —
-// Helmsman generates the compose from this (the repo never supplies a compose).
-const repoHelmsmanYAML = `apiVersion: helmsman/v1
+// repoMooringYAML is a clean generated-stack definition committed into test repos —
+// Mooring generates the compose from this (the repo never supplies a compose).
+const repoMooringYAML = `apiVersion: mooring/v1
 kind: App
 metadata: {slug: app}
 spec:
@@ -35,10 +35,10 @@ spec:
         image: nginx:1.27
 `
 
-// gitObjStoreFixture builds a real git commit (with the given helmsman.yaml) and
-// clones it --bare into objDir, pointing refs/helmsman/staged at it.
-func gitObjStoreFixture(t *testing.T, objDir, helmsmanYAML string) string {
-	return gitObjStoreFixtureFiles(t, objDir, map[string]string{"helmsman.yaml": helmsmanYAML})
+// gitObjStoreFixture builds a real git commit (with the given mooring.yaml) and
+// clones it --bare into objDir, pointing refs/mooring/staged at it.
+func gitObjStoreFixture(t *testing.T, objDir, mooringYAML string) string {
+	return gitObjStoreFixtureFiles(t, objDir, map[string]string{"mooring.yaml": mooringYAML})
 }
 
 // gitObjStoreFixtureFiles commits an arbitrary file set, then clones it --bare into
@@ -79,7 +79,7 @@ func gitObjStoreFixtureFiles(t *testing.T, objDir string, files map[string]strin
 		t.Fatal(err)
 	}
 	run(work, "clone", "--bare", "-q", work, objDir)
-	run(work, "--git-dir="+objDir, "update-ref", "refs/helmsman/staged", sha)
+	run(work, "--git-dir="+objDir, "update-ref", "refs/mooring/staged", sha)
 	return sha
 }
 
@@ -120,7 +120,7 @@ func TestGitRunDirOutsideDataDirObjectStoreInside(t *testing.T) {
 func TestDeployRejectsMovedStagedSha(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	slug := "shop"
-	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoHelmsmanYAML)
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoMooringYAML)
 	cfg := configureRepo(t, e, slug, sha)
 
 	// Ask to deploy a DIFFERENT (well-formed) sha than the one staged.
@@ -131,16 +131,16 @@ func TestDeployRejectsMovedStagedSha(t *testing.T) {
 	}
 }
 
-// Helmsman OWNS the compose: a repo's own docker-compose.yml is IGNORED — the deploy
-// GENERATES the compose from helmsman.yaml, so a dangerous repo compose never reaches
+// Mooring OWNS the compose: a repo's own docker-compose.yml is IGNORED — the deploy
+// GENERATES the compose from mooring.yaml, so a dangerous repo compose never reaches
 // docker. (Write plane disabled so `up` fails fast AFTER generation.)
-func TestDeployIgnoresRepoComposeUsesHelmsmanYAML(t *testing.T) {
+func TestDeployIgnoresRepoComposeUsesMooringYAML(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
 	dangerous := "services:\n  web:\n    image: nginx\n    privileged: true\n"
 	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
-		"helmsman.yaml":      repoHelmsmanYAML,
+		"mooring.yaml":       repoMooringYAML,
 		"docker-compose.yml": dangerous,
 	})
 	cfg := configureRepo(t, e, slug, sha)
@@ -154,22 +154,22 @@ func TestDeployIgnoresRepoComposeUsesHelmsmanYAML(t *testing.T) {
 		t.Fatalf("generated compose missing from run dir: %v", rerr)
 	}
 	if strings.Contains(string(out), "privileged") {
-		t.Errorf("the repo's dangerous docker-compose.yml must be IGNORED (Helmsman generates from helmsman.yaml):\n%s", out)
+		t.Errorf("the repo's dangerous docker-compose.yml must be IGNORED (Mooring generates from mooring.yaml):\n%s", out)
 	}
 	if !strings.Contains(string(out), "nginx") {
-		t.Errorf("generated compose should carry the helmsman.yaml image:\n%s", out)
+		t.Errorf("generated compose should carry the mooring.yaml image:\n%s", out)
 	}
 }
 
 // A valid sha-pinned promote with a clean compose runs steps 1–4 (sha-pin →
 // §5.6 → archive-extract → materialize) and lands the pinned tree in the
-// Helmsman-owned run dir BEFORE `docker compose up`. We use a write-DISABLED
+// Mooring-owned run dir BEFORE `docker compose up`. We use a write-DISABLED
 // runner so `up` fails fast (ErrWritePlaneDisabled) — no real docker is touched.
 func TestDeployArchivesBeforeUp(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoHelmsmanYAML)
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoMooringYAML)
 	cfg := configureRepo(t, e, slug, sha)
 
 	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
@@ -184,54 +184,54 @@ func TestDeployArchivesBeforeUp(t *testing.T) {
 	}
 }
 
-// A build service in the repo's helmsman.yaml: deploy GENERATES the Dockerfile into
-// the run dir and the compose references it (build: + .helmsman/Dockerfile.<svc>).
+// A build service in the repo's mooring.yaml: deploy GENERATES the Dockerfile into
+// the run dir and the compose references it (build: + .mooring/Dockerfile.<svc>).
 func TestDeployBuildServiceGeneratesDockerfile(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      api:\n        build: {language: go}\n"
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      api:\n        build: {language: go}\n"
 	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
-		"helmsman.yaml": yaml,
-		"go.mod":        "module x\n\ngo 1.23\n",
-		"main.go":       "package main\nfunc main(){}\n",
+		"mooring.yaml": yaml,
+		"go.mod":       "module x\n\ngo 1.23\n",
+		"main.go":      "package main\nfunc main(){}\n",
 	})
 	cfg := configureRepo(t, e, slug, sha)
 	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "up failed") {
 		t.Fatalf("expected up to fail (write disabled) after generation, got %v", err)
 	}
-	df, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".helmsman", "Dockerfile.api"))
+	df, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".mooring", "Dockerfile.api"))
 	if rerr != nil || !strings.Contains(string(df), "golang:") {
 		t.Errorf("generated Dockerfile missing/wrong: %v\n%s", rerr, df)
 	}
 	cmp, _ := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), "docker-compose.yml"))
-	if !strings.Contains(string(cmp), "build:") || !strings.Contains(string(cmp), ".helmsman/Dockerfile.api") {
+	if !strings.Contains(string(cmp), "build:") || !strings.Contains(string(cmp), ".mooring/Dockerfile.api") {
 		t.Errorf("compose must reference the generated Dockerfile:\n%s", cmp)
 	}
-	// The build context must exclude .helmsman/ so `COPY . .` can't bake secrets in.
+	// The build context must exclude .mooring/ so `COPY . .` can't bake secrets in.
 	di, derr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".dockerignore"))
-	if derr != nil || !strings.Contains(string(di), "\n.helmsman\n") {
-		t.Errorf("generated .dockerignore must exclude .helmsman: %v\n%s", derr, di)
+	if derr != nil || !strings.Contains(string(di), "\n.mooring\n") {
+		t.Errorf("generated .dockerignore must exclude .mooring: %v\n%s", derr, di)
 	}
 }
 
-// Multi-instance: when an app is connected to a VARIANT helmsman file, the deploy
-// reads THAT file (cfg.HelmsmanFile), not the plain helmsman.yaml. The repo here has
-// both; the app points at helmsman.prod.yaml, so the generated compose must carry the
+// Multi-instance: when an app is connected to a VARIANT mooring file, the deploy
+// reads THAT file (cfg.MooringFile), not the plain mooring.yaml. The repo here has
+// both; the app points at mooring.prod.yaml, so the generated compose must carry the
 // prod image (caddy), never the default's (nginx).
-func TestDeployReadsConfiguredHelmsmanVariant(t *testing.T) {
+func TestDeployReadsConfiguredMooringVariant(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	prodYAML := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: caddy:2\n"
+	prodYAML := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: caddy:2\n"
 	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
-		"helmsman.yaml":      repoHelmsmanYAML, // nginx:1.27 (the default — must be IGNORED)
-		"helmsman.prod.yaml": prodYAML,         // caddy:2   (this app's file)
+		"mooring.yaml":      repoMooringYAML, // nginx:1.27 (the default — must be IGNORED)
+		"mooring.prod.yaml": prodYAML,        // caddy:2   (this app's file)
 	})
 	if err := e.srv.gitStore.Save(context.Background(), gitstore.SaveInput{
 		Project: slug, RepoURL: "https://nonexistent.invalid/o/r.git", Ref: "refs/heads/main",
-		BuildPolicy: "never", HelmsmanFile: "helmsman.prod.yaml",
+		BuildPolicy: "never", MooringFile: "mooring.prod.yaml",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -244,10 +244,10 @@ func TestDeployReadsConfiguredHelmsmanVariant(t *testing.T) {
 		t.Fatalf("generated compose missing: %v", rerr)
 	}
 	if !strings.Contains(string(cmp), "caddy:2") {
-		t.Errorf("compose must come from helmsman.prod.yaml (caddy:2):\n%s", cmp)
+		t.Errorf("compose must come from mooring.prod.yaml (caddy:2):\n%s", cmp)
 	}
 	if strings.Contains(string(cmp), "nginx") {
-		t.Errorf("the default helmsman.yaml (nginx) must be IGNORED when the app points at a variant:\n%s", cmp)
+		t.Errorf("the default mooring.yaml (nginx) must be IGNORED when the app points at a variant:\n%s", cmp)
 	}
 }
 
@@ -257,11 +257,11 @@ func TestDeployMissingVariantFailsClosed(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	// The object store has ONLY helmsman.yaml, but the app is connected to a variant.
-	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoHelmsmanYAML)
+	// The object store has ONLY mooring.yaml, but the app is connected to a variant.
+	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), repoMooringYAML)
 	if err := e.srv.gitStore.Save(context.Background(), gitstore.SaveInput{
 		Project: slug, RepoURL: "https://nonexistent.invalid/o/r.git", Ref: "refs/heads/main",
-		BuildPolicy: "never", HelmsmanFile: "helmsman.prod.yaml",
+		BuildPolicy: "never", MooringFile: "mooring.prod.yaml",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -277,16 +277,16 @@ func TestDeployMissingVariantFailsClosed(t *testing.T) {
 	}
 }
 
-// A repo's own .dockerignore is preserved; Helmsman MERGES .helmsman into it (it does
+// A repo's own .dockerignore is preserved; Mooring MERGES .mooring into it (it does
 // not overwrite the operator's entries).
 func TestDeployMergesRepoDockerignore(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
 		"  compose:\n    source: generated\n    services:\n      api:\n        build: {language: go}\n"
 	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
-		"helmsman.yaml": yaml,
+		"mooring.yaml":  yaml,
 		"go.mod":        "module x\n\ngo 1.23\n",
 		"main.go":       "package main\nfunc main(){}\n",
 		".dockerignore": "node_modules\n*.log\n", // the operator's own entries
@@ -297,9 +297,9 @@ func TestDeployMergesRepoDockerignore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"node_modules", "*.log", "\n.helmsman\n"} {
+	for _, want := range []string{"node_modules", "*.log", "\n.mooring\n"} {
 		if !strings.Contains(string(di), want) {
-			t.Errorf("merged .dockerignore must keep the operator's entries AND add .helmsman; missing %q:\n%s", want, di)
+			t.Errorf("merged .dockerignore must keep the operator's entries AND add .mooring; missing %q:\n%s", want, di)
 		}
 	}
 }
@@ -309,13 +309,13 @@ func TestDeployMergesRepoDockerignore(t *testing.T) {
 func TestManagedDigestChangeDetection(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	rd := t.TempDir()
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
 		"  compose: {source: generated, services: {api: {image: nginx:1, config_files: [{template: \"x\", mount: /etc/c}]}}}\n"
 	def, err := definition.Parse([]byte(yaml))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfgP := filepath.Join(rd, ".helmsman", "cfg", "api", "0")
+	cfgP := filepath.Join(rd, ".mooring", "cfg", "api", "0")
 	_ = os.MkdirAll(filepath.Dir(cfgP), 0o750)
 	_ = os.WriteFile(cfgP, []byte("v1"), 0o640)
 
@@ -335,9 +335,9 @@ func TestManagedDigestChangeDetection(t *testing.T) {
 	}
 }
 
-// No helmsman.yaml in the repo → Helmsman scaffolds a default from the detected stack
+// No mooring.yaml in the repo → Mooring scaffolds a default from the detected stack
 // (go.mod → a go build service) and generates the Dockerfile.
-func TestDeployScaffoldsWhenNoHelmsmanYAML(t *testing.T) {
+func TestDeployScaffoldsWhenNoMooringYAML(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
@@ -350,19 +350,19 @@ func TestDeployScaffoldsWhenNoHelmsmanYAML(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "up failed") {
 		t.Fatalf("expected scaffold→generate→up-fail, got %v", err)
 	}
-	df, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".helmsman", "Dockerfile.app"))
+	df, rerr := os.ReadFile(filepath.Join(e.srv.appRunDir(slug), ".mooring", "Dockerfile.app"))
 	if rerr != nil || !strings.Contains(string(df), "golang:") {
 		t.Errorf("scaffold should generate a go Dockerfile: %v\n%s", rerr, df)
 	}
 }
 
-// A bind volume's source dir is pre-created (Helmsman-owned) under the run dir before
+// A bind volume's source dir is pre-created (Mooring-owned) under the run dir before
 // `up`, so Docker doesn't create a missing one as root.
 func TestDeployCreatesBindDirs(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: nginx:1.27\n        volumes:\n          - {source: appdata, target: /var/lib/app}\n"
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: nginx:1.27\n        volumes:\n          - {source: appdata, target: /var/lib/app}\n"
 	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
 	cfg := configureRepo(t, e, slug, sha)
 	_ = e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
@@ -411,12 +411,12 @@ func TestDeployMaterializesConfigAndSecretFiles(t *testing.T) {
 		[]envstore.Entry{{Key: "jwt", Value: secret.New("SECRETVAL"), Secret: true}}, "op"); err != nil {
 		t.Fatal(err)
 	}
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
 		"  compose:\n    source: generated\n    services:\n      web:\n        image: nginx:1.27\n" +
 		"        config_files:\n          - {repo: conf/app.conf, mount: /etc/app.conf}\n" +
 		"        secret_files: [jwt]\n  secrets: [{name: jwt}]\n"
 	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{
-		"helmsman.yaml": yaml,
+		"mooring.yaml":  yaml,
 		"conf/app.conf": "marker-config\n",
 	})
 	cfg := configureRepo(t, e, slug, sha)
@@ -425,11 +425,11 @@ func TestDeployMaterializesConfigAndSecretFiles(t *testing.T) {
 		t.Fatalf("expected up to fail (write disabled) AFTER materialization, got %v", err)
 	}
 	rd := e.srv.appRunDir(slug)
-	cf, rerr := os.ReadFile(filepath.Join(rd, ".helmsman", "cfg", "web", "0"))
+	cf, rerr := os.ReadFile(filepath.Join(rd, ".mooring", "cfg", "web", "0"))
 	if rerr != nil || string(cf) != "marker-config\n" {
 		t.Errorf("config file not materialized: %v %q", rerr, cf)
 	}
-	sf := filepath.Join(rd, ".helmsman", "secrets", "web", "jwt")
+	sf := filepath.Join(rd, ".mooring", "secrets", "web", "jwt")
 	sb, serr := os.ReadFile(sf)
 	if serr != nil || string(sb) != "SECRETVAL" {
 		t.Errorf("secret file not materialized: %v %q", serr, sb)
@@ -455,7 +455,7 @@ func TestDeployRendersConfigFileTokens(t *testing.T) {
 		[]envstore.Entry{{Key: "api_pw", Value: secret.New("S3CRET"), Secret: true}}, "op"); err != nil {
 		t.Fatal(err)
 	}
-	yaml := `apiVersion: helmsman/v1
+	yaml := `apiVersion: mooring/v1
 kind: App
 metadata: {slug: app}
 spec:
@@ -476,7 +476,7 @@ spec:
 	if err == nil || !strings.Contains(err.Error(), "up failed") {
 		t.Fatalf("expected up to fail (write disabled) after rendering, got %v", err)
 	}
-	p := filepath.Join(e.srv.appRunDir(slug), ".helmsman", "cfg", "emqx", "0")
+	p := filepath.Join(e.srv.appRunDir(slug), ".mooring", "cfg", "emqx", "0")
 	b, rerr := os.ReadFile(p)
 	if rerr != nil || string(b) != "key = S3CRET\n" {
 		t.Errorf("config token not rendered: %v %q", rerr, b)
@@ -501,7 +501,7 @@ func TestDeploySyncsCertBinding(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(leaf, "mqtt.example.com.crt"), []byte("CERTPEM"), 0o600)
 	_ = os.WriteFile(filepath.Join(leaf, "mqtt.example.com.key"), []byte("KEYPEM"), 0o600)
 	e.srv.caddyCertRoot = caddyRoot
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
 		"  compose:\n    source: generated\n    services:\n      emqx:\n        image: emqx/emqx:5.8.3\n" +
 		"        cert_bindings:\n          - {hostname: mqtt.example.com, mount: /etc/certs}\n"
 	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
@@ -511,11 +511,11 @@ func TestDeploySyncsCertBinding(t *testing.T) {
 		t.Fatalf("expected up to fail (write disabled) AFTER cert sync, got %v", err)
 	}
 	rd := e.srv.appRunDir(slug)
-	crt := filepath.Join(rd, ".helmsman", "certs", "emqx", "mqtt.example.com", "tls.crt")
+	crt := filepath.Join(rd, ".mooring", "certs", "emqx", "mqtt.example.com", "tls.crt")
 	if b, rerr := os.ReadFile(crt); rerr != nil || string(b) != "CERTPEM" {
 		t.Errorf("cert not synced: %v %q", rerr, b)
 	}
-	keyP := filepath.Join(rd, ".helmsman", "certs", "emqx", "mqtt.example.com", "tls.key")
+	keyP := filepath.Join(rd, ".mooring", "certs", "emqx", "mqtt.example.com", "tls.key")
 	if fi, _ := os.Stat(keyP); fi == nil || fi.Mode().Perm() != 0o644 {
 		t.Errorf("cert key must be 0644 (the cert-binding app reads it from the bind mount as a non-root user), got %v", fi)
 	}
@@ -542,7 +542,7 @@ func TestDeployCertBindingBlocksUntilIssued(t *testing.T) {
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	e.srv.caddyCertRoot = t.TempDir() // empty — nothing issued
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
 		"  compose:\n    source: generated\n    services:\n      emqx:\n        image: emqx/emqx:5.8.3\n" +
 		"        cert_bindings:\n          - {hostname: mqtt.example.com, mount: /etc/certs}\n"
 	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
@@ -560,7 +560,7 @@ func TestDeployInProgressReturns409(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), true, "") // writes allowed
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: nginx\n"
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n  compose:\n    source: generated\n    services:\n      web:\n        image: nginx\n"
 	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
 	_ = configureRepo(t, e, slug, sha)
 	sess, csrf := e.authed(t)
@@ -582,7 +582,7 @@ func TestDeploySecretFileWithoutValueBlocks(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.runner = dockerexec.NewRunner(dockerexec.NewSemaphore(), false, "disabled for test")
 	slug := "shop"
-	yaml := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
+	yaml := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: app}\nspec:\n" +
 		"  compose:\n    source: generated\n    services:\n      web:\n        image: nginx:1.27\n" +
 		"        secret_files: [jwt]\n  secrets: [{name: jwt}]\n"
 	sha := gitObjStoreFixture(t, e.srv.gitObjectDir(slug), yaml)
@@ -593,15 +593,15 @@ func TestDeploySecretFileWithoutValueBlocks(t *testing.T) {
 	}
 }
 
-// No helmsman.yaml AND an undetectable stack → rejected with guidance (no deploy).
-func TestDeployRejectsUndetectableRepoWithoutHelmsmanYAML(t *testing.T) {
+// No mooring.yaml AND an undetectable stack → rejected with guidance (no deploy).
+func TestDeployRejectsUndetectableRepoWithoutMooringYAML(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	slug := "shop"
 	sha := gitObjStoreFixtureFiles(t, e.srv.gitObjectDir(slug), map[string]string{"README.md": "hi\n"})
 	cfg := configureRepo(t, e, slug, sha)
 	err := e.srv.deployRepoApp(context.Background(), cfg, sha, "manual", "operator", func(string) {})
-	if err == nil || !strings.Contains(err.Error(), "helmsman.yaml") {
-		t.Fatalf("an undetectable repo without helmsman.yaml must be rejected with guidance, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "mooring.yaml") {
+		t.Fatalf("an undetectable repo without mooring.yaml must be rejected with guidance, got %v", err)
 	}
 }
 
@@ -721,7 +721,7 @@ func TestWebhookHTTPAuthAndReplay(t *testing.T) {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(ts + "." + nonce))
 	sig := hex.EncodeToString(mac.Sum(nil))
-	hdr := map[string]string{"X-Helmsman-Timestamp": ts, "X-Helmsman-Nonce": nonce, "X-Helmsman-Signature": sig}
+	hdr := map[string]string{"X-Mooring-Timestamp": ts, "X-Mooring-Nonce": nonce, "X-Mooring-Signature": sig}
 	if resp := e.req(t, "POST", "/webhook/"+token, ciPeer, hdr, nil, nil); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("valid webhook: status %d, want 202", resp.StatusCode)
 	}

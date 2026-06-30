@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/cfgfile"
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/cfgfile"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // Mode constants (octal as decimal for storage).

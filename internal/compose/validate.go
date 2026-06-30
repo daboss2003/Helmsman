@@ -106,18 +106,18 @@ var sensitivePaths = []string{
 }
 
 // ValidateBytes runs the full §5.6 validation on a compose document. env is used
-// for ${VAR} resolution (built from the app's .env, never Helmsman's env);
+// for ${VAR} resolution (built from the app's .env, never Mooring's env);
 // runDir is the app's run directory that bind mounts must stay under.
 // Options carry extra, deployment-specific inputs to the validator.
 type Options struct {
 	// ProtectedPaths are additional absolute host paths that must never be a bind
-	// source (e.g. Helmsman's data dir and config dir, holding the DB + master
+	// source (e.g. Mooring's data dir and config dir, holding the DB + master
 	// key). Joined with the built-in sensitivePaths set (review #17).
 	ProtectedPaths []string
 }
 
 // ValidateBytes runs the full §5.6 validation on a compose document. env is used
-// for ${VAR} resolution (built from the app's .env, never Helmsman's env);
+// for ${VAR} resolution (built from the app's .env, never Mooring's env);
 // runDir is the app's run directory that bind mounts must stay under.
 func ValidateBytes(raw []byte, env Env, runDir string, opts Options) Result {
 	var res Result
@@ -313,11 +313,11 @@ func pairs(m *yaml.Node) []kvPair {
 }
 
 // confiner decides whether a bind source is safe: confined under run_dir and
-// clear of sensitive + Helmsman-owned paths, evaluated on the symlink-resolved
+// clear of sensitive + Mooring-owned paths, evaluated on the symlink-resolved
 // path (best-effort) so an existing symlink can't escape (review #5/#10). NOTE:
 // a symlink created BETWEEN validation and `docker compose` (TOCTOU, review #14)
 // and an attacker-forged run_dir/config_files label (review #8/#11) are NOT fully
-// closed here; the durable fix is the M6/M8 model (Helmsman-owned run_dir +
+// closed here; the durable fix is the M6/M8 model (Mooring-owned run_dir +
 // cat-file reads of the pinned commit, plan §5.6(e)).
 type confiner struct {
 	runDir    string

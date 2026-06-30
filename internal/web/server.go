@@ -19,29 +19,29 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/alertstore"
-	"github.com/daboss2003/Helmsman/internal/apitoken"
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/backupstore"
-	"github.com/daboss2003/Helmsman/internal/cfgstore"
-	"github.com/daboss2003/Helmsman/internal/config"
-	"github.com/daboss2003/Helmsman/internal/crypto"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/docker"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/edge"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/github"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
-	"github.com/daboss2003/Helmsman/internal/l4"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/ops"
-	"github.com/daboss2003/Helmsman/internal/provstore"
-	"github.com/daboss2003/Helmsman/internal/scale"
-	"github.com/daboss2003/Helmsman/internal/selfheal"
-	"github.com/daboss2003/Helmsman/internal/session"
-	"github.com/daboss2003/Helmsman/internal/setupstore"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/alertstore"
+	"github.com/daboss2003/mooring/internal/apitoken"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/backupstore"
+	"github.com/daboss2003/mooring/internal/cfgstore"
+	"github.com/daboss2003/mooring/internal/config"
+	"github.com/daboss2003/mooring/internal/crypto"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/docker"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/edge"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/github"
+	"github.com/daboss2003/mooring/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/l4"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/ops"
+	"github.com/daboss2003/mooring/internal/provstore"
+	"github.com/daboss2003/mooring/internal/scale"
+	"github.com/daboss2003/mooring/internal/selfheal"
+	"github.com/daboss2003/mooring/internal/session"
+	"github.com/daboss2003/mooring/internal/setupstore"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // maxConcurrentLogStreams caps simultaneous live log streams (each holds a
@@ -89,7 +89,7 @@ const loginBodyLimit = 64 << 10
 type Deps struct {
 	DB          *store.DB
 	ConfigPath  string // for SIGHUP allowlist+auth reload
-	Version     string // the running Helmsman build version (for the Server tab's .deb cleanup)
+	Version     string // the running Mooring build version (for the Server tab's .deb cleanup)
 	Log         *slog.Logger
 	Monitor     *monitor.Monitor
 	OpsStore    *ops.ConfigStore
@@ -107,19 +107,19 @@ type Deps struct {
 	EdgeReason  string                      // why the edge isn't owned (banner), "" when owned
 	L4Routes    *l4.RouteStore              // managed L4 (TCP/UDP) routes (nil when L4 LB disabled)
 	L4Reconcile func(context.Context) error // push the L4 route set to the nginx-stream LB (nil when disabled)
-	DefStore    *definition.Store           // canonical helmsman.yaml store (source of truth; may be nil)
+	DefStore    *definition.Store           // canonical mooring.yaml store (source of truth; may be nil)
 	SelfHeal    *selfheal.Store             // supervisor FSM + expected_down leases (may be nil)
 	Scaling     *scale.Store                // auto-scaling policies + state (may be nil)
 	DockerSem   *dockerexec.Semaphore       // global one-docker-child semaphore (shared with Runner)
 	APITokens   *apitoken.Store             // scoped read/deploy API tokens (M19; may be nil → /api/v1 disabled)
-	Backups     *backupstore.Store          // encrypted Helmsman-state backups (may be nil)
+	Backups     *backupstore.Store          // encrypted Mooring-state backups (may be nil)
 }
 
 // Server holds everything the request pipeline needs. Construct with New.
 type Server struct {
 	cfg            *config.Config // immutable parts (bind, cookie, edge, session)
 	configPath     string
-	version        string // running Helmsman build version (Server tab .deb cleanup)
+	version        string // running Mooring build version (Server tab .deb cleanup)
 	db             *store.DB
 	sessions       *session.Manager
 	audit          *audit.Logger
@@ -145,12 +145,12 @@ type Server struct {
 	edgeReason     string                        // why the edge isn't owned (banner)
 	l4Routes       *l4.RouteStore                // managed L4 (TCP/UDP) routes (nil when L4 LB disabled)
 	l4Reconcile    func(context.Context) error   // push the L4 route set to the LB (nil when disabled)
-	defStore       *definition.Store             // canonical helmsman.yaml (source of truth; may be nil)
+	defStore       *definition.Store             // canonical mooring.yaml (source of truth; may be nil)
 	selfHeal       *selfheal.Store               // supervisor FSM + expected_down leases (may be nil)
 	scaling        *scale.Store                  // auto-scaling policies + state (may be nil)
 	circuitClearer func(project, service string) // supervisor clear-circuit (set post-construction)
 	apiTokens      *apitoken.Store               // scoped API tokens (M19; nil → /api/v1 disabled)
-	backups        *backupstore.Store            // encrypted Helmsman-state backups (may be nil)
+	backups        *backupstore.Store            // encrypted Mooring-state backups (may be nil)
 	githubClient   *github.Client                // GitHub connect (M20; nil → feature off)
 	dockerSem      *dockerexec.Semaphore         // global one-docker-child semaphore (may be nil)
 	setupConfirm   *confirmStore                 // single-use setup confirm tokens
@@ -230,7 +230,7 @@ func New(cfg *config.Config, d Deps) (*Server, error) {
 	// A decoy argon2id hash with the SAME params a real token uses, so the not-found
 	// path can pay an equal-cost verify (timing parity — an unknown/expired/revoked id
 	// must be latency-indistinguishable from a live one; M19 review).
-	apiDummy, err := crypto.HashPassword([]byte("\x00helmsman-api-decoy"), crypto.DefaultArgon2Params)
+	apiDummy, err := crypto.HashPassword([]byte("\x00mooring-api-decoy"), crypto.DefaultArgon2Params)
 	if err != nil {
 		return nil, fmt.Errorf("web: build api decoy hash: %w", err)
 	}
@@ -307,7 +307,7 @@ func buildSecState(cfg *config.Config) (*secState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("web: parse password hash: %w", err)
 	}
-	dummy, err := crypto.HashPassword([]byte("\x00helmsman-dummy"), params)
+	dummy, err := crypto.HashPassword([]byte("\x00mooring-dummy"), params)
 	if err != nil {
 		return nil, fmt.Errorf("web: build dummy hash: %w", err)
 	}
@@ -395,8 +395,8 @@ func (s *Server) Handler() http.Handler {
 	// Literal pattern (not sessionStatusPath) so the authz-posture AST check can see it;
 	// the path string must stay equal to sessionStatusPath (asserted in a test).
 	mux.HandleFunc("GET /session/status", s.handleSessionStatus)
-	// Export the app's deployed definition as helmsman.yaml (to commit into your repo;
-	// Helmsman never pushes — git access is fetch-only).
+	// Export the app's deployed definition as mooring.yaml (to commit into your repo;
+	// Mooring never pushes — git access is fetch-only).
 	mux.HandleFunc("GET /apps/{project}/definition.yaml", s.requireAuth(s.handleDefinitionYAML))
 	mux.HandleFunc("GET /apps/{project}", s.requireAuth(s.withCSRFToken(s.handleApp)))
 	// Permanent app delete: full teardown (stop+remove containers/volumes, run dir, repo,
@@ -437,7 +437,7 @@ func (s *Server) Handler() http.Handler {
 	// App provisioning wizard (M8, modes 1 & 2). validate is a dry preview;
 	// commit/deploy are §0-gated write-plane actions.
 	// "New app" is now the repo-connect flow: GET /apps/new redirects to /git/new (the
-	// single-service provision FORM was retired — a repo's helmsman.yaml is the source of
+	// single-service provision FORM was retired — a repo's mooring.yaml is the source of
 	// truth). The deploy/delete lifecycle routes stay for any legacy provisioned apps.
 	mux.HandleFunc("GET /apps/new", s.requireAuth(s.handleProvisionNew))
 	mux.HandleFunc("POST /apps/{project}/provision-deploy", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleProvisionDeploy))))
@@ -450,7 +450,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /apps/{project}/setup/delete", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleSetupDelete))))
 	// Repo-path GitOps (M6).
 	mux.HandleFunc("GET /git/new", s.requireAuth(s.withCSRFToken(s.handleGitNew)))
-	// Connect-new runs repo discovery (helmsman.yaml + variants → one app each); the
+	// Connect-new runs repo discovery (mooring.yaml + variants → one app each); the
 	// chooser posts the picked file back to /git/choose. Editing an EXISTING app's repo
 	// config stays on /apps/{project}/git (handleGitSave) — no discovery, slug fixed.
 	mux.HandleFunc("POST /git", capBody(64<<10, s.requireAuth(s.requireCSRF(s.handleGitConnect))))
@@ -472,7 +472,7 @@ func (s *Server) Handler() http.Handler {
 	// Managed edge (M11): per-app public routes (Caddy/ACME). The whole config is
 	// re-rendered + pushed on every change; the operator never edits Caddy.
 	mux.HandleFunc("GET /edge", s.requireAuth(s.withCSRFToken(s.handleEdge)))
-	// Edge routes are READ-ONLY in the dashboard — declared in the app's helmsman.yaml
+	// Edge routes are READ-ONLY in the dashboard — declared in the app's mooring.yaml
 	// (source of truth) and reconciled on deploy. No POST /edge/routes write-back.
 	// Alerting (M10): channels + rules + open alerts. Read-and-notify only.
 	mux.HandleFunc("GET /alerts", s.requireAuth(s.withCSRFToken(s.handleAlerts)))
@@ -491,7 +491,7 @@ func (s *Server) Handler() http.Handler {
 	// API tokens (M19): read-only view + revoke. Minting stays CLI-only by design.
 	mux.HandleFunc("GET /settings/api-tokens", s.requireAuth(s.withCSRFToken(s.handleAPITokens)))
 	mux.HandleFunc("POST /settings/api-tokens/revoke", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleAPITokenRevoke))))
-	// Backups: encrypted Helmsman-state snapshots — view, create, download, delete.
+	// Backups: encrypted Mooring-state snapshots — view, create, download, delete.
 	mux.HandleFunc("GET /settings/backups", s.requireAuth(s.withCSRFToken(s.handleBackups)))
 	mux.HandleFunc("GET /settings/backups/download", s.requireAuth(s.handleBackupDownload))
 	mux.HandleFunc("POST /settings/backups/create", capBody(loginBodyLimit, s.requireAuth(s.requireCSRF(s.handleBackupCreate))))

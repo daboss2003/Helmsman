@@ -1,5 +1,5 @@
 // Package selfheal is the bounded self-healing supervisor (plan §8.5): it restarts
-// crashed/stuck services and ESCALATES to a Helmsman-originated infra alert (§8.4)
+// crashed/stuck services and ESCALATES to a Mooring-originated infra alert (§8.4)
 // when it gives up — designed so that on a constrained box it can only REDUCE
 // pressure or hold steady, NEVER manufacture an OOM (worst case: it declines to act
 // and pages you).

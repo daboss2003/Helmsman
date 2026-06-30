@@ -212,7 +212,7 @@
   }
 
   // ---- focused-dashboard heartbeat ----
-  // Helmsman never auto-deploys, so polling git when nobody is looking is wasted
+  // Mooring never auto-deploys, so polling git when nobody is looking is wasted
   // server work. The page pings /dash/ping on load and every ~40s WHILE focused (and
   // immediately on regaining focus); the server's git poller only fetches within a
   // short window after a ping. Unfocused -> no pings -> no polling -> session idles out.

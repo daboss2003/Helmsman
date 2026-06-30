@@ -7,13 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/docker"
+	"github.com/daboss2003/mooring/internal/docker"
 )
 
 // Container-discovery helpers shared by the three planes that must turn a compose
 // SERVICE NAME into a routable container IP — the managed edge (DiscoverEdgePools),
 // the L4 LB (DiscoverL4Pools), and the ops prober (ServiceIP). All three exist because
-// Helmsman's host processes (Caddy, nginx, the control plane) cannot resolve compose
+// Mooring's host processes (Caddy, nginx, the control plane) cannot resolve compose
 // service names — those live only on Docker's per-network embedded DNS — so each must
 // dial a discovered docker-bridge IP instead. Keeping the lookup in one place stops the
 // three from drifting. Source of truth is the READ-ONLY socket-proxy.

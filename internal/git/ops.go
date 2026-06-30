@@ -79,11 +79,11 @@ func credEnv(credDir, repoURL string, creds Creds) ([]string, error) {
 		}
 		askPath := filepath.Join(credDir, "askpass")
 		// Fixed-content helper: username -> x-access-token, password -> token file.
-		script := "#!/bin/sh\ncase \"$1\" in *[Uu]sername*) printf 'x-access-token';; *) cat \"$HELMSMAN_TOKEN_FILE\";; esac\n"
+		script := "#!/bin/sh\ncase \"$1\" in *[Uu]sername*) printf 'x-access-token';; *) cat \"$MOORING_TOKEN_FILE\";; esac\n"
 		if err := os.WriteFile(askPath, []byte(script), 0o700); err != nil {
 			return nil, err
 		}
-		return []string{"GIT_ASKPASS=" + askPath, "HELMSMAN_TOKEN_FILE=" + tokPath}, nil
+		return []string{"GIT_ASKPASS=" + askPath, "MOORING_TOKEN_FILE=" + tokPath}, nil
 	}
 	// Public repo (no creds) — fine for https public clones.
 	return nil, nil

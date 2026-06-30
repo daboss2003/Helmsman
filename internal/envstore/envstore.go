@@ -2,7 +2,7 @@
 // The whole env blob is AES-256-GCM at rest under the master key; every save is
 // a new immutable version (auditable history + rollback). Secret-flagged values
 // are write-only in the UI and only ever leave via the audited reveal endpoint.
-// Helmsman owns the live env: at deploy it renders a fresh 0600 --env-file from
+// Mooring owns the live env: at deploy it renders a fresh 0600 --env-file from
 // this store (plan: env-import "own vs import").
 package envstore
 
@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // keyRe bounds env var names so a key can never carry `=`, whitespace, newlines,

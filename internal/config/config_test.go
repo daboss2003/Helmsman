@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/mooring/internal/crypto"
 )
 
 // validBase builds a minimal YAML config with a real key + password hash, then

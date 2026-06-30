@@ -1,6 +1,6 @@
 // Package opsclient is the SSRF-safe outbound HTTP client for the App Ops
 // Interface (plan §4.1, §15 §6.3). It is the load-bearing control for attacker
-// class C (a compromised monitored app answering Helmsman's polls).
+// class C (a compromised monitored app answering Mooring's polls).
 //
 // Invariants enforced here:
 //   - The destination host is PINNED to the operator-configured base URL. A
@@ -32,7 +32,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 // relPathRe is the §4.1 relative-path grammar: a single leading slash then a

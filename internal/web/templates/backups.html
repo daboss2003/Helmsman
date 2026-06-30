@@ -2,7 +2,7 @@
 {{template "nav" .}}
 <main class="wrap">
   <h1>Backups</h1>
-  <p class="muted">Encrypted snapshots of your whole Helmsman setup — every app's config, definitions, edge routes, and (already-encrypted) secrets. Use one to recover onto a fresh server.</p>
+  <p class="muted">Encrypted snapshots of your whole Mooring setup — every app's config, definitions, edge routes, and (already-encrypted) secrets. Use one to recover onto a fresh server.</p>
   {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
 
   <section class="panel">
@@ -45,9 +45,9 @@
 
   <section class="panel">
     <h2>Restoring</h2>
-    <p class="muted">A backup is encrypted with your master key, so it's safe to download and store off-site — restoring needs that same key. To recover onto a fresh server: install Helmsman with the same <code>encryption_key</code>, then restore the snapshot with the CLI:</p>
-    <pre class="mono">helmsman restore --from helmsman-backup-&lt;id&gt;.hmbk</pre>
-    <p class="muted small">Restoring replaces Helmsman's database, so it's a deliberate CLI step rather than a dashboard button. Your apps' own data volumes are backed up separately (see the docs).</p>
+    <p class="muted">A backup is encrypted with your master key, so it's safe to download and store off-site — restoring needs that same key. To recover onto a fresh server: install Mooring with the same <code>encryption_key</code>, then restore the snapshot with the CLI:</p>
+    <pre class="mono">mooring restore --from mooring-backup-&lt;id&gt;.mbk</pre>
+    <p class="muted small">Restoring replaces Mooring's database, so it's a deliberate CLI step rather than a dashboard button. Your apps' own data volumes are backed up separately (see the docs).</p>
   </section>
 </main>
 {{template "bottom" .}}

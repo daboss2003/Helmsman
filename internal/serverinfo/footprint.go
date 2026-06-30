@@ -1,8 +1,8 @@
-// Package serverinfo backs the read-only "Server" tab: it sizes Helmsman's own
+// Package serverinfo backs the read-only "Server" tab: it sizes Mooring's own
 // on-disk footprint, lists release artifacts for cleanup, and serves an
 // allow-listed, read-only file view. Everything here is deliberately bounded and
 // fail-closed — it is a LOOK-but-don't-break tool. The only mutation any of it
-// performs is deleting an OLD downloaded helmsman *.deb (DebManager), which the
+// performs is deleting an OLD downloaded mooring *.deb (DebManager), which the
 // web layer gates behind password+TOTP re-auth.
 package serverinfo
 
@@ -22,7 +22,7 @@ type Usage struct {
 	Files int    // number of regular files counted
 }
 
-// Footprint is Helmsman's measured on-disk usage, grouped by purpose, plus the
+// Footprint is Mooring's measured on-disk usage, grouped by purpose, plus the
 // wall-clock time the measurement took (so the UI can warn if it's getting slow).
 type Footprint struct {
 	At      time.Time
@@ -42,7 +42,7 @@ type Target struct {
 // monitor cadence (NOT per request) because a WalkDir over large git stores can
 // be slow; a per-target deadline (derived from ctx) keeps one huge tree from
 // stalling the whole measurement. Missing directories contribute zero (not an
-// error) — Helmsman creates them lazily. A walk that trips the context budget
+// error) — Mooring creates them lazily. A walk that trips the context budget
 // marks the result Partial rather than failing.
 func MeasureFootprint(ctx context.Context, targets []Target) Footprint {
 	fp := Footprint{At: time.Now()}

@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/crypto"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/crypto"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 // A correct password tears the app down completely: every per-app store row, the run
@@ -73,7 +73,7 @@ func TestAppDeleteFullTeardown(t *testing.T) {
 	}
 }
 
-// Protected (Helmsman-managed) projects can never be deleted.
+// Protected (Mooring-managed) projects can never be deleted.
 func TestAppDeleteRejectsProtected(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	e.srv.cfg.ProtectedProjects = append(e.srv.cfg.ProtectedProjects, "locked")

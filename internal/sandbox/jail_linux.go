@@ -21,7 +21,7 @@ import (
 //   --read-only           read-only rootfs (only the scratch bind is writable)
 //   --cap-drop ALL        empty capability set
 //   --security-opt no-new-privileges
-//   --user <uid>:<gid>    non-root (so captures are Helmsman-owned, not root)
+//   --user <uid>:<gid>    non-root (so captures are Mooring-owned, not root)
 //   --pids-limit/--memory(=--memory-swap, swap off)/--cpus   resource caps
 //   --rm                  removed (cgroup-wide kill) on exit/timeout
 // The docker.sock / config dir / DB / master key are simply not in the mount set.
@@ -186,7 +186,7 @@ func isZeroCaps(hex string) bool {
 	return len(hex) > 0
 }
 
-// minimalDockerEnv passes only what the docker CLI needs (never Helmsman's full
+// minimalDockerEnv passes only what the docker CLI needs (never Mooring's full
 // env), mirroring dockerexec.
 func minimalDockerEnv() []string {
 	var env []string

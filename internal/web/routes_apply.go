@@ -7,17 +7,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/edge"
-	"github.com/daboss2003/Helmsman/internal/l4"
-	"github.com/daboss2003/Helmsman/internal/ops"
-	"github.com/daboss2003/Helmsman/internal/scale"
-	"github.com/daboss2003/Helmsman/internal/selfheal"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/edge"
+	"github.com/daboss2003/mooring/internal/l4"
+	"github.com/daboss2003/mooring/internal/ops"
+	"github.com/daboss2003/mooring/internal/scale"
+	"github.com/daboss2003/mooring/internal/selfheal"
 )
 
-// handleDefinitionYAML serves the app's stored definition as helmsman.yaml — what is
+// handleDefinitionYAML serves the app's stored definition as mooring.yaml — what is
 // currently deployed, including any dashboard-set operational pieces (config files,
-// cert bindings, scaling, ops). Useful to export and commit into your repo; Helmsman
+// cert bindings, scaling, ops). Useful to export and commit into your repo; Mooring
 // never pushes to the repo itself (git access is fetch-only).
 func (s *Server) handleDefinitionYAML(w http.ResponseWriter, r *http.Request) {
 	if s.defStore == nil {
@@ -40,13 +40,13 @@ func (s *Server) handleDefinitionYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml")
-	w.Header().Set("Content-Disposition", `attachment; filename="helmsman.yaml"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="mooring.yaml"`)
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(canon)
 }
 
 // applyDefinition persists the app's definition and reconciles every runtime projection
-// from it. It is called by a deploy (the repo's helmsman.yaml is the source for the app's
+// from it. It is called by a deploy (the repo's mooring.yaml is the source for the app's
 // shape — services, edge & L4 routes) AND by the dashboard editors for the OPERATIONAL
 // pieces that stay editable (config files, cert bindings, scaling, ops). It re-validates
 // the definition (the same gate a committed file gets), stores it as a new version, then
@@ -77,7 +77,7 @@ func (s *Server) applyDefinition(ctx context.Context, project string, def *defin
 	return s.applyOps(ctx, project, def)
 }
 
-// applyOps reconciles this app's helmsman.yaml ops_interface into the ops config store
+// applyOps reconciles this app's mooring.yaml ops_interface into the ops config store
 // (the prober reads it for RICH health). Gated + additive: it only runs when ops is
 // owned and the def declares the block; an omitted block leaves any dashboard-set ops
 // config untouched. The shared-secret VALUE never lives in the YAML — if the block
@@ -108,7 +108,7 @@ func (s *Server) applyOps(ctx context.Context, project string, def *definition.D
 	return nil
 }
 
-// applySelfHealing persists this app's helmsman.yaml self-healing tunables into the
+// applySelfHealing persists this app's mooring.yaml self-healing tunables into the
 // supervisor's per-app policy store (the watcher reads it per tick, so a redeploy
 // re-tunes without a restart). Gated + additive: it only runs when the supervisor is
 // owned and the def declares the block; omitted fields keep the built-in default. An
@@ -156,7 +156,7 @@ func selfHealPolicy(sh *definition.SelfHealing) selfheal.Policy {
 }
 
 // applyRoutes reconciles an app's edge (L7) + L4 routes FROM its deployed definition
-// (the repo's helmsman.yaml) — replace-by-project, so the file's set is exactly what's
+// (the repo's mooring.yaml) — replace-by-project, so the file's set is exactly what's
 // live. Routes are READ-ONLY in the dashboard; only a deploy changes them, so an empty
 // set in the file correctly clears the app's routes.
 //
@@ -227,7 +227,7 @@ func (s *Server) applyRoutes(ctx context.Context, project string, def *definitio
 	return nil
 }
 
-// applyScaling persists this app's helmsman.yaml scaling policies (one per service)
+// applyScaling persists this app's mooring.yaml scaling policies (one per service)
 // into the scale store, so a repo's yaml drives auto-scaling for SEVERAL services —
 // e.g. an HTTP api and an L4 resolver in one app. Additive + gated: it only runs when
 // the scaler is owned and the def declares scaling; SavePolicy validates each policy

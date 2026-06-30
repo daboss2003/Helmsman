@@ -1,5 +1,5 @@
 # Build artifacts
-/helmsman
+/mooring
 /dist/
 *.exe
 
@@ -15,7 +15,7 @@
 # Local agent/tooling config (not shared)
 /.claude/
 
-# Local dev config (the real one lives at /etc/helmsman/config.yaml, never in-repo)
+# Local dev config (the real one lives at /etc/mooring/config.yaml, never in-repo)
 /config.local.yaml
 
 # APT repo output from deploy/apt/publish.sh (pushed to the gh-pages branch, not main)
@@ -24,7 +24,7 @@
 # Local working plan / scratch patch docs (never committed). Root-only glob so it
 # never matches tracked docs under docs/.
 /M20_PLAN.md
-/helmsman-*-patch.md
+/mooring-*-patch.md
 
 # operator's local notes (never publish)
 promps.txt

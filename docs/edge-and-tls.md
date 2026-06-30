@@ -1,6 +1,6 @@
 # Edge & TLS — the managed edge
 
-Helmsman is internet-facing by default. Every install owns the public ports `:80`/`:443`,
+Mooring is internet-facing by default. Every install owns the public ports `:80`/`:443`,
 runs ACME/Let's Encrypt for you, terminates TLS, and reverse-proxies the admin UI and each of
 your apps.
 
@@ -8,12 +8,12 @@ This document explains how that edge works, why it is built the way it is, and h
 safely — including the trade-offs that were made deliberately and what backstops protect you
 when a configuration mistake slips through.
 
-> **One-line summary.** From a single required field per app — a hostname — Helmsman derives a
+> **One-line summary.** From a single required field per app — a hostname — Mooring derives a
 > complete, hardened HTTPS vhost. The admin UI stays on loopback. A supervised, sandboxed child
 > Caddy does the public-facing work as a separate process (co-resident in the control-plane unit
 > today; a dedicated edge user/slice is planned). What Caddy
-> actually runs is always Helmsman's typed render of a protected base plus your routes — generated
-> from `helmsman.yaml`, never a config you author by hand.
+> actually runs is always Mooring's typed render of a protected base plus your routes — generated
+> from `mooring.yaml`, never a config you author by hand.
 
 **See also:** [README](../README.md) · [Security model](./security.md) ·
 [App provisioning](./gitops.md) · [Configuration reference](./architecture.md) ·
@@ -45,11 +45,11 @@ edge:
 ```
 
 There is **no auto-detection**. The choice is explicit and **fail-closed** — if the prerequisites
-for the chosen mode are missing, Helmsman refuses to come up rather than guess.
+for the chosen mode are missing, Mooring refuses to come up rather than guess.
 
 ### `managed` (default — the product)
 
-This is the path you get by doing nothing. Helmsman **owns the edge**:
+This is the path you get by doing nothing. Mooring **owns the edge**:
 
 - It supervises a child Caddy that binds the public ports `:80`/`:443`.
 - The child runs ACME/Let's Encrypt and terminates TLS.
@@ -67,26 +67,26 @@ Required config:
 
 ### `external` (narrow advanced escape hatch)
 
-For an operator who insists on fronting Helmsman with their **own** existing proxy. This is a
+For an operator who insists on fronting Mooring with their **own** existing proxy. This is a
 deliberate, narrow escape hatch — not an off-switch and not a casual setting.
 
 - **Config-file-only, NOT UI-reachable.** You cannot click your way into `external`; you fall
   into `managed` by doing nothing. Setting `external` is always a deliberate operator act.
-- In `external` mode Helmsman **binds loopback only**, never opens `:80`/`:443`, and never constructs
+- In `external` mode Mooring **binds loopback only**, never opens `:80`/`:443`, and never constructs
   the edge subsystem (the unit's `CAP_NET_BIND_SERVICE` goes **unused** — drop it with a drop-in if
   you want zero caps in external mode).
 - The per-app TLS controls are **hidden** — there is no managed edge to drive.
-- Helmsman emits paste-ready proxy snippets for your front proxy but **applies nothing**.
+- Mooring emits paste-ready proxy snippets for your front proxy but **applies nothing**.
 
 **Fail-closed boot is stronger here** (this is the most-abused trust seam — the XFF/trusted-proxy
-boundary). Helmsman refuses to start in `external` mode unless:
+boundary). Mooring refuses to start in `external` mode unless:
 
 1. `trusted_proxies` is a **specific edge IP** — a prefix no wider than `/24`, and not a Docker
    bridge CIDR; **and**
 2. a boot probe confirms `:9000` is **unreachable from a non-loopback interface**.
 
 The emitted snippet bakes in **XFF overwrite** (not append) — an external proxy that *appends*
-`X-Forwarded-For` silently breaks the IP allowlist, so Helmsman forces an overwrite. "The operator
+`X-Forwarded-For` silently breaks the IP allowlist, so Mooring forces an overwrite. "The operator
 chose external" never absolves the allowlist / XFF safety checks.
 
 ### Resource behavior: a warning, not a silent mode-switch
@@ -94,7 +94,7 @@ chose external" never absolves the allowlist / XFF safety checks.
 On an undersized box the default **stays `managed`** — the edge runs inside the control plane's
 memory-capped cgroup with a persistent banner: *"reduced MemoryMax — consider a larger host."* Only a box that
 **genuinely cannot** host the child boots `external`, and then it shows a blocking banner:
-*"edge not owned — resource gate."* Helmsman never silently degrades you into `external`; choosing it
+*"edge not owned — resource gate."* Mooring never silently degrades you into `external`; choosing it
 is always deliberate. (The heavier *write plane* — deploy/build — is separately gated at ≥ 1 GB RAM;
 the edge itself is part of the baseline and always serves its minimum-safe config.)
 
@@ -103,9 +103,9 @@ the edge itself is part of the baseline and always serves its minimum-safe confi
 ## How the edge is owned (process isolation)
 
 The single most load-bearing decision in the edge design: **the TLS terminator runs as a separate,
-Helmsman-supervised OS process — a stock Caddy binary — not embedded in-process.**
+Mooring-supervised OS process — a stock Caddy binary — not embedded in-process.**
 
-Helmsman drives the child entirely through Caddy's **admin API on loopback** (preferably a unix
+Mooring drives the child entirely through Caddy's **admin API on loopback** (preferably a unix
 socket), pushing a **full-document JSON config** with a graceful, atomic `/load`. There is no
 on-disk config file the proxy auto-loads — **the admin API is the single source of truth.**
 
@@ -114,12 +114,12 @@ on-disk config file the proxy auto-loads — **the admin API is the single sourc
 | Property | What it buys you |
 |---|---|
 | **Blast radius** | The public-facing HTTP/TLS/ACME/x509 stack parses hostile SNI and traffic in a *separate child process* — not the address space that holds your session secrets and master key. |
-| **"Single binary" survives** | Helmsman stays ~12–18 MB. You patch the proxy by swapping one static file and doing a graceful reload — no rebuild of Helmsman. |
-| **Crash isolation** | Helmsman supervises with backoff. If the child dies, the admin UI stays up to show you *why*. If Helmsman dies, the child keeps serving. |
+| **"Single binary" survives** | Mooring stays ~12–18 MB. You patch the proxy by swapping one static file and doing a graceful reload — no rebuild of Mooring. |
+| **Crash isolation** | Mooring supervises with backoff. If the child dies, the admin UI stays up to show you *why*. If Mooring dies, the child keeps serving. |
 
 ### Supervision & capabilities
 
-> **Current isolation (be precise):** the edge is a separate **process**, but today it is **co-resident** in the control-plane systemd unit — it runs as the **same** low-privilege user and shares the unit's cgroup + `MemoryMax` (384 MB, sized to cover Helmsman + Caddy + nginx + forked compose). A *dedicated edge user, slice, and per-edge `MemoryMax`* — so a public-plane traffic spike can't pressure the control plane, and the cap is held by the child alone — is a **planned hardening, not yet implemented**.
+> **Current isolation (be precise):** the edge is a separate **process**, but today it is **co-resident** in the control-plane systemd unit — it runs as the **same** low-privilege user and shares the unit's cgroup + `MemoryMax` (384 MB, sized to cover Mooring + Caddy + nginx + forked compose). A *dedicated edge user, slice, and per-edge `MemoryMax`* — so a public-plane traffic spike can't pressure the control plane, and the cap is held by the child alone — is a **planned hardening, not yet implemented**.
 
 - The child runs as the **control plane's** low-privilege user (a dedicated edge user/slice is planned).
 - **`CAP_NET_BIND_SERVICE` is granted by the base unit, by default** (it is the *only* allowed
@@ -127,17 +127,17 @@ on-disk config file the proxy auto-loads — **the admin API is the single sourc
   `:80`/`:443`/`:53` non-root out of the box, no drop-in or setup step. In `external` mode the edge
   isn't started and the cap is simply unused. Because the children are co-resident, the control-plane
   process also holds it today — granting it to the child **alone** is part of the planned per-process split.
-- Helmsman talks to the child over loopback `:2019` (or, preferably, a unix socket) **only**.
+- Mooring talks to the child over loopback `:2019` (or, preferably, a unix socket) **only**.
 - A liveness poll plus crash-loop detection raises a `level=security` audit event.
 
 ### Supply-chain hardening of the child binary
 
 The child proxy binary is **root-owned, mode `0755`, on a read-only mount, digest-pinned, and
-verified before launch** (Helmsman refuses to start it on a digest mismatch). Its path and data dir
+verified before launch** (Mooring refuses to start it on a digest mismatch). Its path and data dir
 are in the bind-mount **deny set**, so no deploy can overwrite them. The edge runs on **its own
 Docker network** that the app network cannot reach — so an in-container ACME client cannot answer
 challenges for edge hostnames or reach `:2019` — and `ProtectSystem=strict` keeps the cert/data dir
-and Helmsman's own config/key **out of the edge's mount namespace entirely**, so a stray
+and Mooring's own config/key **out of the edge's mount namespace entirely**, so a stray
 `file_server` cannot browse them.
 
 ---
@@ -146,34 +146,34 @@ and Helmsman's own config/key **out of the edge's mount namespace entirely**, so
 
 In `managed` mode every app vhost automatically gets: an ACME-issued certificate, an HTTP→HTTPS
 redirect, a reverse-proxy with **`X-Forwarded-For` overwritten to the real TCP peer**, and an edge
-header bundle (HSTS is added only *after* a certificate exists). You set a hostname; Helmsman does
+header bundle (HSTS is added only *after* a certificate exists). You set a hostname; Mooring does
 the rest.
 
 The ACME behavior is deliberately conservative, because each loose default is a real outage or
 abuse class:
 
-- **A single pinned ACME CA, no silent fallback.** `edge.acme_ca` names one issuer and Helmsman
+- **A single pinned ACME CA, no silent fallback.** `edge.acme_ca` names one issuer and Mooring
   never falls back to another. A fallback would land certs at a *different* on-disk path and silently
   break shared-volume cert readers — a real outage class.
 - **On-demand TLS is OFF by default.** Only hostnames present in your routes get certificates. A
-  hostile SNI cannot make Helmsman request arbitrary certs and burn through rate limits.
-- **Resolves-to-this-box check at issuance.** Helmsman validates that a hostname resolves to this
+  hostile SNI cannot make Mooring request arbitrary certs and burn through rate limits.
+- **Resolves-to-this-box check at issuance.** Mooring validates that a hostname resolves to this
   box **at issuance time**, not merely when you added the route. A name that no longer points here
   will not silently keep trying.
 - **Key custody.** Certificate private keys stay in the proxy's data dir, owned by the proxy user,
-  mode `0600`. Helmsman does **not** read HTTP-vhost private keys.
+  mode `0600`. Mooring does **not** read HTTP-vhost private keys.
 
 ---
 
 ## Per-app reverse proxy: routes & upstreams
 
-**Routes are declared in the app's `helmsman.yaml`** — under `spec.edge.routes` — which is the single
+**Routes are declared in the app's `mooring.yaml`** — under `spec.edge.routes` — which is the single
 source of truth. To add, change, or remove a public route you edit that file and deploy; there is no
-"add a route" form. On deploy, Helmsman reconciles the declared set onto the edge (replace-by-app, so
+"add a route" form. On deploy, Mooring reconciles the declared set onto the edge (replace-by-app, so
 the file's set is exactly what's live) and renders the proxy document. The dashboard's **Edge routes**
 page is **read-only**: it shows the deployed routes, not an editor.
 
-Internally, the reconciled set is held in Helmsman's database and applied idempotently. The schema is
+Internally, the reconciled set is held in Mooring's database and applied idempotently. The schema is
 additive:
 
 ```text
@@ -184,7 +184,7 @@ app_routes(
 )
 ```
 
-**Reconciliation is declarative and whole-document.** Helmsman holds the desired set in SQLite,
+**Reconciliation is declarative and whole-document.** Mooring holds the desired set in SQLite,
 renders the **entire** proxy JSON, and POSTs the whole document to the admin API. It never sends
 incremental patches — a full re-render is far easier to keep bug-free.
 
@@ -215,14 +215,14 @@ safe.
 - **Pooled upstreams (auto-scaling).** An app vhost's upstream may be a *pool* of discovered replica
   endpoints. **Every pool member passes the same allowlist + pinned dialer + egress firewall** — a
   scaled-up replica that mis-resolves to a control-plane port is refused at dial. Pool membership is
-  Helmsman-managed state, recomputed from read-only container discovery and re-rendered as the whole
+  Mooring-managed state, recomputed from read-only container discovery and re-rendered as the whole
   document.
 
 ### Example managed route
 
-A typed route for an HTTP app. You never write this by hand — Helmsman builds it from the
-`hostname`/`service`/`port` you declare in `helmsman.yaml` and a discovered upstream — but here is
-what Helmsman renders on your behalf:
+A typed route for an HTTP app. You never write this by hand — Mooring builds it from the
+`hostname`/`service`/`port` you declare in `mooring.yaml` and a discovered upstream — but here is
+what Mooring renders on your behalf:
 
 ```jsonc
 // One route per app vhost, rendered from the typed route set
@@ -247,12 +247,12 @@ what Helmsman renders on your behalf:
 ## How the edge config is rendered
 
 You never author Caddy config — file or portal. The edge config is **typed and generated from
-`helmsman.yaml` only**: you declare routes (and cert bindings) per app, and Helmsman renders the
-whole proxy document. What Caddy runs is always Helmsman's typed render of two parts:
+`mooring.yaml` only**: you declare routes (and cert bindings) per app, and Mooring renders the
+whole proxy document. What Caddy runs is always Mooring's typed render of two parts:
 
 | Part | Source | What it contains |
 |---|---|---|
-| **Protected base** | Helmsman code (typed structs) | The admin block (unix socket, `enforce_origin:true`); the identity-pinned admin→`:9000` route *with* its allowlist matcher; global TLS (pinned ACME CA + email, on-demand off); XFF-overwrite + header bundle; default unmatched-Host = 404/close. |
+| **Protected base** | Mooring code (typed structs) | The admin block (unix socket, `enforce_origin:true`); the identity-pinned admin→`:9000` route *with* its allowlist matcher; global TLS (pinned ACME CA + email, on-demand off); XFF-overwrite + header bundle; default unmatched-Host = 404/close. |
 | **Routes** | `spec.edge.routes` (typed structs) | One route per app vhost. |
 
 The config is **marshalled from typed structs**, never string-concatenated — this is the operational
@@ -280,7 +280,7 @@ Every change to the route set re-renders the whole document and applies it atomi
    `80`/`443`/`9000`/`2019`/`2375`; any `header_up` on `X-Forwarded-For` / `X-Real-IP` / `Forwarded`;
    any `events.exec` / process-spawn; file-read/template-execution directives (`templates`,
    `respond {file.*}`, `php_fastcgi`); `file_server`/`root` under any sensitive dir.
-2. **Atomic apply + auto-rollback.** Snapshot the current live config (held by Helmsman, not read
+2. **Atomic apply + auto-rollback.** Snapshot the current live config (held by Mooring, not read
    back from a possibly-broken instance) → `/load` the composite (atomic — a bad load leaves the old
    one running) → **health probe within `apply_probe_window`**. The probe includes:
    - a **negative from-internet test** — the admin vhost must return **403/404 from an
@@ -311,12 +311,12 @@ test on a fresh install.** These are **release-blocking** on the first edge-owni
 | ID | Invariant | What it guarantees |
 |---|---|---|
 | **SBD-1** | Admin UI never reachable through the public edge by accident | Admin UI binds `127.0.0.1:9000` only. The edge serves **no admin vhost at all** unless you explicitly set `admin.hostname` (default: reach the UI via SSH tunnel / port-forward). If set, the admin vhost renders with the **IP allowlist as the first matcher, injected from typed config** (not operator text) → upstream `127.0.0.1:9000`. The allowlist cannot be omitted. |
-| **SBD-2** | Caddy admin API never public | `admin.listen = unix//run/helmsman/caddy-admin.sock` (preferred) or `127.0.0.1:2019`, never routable; `enforce_origin:true`, origins loopback-only. No public vhost may proxy to `:2019`. |
+| **SBD-2** | Caddy admin API never public | `admin.listen = unix//run/mooring/caddy-admin.sock` (preferred) or `127.0.0.1:2019`, never routable; `enforce_origin:true`, origins loopback-only. No public vhost may proxy to `:2019`. |
 | **SBD-3** | On-demand TLS off; ACME bounded | Absent from the base; the renderer **force-rewrites any `ask` endpoint** to a fixed loopback validator that answers "yes" only for known route/allowlist hostnames, plus a rate limit. ACME issues only for configured app vhosts. |
 | **SBD-4** | Only configured app vhosts served; control-plane ports unreachable as upstreams | Exactly the route-derived vhost set (+ optional admin vhost); **no catch-all/wildcard proxy**; no upstream targets `9000`/`2019`/`2375` or any internal port (struct-validated **and** re-checked at render **and** refused at dial); default unmatched-Host = `404`/close, never proxy. |
 | **SBD-5** | Network isolation of edge from control plane | The structural backstop — pinned dialer + upstream allowlist + egress firewall + unix-socket admin (see [the backstops](#the-structural-backstops-that-keep-the-edge-out-of-the-control-plane)). |
 | **SBD-6** | Egress stays controlled by always-on | Outbound calls are **host-pinned in-process** (ops prober, edge upstreams, alert notifiers reject loopback/link-local/metadata). The systemd cgroup egress filter is an **opt-in** deeper backstop (off by default — a strict deny blocks ACME). |
-| **SBD-7** | Config rendering safety | Proxy config is marshalled from typed structs (never string concat), generated from the typed routes in `helmsman.yaml` — there is no path by which an operator authors Caddy config. |
+| **SBD-7** | Config rendering safety | Proxy config is marshalled from typed structs (never string concat), generated from the typed routes in `mooring.yaml` — there is no path by which an operator authors Caddy config. |
 | **SBD-8** | The edge can never go down irrecoverably | Every apply is validate → stage → load with a retained last-known-good and an armed health-probe watchdog; on failure, **auto-revert**. The typed base config is always loadable as the recovery floor; **SSH is the ultimate recovery floor.** |
 
 ---
@@ -333,7 +333,7 @@ The proxy obtains and renews the certificate for the hostname but serves **no tr
 port. A separate service reads the same cert files and terminates TLS itself.
 
 The hard rule: **never `chmod` the cert dir or keys to broaden access.** A different-uid reader, or a
-container that mounts that path, could then read live TLS keys. Instead, Helmsman's deploy:
+container that mounts that path, could then read live TLS keys. Instead, Mooring's deploy:
 
 - **Copies the leaf cert + key** into the service's `mount` (`tls.crt` 0644, `tls.key` 0600), under
   the consumer's `run_dir`, and **recreates the service** so it loads them (the managed-file digest
@@ -358,7 +358,7 @@ there are no template tokens for certs. A `cert_bindings` entry has exactly two 
 ```yaml
 cert_bindings:
   - hostname: mqtt.example.com   # the FQDN the edge issues a cert for
-    mount: /etc/mosquitto/certs  # the in-container dir Helmsman syncs tls.crt + tls.key into
+    mount: /etc/mosquitto/certs  # the in-container dir Mooring syncs tls.crt + tls.key into
 ```
 
 The deploy **waits automatically** until the cert is synced — the container never polls or waits; if
@@ -369,7 +369,7 @@ the leaf (see the note above).
 #### Example: cert-only binding for an MQTT-over-TLS broker
 
 ```yaml
-# In the app's helmsman.yaml — the edge issues the cert; the broker serves TLS itself.
+# In the app's mooring.yaml — the edge issues the cert; the broker serves TLS itself.
 spec:
   edge:
     routes:
@@ -383,7 +383,7 @@ spec:
         image: eclipse-mosquitto:2
         cert_bindings:
           - hostname: mqtt.example.com
-            mount: /etc/mosquitto/certs   # tls.crt + tls.key land here, synced + renewed by Helmsman
+            mount: /etc/mosquitto/certs   # tls.crt + tls.key land here, synced + renewed by Mooring
 
 # The broker's managed config file points at the synced paths:
 #   listener 8883
@@ -427,7 +427,7 @@ The edge is designed so it can **never become irrecoverable**:
 > below as the roadmap, not current behavior.
 
 A single pinned CA with no fallback means anything that silently stops issuance — expiry, a stalled
-renewal, a rate-limit — leaves the edge **serving but degrading invisibly**. So Helmsman makes it
+renewal, a rate-limit — leaves the edge **serving but degrading invisibly**. So Mooring makes it
 **loud**, reading **leaf x509 metadata only, never a private key** (a lint bans opening any `.key` in
 the cert subsystem).
 
@@ -440,7 +440,7 @@ the cert subsystem).
   `cert_renew_stalled` (in the renewal window, serial not advancing); **`cert_sync_stale`** — the
   silent MQTT-TLS killer: the edge leaf is fresher than the consumer's synced leaf, so it re-nudges the
   cert-sync helper (the self-healing recreate path) then pages; `cert_anomaly` (issuer ≠ the pinned CA).
-- **ACME rate-limit handling.** Helmsman models the CA's weekly per-registered-domain and
+- **ACME rate-limit handling.** Mooring models the CA's weekly per-registered-domain and
   duplicate-cert limits **locally** from its own issuance ledger (`acme_ledger`, bucketed by eTLD+1 via
   an embedded public-suffix list — it never asks the CA). On a 429 / `rateLimited` *or* a local-window
   estimate exceeding the limit → **`cert_rate_limited`** (CRITICAL; the UI shows "retry after …", not a

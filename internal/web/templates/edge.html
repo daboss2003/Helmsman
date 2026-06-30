@@ -3,11 +3,11 @@
 <main class="wrap">
 {{with .Edge}}
   <h1>Edge routes</h1>
-  <p class="muted">Helmsman owns the public edge (HTTPS + automatic certificates) and renders the whole
-    edge config from your apps' <code>helmsman.yaml</code>. Routes are declared per app under
+  <p class="muted">Mooring owns the public edge (HTTPS + automatic certificates) and renders the whole
+    edge config from your apps' <code>mooring.yaml</code>. Routes are declared per app under
     <code>spec.edge.routes</code> — a hostname → an app service:port — and applied on deploy. The edge can
     never reach the control plane (control-plane ports are refused).</p>
-  <div class="notice">Read-only — edit routes in your app's <code>helmsman.yaml</code> (<code>spec.edge.routes</code>) and deploy. This page shows the routes from the last deploy.</div>
+  <div class="notice">Read-only — edit routes in your app's <code>mooring.yaml</code> (<code>spec.edge.routes</code>) and deploy. This page shows the routes from the last deploy.</div>
   {{if .Reason}}<div class="error" role="alert">Edge not owned on this host: {{.Reason}}. Routes apply once the edge is up.</div>{{end}}
 
   <section class="panel">
@@ -27,7 +27,7 @@
         {{end}}
       </tbody>
     </table></div>
-    {{else}}<p class="muted">No routes deployed yet — declare them under <code>spec.edge.routes</code> in your app's <code>helmsman.yaml</code> and deploy.</p>{{end}}
+    {{else}}<p class="muted">No routes deployed yet — declare them under <code>spec.edge.routes</code> in your app's <code>mooring.yaml</code> and deploy.</p>{{end}}
   </section>
 {{end}}
 </main>

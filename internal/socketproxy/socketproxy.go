@@ -1,10 +1,10 @@
-// Package socketproxy lets Helmsman MANAGE its own read-only docker-socket-proxy
+// Package socketproxy lets Mooring MANAGE its own read-only docker-socket-proxy
 // (plan §3) so the operator never runs a docker command — they only ever write
-// helmsman.yaml. The proxy compose is EMBEDDED in the binary (never operator input);
-// at boot Helmsman writes it under the data dir and brings it up idempotently.
+// mooring.yaml. The proxy compose is EMBEDDED in the binary (never operator input);
+// at boot Mooring writes it under the data dir and brings it up idempotently.
 //
 // The proxy is the READ-plane security boundary: the raw docker socket is mounted
-// ONLY into the proxy (read-only), and Helmsman polls container state through it on
+// ONLY into the proxy (read-only), and Mooring polls container state through it on
 // loopback. Write-plane actions never use it — they shell out to `docker compose`.
 package socketproxy
 
@@ -15,16 +15,16 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/dockerexec"
 )
 
 //go:embed docker-compose.yml
 var composeYAML []byte
 
 // Project is the fixed compose project name for the managed proxy.
-const Project = "helmsman-socket-proxy"
+const Project = "mooring-socket-proxy"
 
-// Compose returns the embedded, Helmsman-owned proxy compose bytes.
+// Compose returns the embedded, Mooring-owned proxy compose bytes.
 func Compose() []byte { return composeYAML }
 
 // Materialize writes the embedded proxy compose under dataDir/socket-proxy (dir 0700,

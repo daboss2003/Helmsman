@@ -20,7 +20,7 @@ import (
 // nginxBin is fixed (never operator-supplied): the binary is invoked with the `-c`
 // config flag, and the static-shell-exec lint (SEC-1) only permits `-c` on a literal,
 // allowlisted command — a dynamic binary name + `-c` is exactly the shell-injection
-// shape it forbids. Helmsman pins the binary by digest (VerifyDigest), not by path.
+// shape it forbids. Mooring pins the binary by digest (VerifyDigest), not by path.
 const nginxBin = "nginx"
 
 // Available reports whether this host can OWN the managed L4 load balancer — a
@@ -59,13 +59,13 @@ func VerifyDigest(nginxPath, want string) error {
 }
 
 // Supervisor owns the child nginx that serves the L4 stream proxy. Config lives in a
-// Helmsman-owned file; the operator never authors it. Reconcile renders from typed
+// Mooring-owned file; the operator never authors it. Reconcile renders from typed
 // routes, validates with `nginx -t`, and only then swaps the live config + reloads —
 // a rejected render keeps the last-good config serving (fail-closed). The testConf /
 // signal seams let the reconcile state machine be unit-tested without a real nginx.
 type Supervisor struct {
-	ConfigPath string // the live config file the master reads (Helmsman-owned)
-	Prefix     string // nginx -p prefix dir (Helmsman-owned, e.g. /var/lib/helmsman/l4)
+	ConfigPath string // the live config file the master reads (Mooring-owned)
+	Prefix     string // nginx -p prefix dir (Mooring-owned, e.g. /var/lib/mooring/l4)
 	Digest     string // pinned SHA-256 of the nginx binary (optional)
 	Log        *slog.Logger
 

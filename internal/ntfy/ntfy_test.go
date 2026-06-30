@@ -96,9 +96,9 @@ func TestServerYAMLLockdownAndSeeding(t *testing.T) {
 		`base-url: "https://ntfy.example.com"`,
 		`behind-proxy: true`,
 		`upstream-base-url: "https://ntfy.sh"`,
-		`"helmsman:alerts:wo"`, // publisher = write-only
-		`"phone:alerts:ro"`,    // subscriber = read-only
-		"helmsman:" + p.WriteToken + ":Helmsman publisher",
+		`"mooring:alerts:wo"`, // publisher = write-only
+		`"phone:alerts:ro"`,   // subscriber = read-only
+		"mooring:" + p.WriteToken + ":Mooring publisher",
 	}
 	for _, m := range must {
 		if !strings.Contains(s, m) {
@@ -136,7 +136,7 @@ func TestServerYAMLLockdownAndSeeding(t *testing.T) {
 
 // The (re)provision path MUST force-recreate so ntfy restarts and re-reads a rewritten
 // server.yml (it provisions auth-users + ACL into user.db only at process start). The
-// boot reconcile path must NOT force-recreate, or every Helmsman restart would churn a
+// boot reconcile path must NOT force-recreate, or every Mooring restart would churn a
 // correctly-running ntfy. This is the exact invariant whose violation caused signing in
 // to fail with "user phone not authorized" after a re-provision.
 func TestUpActionForceRecreate(t *testing.T) {
@@ -198,7 +198,7 @@ func TestMaterializePermsAndCompose(t *testing.T) {
 	for _, m := range []string{
 		"127.0.0.1:2586:80", // loopback publish only
 		serverPath + ":/etc/ntfy/server.yml:ro",
-		"helmsman-ntfy-lib:/var/lib/ntfy",
+		"mooring-ntfy-lib:/var/lib/ntfy",
 		"no-new-privileges:true",
 	} {
 		if !strings.Contains(cs, m) {

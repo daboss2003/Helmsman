@@ -28,7 +28,7 @@ type Admin struct {
 }
 
 // NewAdmin builds an admin client for a Caddy admin listen address:
-// "unix//run/helmsman/caddy-admin.sock" (dialed over the socket) or "127.0.0.1:2019".
+// "unix//run/mooring/caddy-admin.sock" (dialed over the socket) or "127.0.0.1:2019".
 func NewAdmin(listen string) *Admin {
 	if strings.HasPrefix(listen, "unix/") {
 		sock := strings.TrimPrefix(listen, "unix/") // "unix//x" → "/x"
@@ -67,7 +67,7 @@ func NewAdmin(listen string) *Admin {
 	return &Admin{base: "http://" + listen, origin: "http://" + originHost, client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: noRedirect}}
 }
 
-// noRedirect refuses to follow any redirect (consistent with every other Helmsman
+// noRedirect refuses to follow any redirect (consistent with every other Mooring
 // outbound client) — a compromised child Caddy must not be able to 307 the config
 // POST (which carries the whole edge config) to an attacker endpoint.
 func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -122,7 +122,7 @@ func NewReconciler(store *RouteStore, admin *Admin, base BaseConfig, log *slog.L
 	return &Reconciler{store: store, admin: admin, base: base, log: log}
 }
 
-// SetCertHosts registers a provider for cert-only ACME subjects (hostnames Helmsman
+// SetCertHosts registers a provider for cert-only ACME subjects (hostnames Mooring
 // must obtain a cert for without a proxy route — spec.cert_bindings).
 func (r *Reconciler) SetCertHosts(fn func() []CertHost) { r.certHosts = fn }
 
@@ -197,7 +197,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	}
 	// Idempotent: if the rendered document is byte-identical to the last applied one
 	// (the common case for the periodic pool refresh when the replica set is stable),
-	// skip the /load — Helmsman is the sole source of truth for Caddy's config, so a
+	// skip the /load — Mooring is the sole source of truth for Caddy's config, so a
 	// matching render means the live config is already correct. Avoids needless reloads.
 	if bytes.Equal(cfg, r.lastGood) {
 		return nil

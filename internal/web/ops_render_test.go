@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/ops"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/ops"
 )
 
 // These tests execute the M3 templates directly so a template bug (bad variable

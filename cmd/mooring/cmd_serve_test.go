@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/config"
-	"github.com/daboss2003/Helmsman/internal/socketproxy"
+	"github.com/daboss2003/mooring/internal/config"
+	"github.com/daboss2003/mooring/internal/socketproxy"
 )
 
 // The managed socket-proxy is the read-plane security boundary; it must be protected
@@ -36,11 +36,11 @@ func TestProtectManagedProxy(t *testing.T) {
 		t.Error("must preserve operator projects AND add the proxy")
 	}
 
-	// external_proxy: Helmsman doesn't run the proxy, so it doesn't seed it.
+	// external_proxy: Mooring doesn't run the proxy, so it doesn't seed it.
 	cfg3 := &config.Config{}
 	cfg3.Docker.ExternalProxy = true
 	protectManagedProxy(cfg3)
 	if cfg3.IsProtectedProject(socketproxy.Project) {
-		t.Error("with external_proxy, Helmsman must not seed the proxy project")
+		t.Error("with external_proxy, Mooring must not seed the proxy project")
 	}
 }

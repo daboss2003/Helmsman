@@ -26,7 +26,7 @@
       {{if and (not $.WriteDisabledReason) (not $.Protected)}}
       <button type="button" class="btn btn-sm lc-btn" data-lc-url="/apps/{{pathEscape .Project}}/services/{{pathEscape .Service}}/restart">Restart</button>
       {{if eq .Phase "CIRCUIT_OPEN"}}
-      <form method="post" action="/apps/{{pathEscape .Project}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Helmsman try again?">
+      <form method="post" action="/apps/{{pathEscape .Project}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Mooring try again?">
         <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="service" value="{{.Service}}">
         <button type="submit" class="btn btn-sm">Clear self-heal circuit</button>
       </form>

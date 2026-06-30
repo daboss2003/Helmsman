@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/crypto"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/crypto"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // ErrNotFound means no live session matched (missing, expired, or revoked).

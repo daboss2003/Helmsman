@@ -4,14 +4,14 @@
   {{with .Git}}
   {{if .Project}}<p><a href="/apps/{{pathEscape .Project}}">← {{.Project}}</a></p>{{else}}<p><a href="/">← Overview</a></p>{{end}}
   <h1>{{if .Project}}Repository — {{.Project}}{{else}}Connect a repository{{end}}</h1>
-  <p class="muted">Helmsman watches your repo for new commits and shows a clear diff. Deploys are
+  <p class="muted">Mooring watches your repo for new commits and shows a clear diff. Deploys are
     <strong>pinned to the exact commit you reviewed</strong> — nothing ships until you click Deploy.</p>
   {{if $.Error}}<div class="error" role="alert">{{$.Error}}</div>{{end}}
 
   {{if and (not .Project) $.GitHubEnabled}}
   <section class="panel">
     <h2>Connect with GitHub</h2>
-    <p class="muted">The easy way: authorize once, pick a repo, and Helmsman installs a
+    <p class="muted">The easy way: authorize once, pick a repo, and Mooring installs a
       read-only deploy key for you — no keys or URLs to copy.</p>
     <form method="post" action="/github/connect" class="inline">
       <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
@@ -27,8 +27,8 @@
       settings → OAuth Apps). The <strong>callback URL must match how you reach this dashboard</strong>:
       <code>http://localhost:9000/github/callback</code> over an SSH tunnel (no public domain needed),
       or <code>https://&lt;admin.hostname&gt;/github/callback</code> once you've set an admin domain. Then add
-      <code>github.client_id</code> + <code>github.client_secret</code> to <code>/etc/helmsman/config.yaml</code>
-      and <code>systemctl restart helmsman</code> (GitHub credentials are read only at startup, so a reload won't
+      <code>github.client_id</code> + <code>github.client_secret</code> to <code>/etc/mooring/config.yaml</code>
+      and <code>systemctl restart mooring</code> (GitHub credentials are read only at startup, so a reload won't
       pick them up) — the <strong>Connect with GitHub</strong> button appears here.
       See the GitOps guide.</p>
   </section>
@@ -113,9 +113,9 @@
       Rotating issues a new URL + signing secret and invalidates the old one.</p>
     {{end}}
     <p class="muted">CI must sign each call (the body is ignored). With the shared secret:</p>
-    <pre class="mono">X-Helmsman-Timestamp: &lt;unix-seconds&gt;
-X-Helmsman-Nonce: &lt;random, unique per call&gt;
-X-Helmsman-Signature: hex(HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;nonce&gt;"))</pre>
+    <pre class="mono">X-Mooring-Timestamp: &lt;unix-seconds&gt;
+X-Mooring-Nonce: &lt;random, unique per call&gt;
+X-Mooring-Signature: hex(HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;nonce&gt;"))</pre>
     <p class="muted">A valid call fetches; it deploys only if <strong>auto-deploy</strong> is on and the
       fetch yields a clean fast-forward update.</p>
     <form method="post" action="/apps/{{pathEscape .Project}}/git/webhook-rotate" class="inline">
@@ -134,23 +134,23 @@ X-Helmsman-Signature: hex(HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;nonce&gt;")
       <label>Ref <span class="muted">(fully-qualified)</span>
         <input type="text" name="git_ref" value="{{.Ref}}" placeholder="refs/heads/main"></label>
       {{if not .Project}}
-      <p class="muted">Helmsman reads a <code>helmsman.yaml</code> from your repo and generates the
+      <p class="muted">Mooring reads a <code>mooring.yaml</code> from your repo and generates the
         compose (and the Dockerfile, from each service's <code>build:</code>) — you never commit a
         <code>docker-compose.yml</code>. <strong>The app's name (slug) comes from the file's
         <code>metadata.slug</code></strong>, so there's nothing to type here. If your repo holds several
-        helmsman files — <code>helmsman.yaml</code> plus variants like <code>helmsman.staging.yaml</code> or
-        <code>helmsman.prod.yaml</code> — you'll pick which one to deploy next (each is its own app).</p>
-      <label>App name <span class="muted">(only if your repo has <em>no</em> helmsman.yaml — Helmsman scaffolds one)</span>
+        mooring files — <code>mooring.yaml</code> plus variants like <code>mooring.staging.yaml</code> or
+        <code>mooring.prod.yaml</code> — you'll pick which one to deploy next (each is its own app).</p>
+      <label>App name <span class="muted">(only if your repo has <em>no</em> mooring.yaml — Mooring scaffolds one)</span>
         <input type="text" name="name" placeholder="myapp" pattern="[a-z][a-z0-9-]{1,30}"></label>
       {{else}}
-      <p class="muted">Helmsman reads this app's helmsman file at the deployed commit and generates the
+      <p class="muted">Mooring reads this app's mooring file at the deployed commit and generates the
         compose. <strong>The file in your repo is the single source of truth</strong> for the app's shape —
         edit it there and deploy; the dashboard shows it (and lets you set secret values, config files, and
         run/restart/scale).</p>
       {{end}}
       <details class="accordion">
-        <summary>Starter <code>helmsman.yaml</code> — copy into your repo root</summary>
-        <pre class="stream mono">apiVersion: helmsman/v1
+        <summary>Starter <code>mooring.yaml</code> — copy into your repo root</summary>
+        <pre class="stream mono">apiVersion: mooring/v1
 kind: App
 metadata:
   slug: myapp                # lowercase; the app's name
@@ -173,7 +173,7 @@ spec:
     routes:
       - hostname: myapp.example.com
         service: api
-        port: 3000           # Helmsman terminates TLS and proxies to api:3000</pre>
+        port: 3000           # Mooring terminates TLS and proxies to api:3000</pre>
       </details>
       <label class="check"><input type="checkbox" name="auto_deploy" {{if .AutoDeploy}}checked{{end}}> Auto-deploy on webhook (default off)</label>
       <fieldset>

@@ -8,7 +8,7 @@ import (
 
 func TestPrintQR(t *testing.T) {
 	var buf bytes.Buffer
-	url := "otpauth://totp/Helmsman:operator?secret=JBSWY3DPEHPK3PXP&issuer=Helmsman&algorithm=SHA1&digits=6&period=30"
+	url := "otpauth://totp/Mooring:operator?secret=JBSWY3DPEHPK3PXP&issuer=Mooring&algorithm=SHA1&digits=6&period=30"
 	if err := printQR(&buf, url); err != nil {
 		t.Fatalf("printQR: %v", err)
 	}

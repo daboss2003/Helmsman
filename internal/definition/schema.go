@@ -1,11 +1,11 @@
-// Package definition is the helmsman.yaml definition file (plan §7.7): the
-// declarative source of truth for an app's Helmsman-managed surface. It is a SECOND
+// Package definition is the mooring.yaml definition file (plan §7.7): the
+// declarative source of truth for an app's Mooring-managed surface. It is a SECOND
 // front-end onto the same reconciler/§5.6 validator the dashboard drives — a new
 // front door, never a new trust path. Nothing in it reaches `docker compose`
 // unvalidated.
 //
-// Helmsman OWNS the runtime: the operator declares a multi-service STACK here and
-// Helmsman GENERATES the compose (and, for build services, the Dockerfile). There is
+// Mooring OWNS the runtime: the operator declares a multi-service STACK here and
+// Mooring GENERATES the compose (and, for build services, the Dockerfile). There is
 // no way to supply a raw compose/Dockerfile — `compose.source` is generated-only.
 // `services` is a map keyed by name; per-service `env` is a map of literals/secret
 // references (compose-familiar).
@@ -18,15 +18,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/ops"
-	"github.com/daboss2003/Helmsman/internal/opsclient"
-	"github.com/daboss2003/Helmsman/internal/sandbox"
-	"github.com/daboss2003/Helmsman/internal/secretgen"
+	"github.com/daboss2003/mooring/internal/ops"
+	"github.com/daboss2003/mooring/internal/opsclient"
+	"github.com/daboss2003/mooring/internal/sandbox"
+	"github.com/daboss2003/mooring/internal/secretgen"
 	"gopkg.in/yaml.v3"
 )
 
 // APIVersion is the ONLY accepted envelope version — exact-match, fail-closed.
-const APIVersion = "helmsman/v1"
+const APIVersion = "mooring/v1"
 
 var (
 	slugRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
@@ -49,7 +49,7 @@ var validRestart = map[string]bool{
 	"": true, "no": true, "always": true, "on-failure": true, "unless-stopped": true,
 }
 
-// Definition is the whole helmsman.yaml document (kind: App).
+// Definition is the whole mooring.yaml document (kind: App).
 type Definition struct {
 	APIVersion string   `yaml:"apiVersion"`
 	Kind       string   `yaml:"kind"`
@@ -74,7 +74,7 @@ type Spec struct {
 	Setup        *Setup        `yaml:"setup,omitempty"`
 }
 
-// Compose is GENERATED-ONLY: Helmsman owns the compose. `source` defaults to and may
+// Compose is GENERATED-ONLY: Mooring owns the compose. `source` defaults to and may
 // only be "generated". The legacy `repo_path`/`inline` sources are rejected; Path and
 // Inline are retained ONLY so a stale definition gets a clear, guiding rejection.
 type Compose struct {
@@ -85,7 +85,7 @@ type Compose struct {
 }
 
 // Service is one service in the generated stack (the map key is its name). A service
-// is `image` (pull) XOR `build` (Helmsman generates the Dockerfile).
+// is `image` (pull) XOR `build` (Mooring generates the Dockerfile).
 type Service struct {
 	Image        string              `yaml:"image,omitempty"` // image XOR build
 	Build        *Build              `yaml:"build,omitempty"`
@@ -158,7 +158,7 @@ type Port struct {
 	Published int    `yaml:"published,omitempty"` // host port (default = internal); maps host→container so a non-root container can bind a privileged host port
 }
 
-// Build is the declarative build spec — Helmsman GENERATES the Dockerfile from it.
+// Build is the declarative build spec — Mooring GENERATES the Dockerfile from it.
 type Build struct {
 	Language string            `yaml:"language,omitempty"`
 	Version  string            `yaml:"version,omitempty"`
@@ -181,7 +181,7 @@ type Volume struct {
 	ReadOnly bool   `yaml:"read_only"`
 }
 
-// ConfigFile is an app config file Helmsman renders + bind-mounts read-only into a
+// ConfigFile is an app config file Mooring renders + bind-mounts read-only into a
 // service. Content is a repo path (git cat-file @ pinned commit) XOR inline template.
 // Bindings is the explicit allowlist of {{hm.KEY}} tokens the file may resolve; the
 // app's own ${…} survive byte-identical.
@@ -261,7 +261,7 @@ func (b *Binding) UnmarshalYAML(n *yaml.Node) error {
 }
 
 // CertBinding syncs a managed edge cert into a service. The edge issues AND renews the
-// leaf; Helmsman copies it into the service's mount and recreates the service at deploy
+// leaf; Mooring copies it into the service's mount and recreates the service at deploy
 // AND autonomously on renewal (a background watcher re-syncs + recreates the affected
 // service when the edge renews the leaf), so a renewed cert is picked up without a
 // manual redeploy.
@@ -327,7 +327,7 @@ type Scaling struct {
 	CooldownDownSecs   int     `yaml:"cooldown_down_secs,omitempty"` // min seconds between scale-downs (default 300; >= up)
 }
 
-// SelfHealing tunes this app's self-healing supervisor (§8.5). Helmsman supervises
+// SelfHealing tunes this app's self-healing supervisor (§8.5). Mooring supervises
 // every service with a conservative built-in default; this block overrides the ladder
 // tunables for ONE app. Omitted fields keep the built-in default; an omitted block
 // leaves the app on the default entirely. All durations are in seconds.
@@ -342,7 +342,7 @@ type SelfHealing struct {
 	RedeployEnabled bool `yaml:"redeploy_enabled,omitempty"`  // rung-3 redeploy (≥1 GB host AND opt-in here)
 }
 
-// OpsInterface is the app's optional ops endpoint (§4): Helmsman probes it for RICH
+// OpsInterface is the app's optional ops endpoint (§4): Mooring probes it for RICH
 // health/queues. Everything here is operator config EXCEPT the shared-secret VALUE —
 // that stays encrypted (set the value in the dashboard, or declare a secret and point
 // `secret` at it; the value never lives in this file). base_url is the in-cluster
@@ -375,23 +375,23 @@ type Setup struct {
 // SourceGenerated is the only accepted compose source.
 const SourceGenerated = "generated"
 
-// ManagedConfigPath / ManagedSecretPath are the run-dir-relative paths where Helmsman
+// ManagedConfigPath / ManagedSecretPath are the run-dir-relative paths where Mooring
 // materializes a service's config file / secret file (and the compose bind source).
 // Kept here so reconcile (which emits the mount) and the deploy (which writes the
 // content) always agree. The service name, secret name, and index are schema-validated,
 // so the path is traversal-free.
 func ManagedConfigPath(service string, i int) string {
-	return fmt.Sprintf(".helmsman/cfg/%s/%d", service, i)
+	return fmt.Sprintf(".mooring/cfg/%s/%d", service, i)
 }
 
 func ManagedSecretPath(service, name string) string {
-	return fmt.Sprintf(".helmsman/secrets/%s/%s", service, name)
+	return fmt.Sprintf(".mooring/secrets/%s/%s", service, name)
 }
 
 // ManagedCertDir is the run-dir-relative directory a cert binding is synced into
 // (tls.crt + tls.key) and bind-mounted from. service + hostname are schema-validated.
 func ManagedCertDir(service, hostname string) string {
-	return fmt.Sprintf(".helmsman/certs/%s/%s", service, hostname)
+	return fmt.Sprintf(".mooring/certs/%s/%s", service, hostname)
 }
 
 func (d *Definition) validateEnvelope() error {
@@ -410,18 +410,18 @@ func (d *Definition) validateEnvelope() error {
 func (s *Spec) validate() error {
 	switch s.Compose.Source {
 	case "", SourceGenerated:
-		// ok — Helmsman generates the compose.
+		// ok — Mooring generates the compose.
 	case "repo_path", "inline":
-		return fmt.Errorf("compose.source %q is no longer supported — Helmsman generates the compose; "+
+		return fmt.Errorf("compose.source %q is no longer supported — Mooring generates the compose; "+
 			"declare your services (with image: or build:) under compose.services (source: generated)", s.Compose.Source)
 	default:
-		return fmt.Errorf("compose.source must be \"generated\" (got %q) — Helmsman generates the compose", s.Compose.Source)
+		return fmt.Errorf("compose.source must be \"generated\" (got %q) — Mooring generates the compose", s.Compose.Source)
 	}
 	if s.Compose.Path != "" || s.Compose.Inline != "" {
-		return fmt.Errorf("compose.path/compose.inline are no longer supported — Helmsman generates the compose from compose.services")
+		return fmt.Errorf("compose.path/compose.inline are no longer supported — Mooring generates the compose from compose.services")
 	}
 	if len(s.Compose.Services) == 0 {
-		return fmt.Errorf("compose.services is required (Helmsman generates the compose from your services)")
+		return fmt.Errorf("compose.services is required (Mooring generates the compose from your services)")
 	}
 	if err := s.validateServices(); err != nil {
 		return err

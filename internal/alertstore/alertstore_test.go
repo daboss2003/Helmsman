@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/alert"
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/alert"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 func newStore(t *testing.T) *Store {
@@ -26,7 +26,7 @@ func newStore(t *testing.T) *Store {
 }
 
 // ManagedNtfy returns the subscribe info (base url, topic, read-only username+password)
-// but never the write token Helmsman publishes with.
+// but never the write token Mooring publishes with.
 func TestManagedNtfyExposesSubscriberCredsNotWriteToken(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

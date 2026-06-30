@@ -1,15 +1,15 @@
-// Package ntfy lets Helmsman MANAGE a self-hosted ntfy server so an operator can get
+// Package ntfy lets Mooring MANAGE a self-hosted ntfy server so an operator can get
 // push alerts without depending on the public ntfy.sh or hand-running a container. Like
-// internal/socketproxy, the compose + config are Helmsman-OWNED (generated, never
+// internal/socketproxy, the compose + config are Mooring-OWNED (generated, never
 // operator input) and brought up via the dockerexec runner.
 //
 // Security model (operator's choices): the server is LOCKED DOWN — auth-default-access
 // is deny-all and access is granted only via two seeded tokens:
-//   - a WRITE-ONLY token Helmsman uses to publish alerts (never shown to the operator),
+//   - a WRITE-ONLY token Mooring uses to publish alerts (never shown to the operator),
 //   - a READ-ONLY token the operator puts in their phone's ntfy app to subscribe.
 //
 // So a leaked phone token can only RECEIVE, never publish. TLS + the public hostname are
-// handled by Helmsman's managed edge (Caddy); iOS instant push uses the free ntfy.sh
+// handled by Mooring's managed edge (Caddy); iOS instant push uses the free ntfy.sh
 // upstream relay (which only ever sees an opaque topic hash, never the name or body).
 package ntfy
 
@@ -23,17 +23,17 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/dockerexec"
 )
 
 const (
 	// Project is the fixed compose project name for the managed ntfy (protected infra).
-	Project = "helmsman-ntfy"
+	Project = "mooring-ntfy"
 	// Service is the compose service name (the edge routes hostname -> Service:Port).
 	Service = "ntfy"
 	// ContainerPort is ntfy's in-container HTTP port (Caddy reverse-proxies to it).
 	ContainerPort = 80
-	// LoopbackPort is the host-loopback port the container publishes to; Helmsman
+	// LoopbackPort is the host-loopback port the container publishes to; Mooring
 	// publishes alerts to http://127.0.0.1:LoopbackPort (never reachable off-host).
 	LoopbackPort = 2586
 
@@ -54,13 +54,13 @@ const SubscriberUser = "phone"
 
 // Params is everything needed to render the server config for one managed instance.
 // They're persisted by the caller (encrypted channel config) and passed back on every
-// (re)materialize so the same credentials survive restarts. Helmsman PUBLISHES with the
+// (re)materialize so the same credentials survive restarts. Mooring PUBLISHES with the
 // write token (Bearer, over loopback); the operator SUBSCRIBES as SubscriberUser with
 // SubPassword (read-only).
 type Params struct {
 	BaseURL     string // the public https URL, e.g. "https://ntfy.example.com"
 	Topic       string // the alert topic
-	WriteToken  string // Helmsman publisher token (wo on Topic)
+	WriteToken  string // Mooring publisher token (wo on Topic)
 	SubPassword string // the subscriber (phone) account password (ro on Topic)
 }
 
@@ -149,7 +149,7 @@ func validTopic(t string) bool {
 }
 
 // ServerYAML renders the ntfy server.yml: locked down (deny-all) with two seeded users
-// scoped to the topic. The publisher (helmsman, write-only) authenticates with a token
+// scoped to the topic. The publisher (mooring, write-only) authenticates with a token
 // (Bearer, used over loopback). The subscriber (phone, read-only) authenticates with a
 // real PASSWORD — because the ntfy app + web UI log in with username+password, not a
 // raw token. Behind-proxy + base-url are set for Caddy; upstream-base-url enables iOS
@@ -158,7 +158,7 @@ func ServerYAML(p Params) ([]byte, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	// helmsman's password is random + never used (it auths via the token); the phone
+	// mooring's password is random + never used (it auths via the token); the phone
 	// user's hash is the REAL subscriber password the operator signs in with.
 	pubHash, err := randomBcrypt()
 	if err != nil {
@@ -169,7 +169,7 @@ func ServerYAML(p Params) ([]byte, error) {
 		return nil, err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Helmsman-OWNED — generated, do not edit; managed via the Alerts page.\n")
+	fmt.Fprintf(&b, "# Mooring-OWNED — generated, do not edit; managed via the Alerts page.\n")
 	fmt.Fprintf(&b, "base-url: %q\n", p.BaseURL)
 	fmt.Fprintf(&b, "listen-http: \":%d\"\n", ContainerPort)
 	fmt.Fprintf(&b, "behind-proxy: true\n")
@@ -178,13 +178,13 @@ func ServerYAML(p Params) ([]byte, error) {
 	fmt.Fprintf(&b, "cache-file: \"/var/cache/ntfy/cache.db\"\n")
 	fmt.Fprintf(&b, "upstream-base-url: \"https://ntfy.sh\"\n")
 	fmt.Fprintf(&b, "auth-users:\n")
-	fmt.Fprintf(&b, "  - %q\n", "helmsman:"+pubHash+":user")
+	fmt.Fprintf(&b, "  - %q\n", "mooring:"+pubHash+":user")
 	fmt.Fprintf(&b, "  - %q\n", SubscriberUser+":"+subHash+":user")
 	fmt.Fprintf(&b, "auth-access:\n")
-	fmt.Fprintf(&b, "  - %q\n", "helmsman:"+p.Topic+":wo")
+	fmt.Fprintf(&b, "  - %q\n", "mooring:"+p.Topic+":wo")
 	fmt.Fprintf(&b, "  - %q\n", SubscriberUser+":"+p.Topic+":ro")
 	fmt.Fprintf(&b, "auth-tokens:\n")
-	fmt.Fprintf(&b, "  - %q\n", "helmsman:"+p.WriteToken+":Helmsman publisher")
+	fmt.Fprintf(&b, "  - %q\n", "mooring:"+p.WriteToken+":Mooring publisher")
 	return []byte(b.String()), nil
 }
 
@@ -207,10 +207,10 @@ func bcryptHash(password string) (string, error) {
 // ComposeYAML renders the compose for the managed ntfy. server.yml is bind-mounted
 // read-only (0644 so the container user can read it; its parent dir stays 0700);
 // state lives in named volumes (docker-owned perms). The HTTP port is published ONLY
-// on 127.0.0.1 — Helmsman publishes there; the public path is Caddy -> the bridge IP.
+// on 127.0.0.1 — Mooring publishes there; the public path is Caddy -> the bridge IP.
 func ComposeYAML(serverYAMLPath string) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Helmsman-OWNED managed ntfy — generated, never operator input.\n")
+	fmt.Fprintf(&b, "# Mooring-OWNED managed ntfy — generated, never operator input.\n")
 	fmt.Fprintf(&b, "services:\n")
 	fmt.Fprintf(&b, "  %s:\n", Service)
 	fmt.Fprintf(&b, "    image: %s\n", Image)
@@ -223,11 +223,11 @@ func ComposeYAML(serverYAMLPath string) []byte {
 	fmt.Fprintf(&b, "      - \"127.0.0.1:%d:%d\"\n", LoopbackPort, ContainerPort)
 	fmt.Fprintf(&b, "    volumes:\n")
 	fmt.Fprintf(&b, "      - %q\n", serverYAMLPath+":/etc/ntfy/server.yml:ro")
-	fmt.Fprintf(&b, "      - helmsman-ntfy-lib:/var/lib/ntfy\n")
-	fmt.Fprintf(&b, "      - helmsman-ntfy-cache:/var/cache/ntfy\n")
+	fmt.Fprintf(&b, "      - mooring-ntfy-lib:/var/lib/ntfy\n")
+	fmt.Fprintf(&b, "      - mooring-ntfy-cache:/var/cache/ntfy\n")
 	fmt.Fprintf(&b, "volumes:\n")
-	fmt.Fprintf(&b, "  helmsman-ntfy-lib:\n")
-	fmt.Fprintf(&b, "  helmsman-ntfy-cache:\n")
+	fmt.Fprintf(&b, "  mooring-ntfy-lib:\n")
+	fmt.Fprintf(&b, "  mooring-ntfy-cache:\n")
 	return []byte(b.String())
 }
 
@@ -259,7 +259,7 @@ func Materialize(dataDir string, p Params) (composePath string, err error) {
 // EnsureRunning RE-materializes the config (fresh subscriber password + write token)
 // and brings the managed ntfy up. UNGATED (infra plane) + best-effort, mirroring
 // socketproxy: a docker error is returned to log, never fatal. Nothing operator-controlled
-// reaches the docker argv (the compose is Helmsman-generated; the bind path is Helmsman-owned).
+// reaches the docker argv (the compose is Mooring-generated; the bind path is Mooring-owned).
 //
 // --force-recreate is REQUIRED here (this is the (re)provision path): server.yml is
 // bind-mounted, and ntfy only provisions/reconciles its auth-users + ACL into user.db
@@ -293,7 +293,7 @@ func EnsureRunning(ctx context.Context, runner *dockerexec.Runner, dataDir strin
 // true on the (re)provision path (EnsureRunning) so a rewritten server.yml is actually
 // re-read — ntfy provisions auth-users/ACL only at process start, and `up -d` alone won't
 // restart a container just because a bind-mounted file's contents changed. It MUST be
-// false on the boot reconcile path (Up) so a Helmsman restart never needlessly churns a
+// false on the boot reconcile path (Up) so a Mooring restart never needlessly churns a
 // correctly-running ntfy. Centralized so the two paths can't silently diverge again.
 func upAction(forceRecreate bool) []string {
 	a := []string{"up", "-d", "--remove-orphans"}

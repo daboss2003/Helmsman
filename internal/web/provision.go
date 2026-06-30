@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
-// M8 app provisioning (plan §7). Helmsman GENERATES and owns the compose from a
-// typed spec (helmsman.yaml under the hood) — there is deliberately NO raw-compose
+// M8 app provisioning (plan §7). Mooring GENERATES and owns the compose from a
+// typed spec (mooring.yaml under the hood) — there is deliberately NO raw-compose
 // or Dockerfile paste path: the same definition drives the app from the web or the
 // CLI, dangerous compose keys cannot be expressed, and the generated YAML still
 // passes §5.6. Commit writes to a 0700 staging dir + atomic rename(2), then a
@@ -36,8 +36,8 @@ type provisionedView struct {
 }
 
 // handleProvisionNew redirects to the repo-connect flow. The single-service "New app"
-// FORM was retired: a repo's helmsman.yaml is the source of truth for an app, so
-// creating an app means connecting a Git repo whose helmsman.yaml defines it (Helmsman
+// FORM was retired: a repo's mooring.yaml is the source of truth for an app, so
+// creating an app means connecting a Git repo whose mooring.yaml defines it (Mooring
 // scaffolds a starter if the repo has none). Old links/bookmarks land here.
 func (s *Server) handleProvisionNew(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/git/new", http.StatusSeeOther)

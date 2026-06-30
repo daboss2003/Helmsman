@@ -1,5 +1,5 @@
 // Package sandbox is the Mode-3 setup-script jail (plan §7/§9) — the single most
-// dangerous feature in Helmsman, so it is built assuming the script IS hostile.
+// dangerous feature in Mooring, so it is built assuming the script IS hostile.
 // It is OFF by default and FAIL-CLOSED: a script runs only inside a throwaway,
 // unprivileged, no-docker.sock, no-network, read-only-rootfs, resource-capped
 // jail whose live self-test must pass before EVERY run; ALL captured output is
@@ -129,7 +129,7 @@ type Config struct {
 	Image  string // digest-pinned base image
 	Binary string // docker CLI ("docker")
 	Limits Limits
-	UID    int // run the script as this (non-root) uid so captures are Helmsman-owned
+	UID    int // run the script as this (non-root) uid so captures are Mooring-owned
 	GID    int
 }
 

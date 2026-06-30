@@ -1,10 +1,10 @@
 # Config Files & Secrets
 
-Helmsman gives an app three ways to receive configuration — env vars, file-mounted secrets, and managed config files — plus a **secret-by-reference** model that keeps plaintext credentials out of your `helmsman.yaml`, your repo, your logs, and your browser. This document covers all three, how host-side templating works, and how secrets are provisioned, stored, and previewed.
+Mooring gives an app three ways to receive configuration — env vars, file-mounted secrets, and managed config files — plus a **secret-by-reference** model that keeps plaintext credentials out of your `mooring.yaml`, your repo, your logs, and your browser. This document covers all three, how host-side templating works, and how secrets are provisioned, stored, and previewed.
 
 > Coming from a hand-rolled `docker-entrypoint.sh` that `sed`s a config file, bootstraps a credential, and waits for a cert? The [Replacing a bespoke entrypoint](#replacing-a-bespoke-entrypoint-declaratively) section is the fast path — those three imperative jobs become a few declarative lines.
 
-**See also:** [README](../README.md) · [Provisioning apps](./gitops.md) · [Managed edge & certs](./edge-and-tls.md) · [The `helmsman.yaml` definition file](./definition-file.md)
+**See also:** [README](../README.md) · [Provisioning apps](./gitops.md) · [Managed edge & certs](./edge-and-tls.md) · [The `mooring.yaml` definition file](./definition-file.md)
 
 ---
 
@@ -12,12 +12,12 @@ Helmsman gives an app three ways to receive configuration — env vars, file-mou
 
 Env vars, file-mounted secrets, and templated config files are three distinct things with different storage, rendering behavior, and hygiene rules.
 
-> **What lives where.** **Secret VALUES** and **env** are set in the dashboard (encrypted; the YAML declares secret *names* only — you provision the actual values on the env page or with `helmsman secret import` over SSH). **`config_files`** and **`cert_bindings`** are **editable in the dashboard** too (per service), and can *also* be declared in your `helmsman.yaml`, which seeds them on deploy. What is read-only in the dashboard is the app's *shape* — services and edge/L4 routes — defined in `helmsman.yaml`; to change those, edit the file and deploy. Helmsman's git access is fetch-only — it reads `helmsman.yaml`, never writes it back.
+> **What lives where.** **Secret VALUES** and **env** are set in the dashboard (encrypted; the YAML declares secret *names* only — you provision the actual values on the env page or with `mooring secret import` over SSH). **`config_files`** and **`cert_bindings`** are **editable in the dashboard** too (per service), and can *also* be declared in your `mooring.yaml`, which seeds them on deploy. What is read-only in the dashboard is the app's *shape* — services and edge/L4 routes — defined in `mooring.yaml`; to change those, edit the file and deploy. Mooring's git access is fetch-only — it reads `mooring.yaml`, never writes it back.
 
-| Kind | Holds | Helmsman renders it? | At rest | Mounted as |
+| Kind | Holds | Mooring renders it? | At rest | Mounted as |
 |---|---|---|---|---|
 | **env** | `KEY: value` pairs | No | Encrypted env blob | `0600 --env-file` |
-| **file-mounted secret** | An opaque file (a `.pem`, a keystore, a license blob) | No — Helmsman never reads its contents | Encrypted store | Read-only bind mount |
+| **file-mounted secret** | An opaque file (a `.pem`, a keystore, a license blob) | No — Mooring never reads its contents | Encrypted store | Read-only bind mount |
 | **managed config file** | A **template** (config with `{{hm.*}}` placeholders) | **Yes — host-side, before `up`** | Encrypted *iff* secret-bearing | Read-only bind mount, `0640`/`0600` |
 
 All three are declared **per service**, under `spec.compose.services.<svc>`. Only `spec.secrets` (secret *names*) is top-level.
@@ -38,7 +38,7 @@ spec:
           DATABASE_URL: { secret: DB_URL } # reference into the encrypted store
 ```
 
-**Use a file-mounted secret when** the app wants an opaque file it reads itself — a TLS keystore, a service-account JSON, a downloaded license. Declare its name in `secret_files`; Helmsman materializes the stored value as a read-only mount. The name must be a declared secret:
+**Use a file-mounted secret when** the app wants an opaque file it reads itself — a TLS keystore, a service-account JSON, a downloaded license. Declare its name in `secret_files`; Mooring materializes the stored value as a read-only mount. The name must be a declared secret:
 
 ```yaml
       web:
@@ -47,7 +47,7 @@ spec:
           - SERVICE_ACCOUNT_JSON
 ```
 
-**Use a managed config file when** the app ships a *structured* config that has deploy-time placeholders Helmsman should fill — a node cookie, a shared auth secret, a dashboard password — **mixed with the app's own runtime placeholders** (`${username}`, `${clientid}`, `${topic}`) that must pass through untouched. Helmsman renders it host-side, before `docker compose up`, and bind-mounts the result read-only.
+**Use a managed config file when** the app ships a *structured* config that has deploy-time placeholders Mooring should fill — a node cookie, a shared auth secret, a dashboard password — **mixed with the app's own runtime placeholders** (`${username}`, `${clientid}`, `${topic}`) that must pass through untouched. Mooring renders it host-side, before `docker compose up`, and bind-mounts the result read-only.
 
 > A managed config file's template is encrypted at rest only when it is **secret-bearing** (at least one binding resolves a secret). A purely structural template is stored unencrypted but rendered with the same hygiene rules below.
 
@@ -55,9 +55,9 @@ spec:
 
 ## Selective host-side templating
 
-Helmsman performs **selective** templating — it touches only its own `{{hm.<KEY>}}` delimiter and copies everything else byte-for-byte. It is not a blanket `envsubst`.
+Mooring performs **selective** templating — it touches only its own `{{hm.<KEY>}}` delimiter and copies everything else byte-for-byte. It is not a blanket `envsubst`.
 
-### Helmsman touches only `{{hm.<KEY>}}`
+### Mooring touches only `{{hm.<KEY>}}`
 
 The renderer recognizes exactly one token: `{{hm.<KEY>}}`, where `<KEY>` matches `^[A-Za-z0-9_-]+$` (letters, digits, `_`, `-`). There is **no colon and no dot** inside the token — `{{hm.secret:NAME}}` and `{{hm.cert.x.crt}}` are **not** valid tokens.
 
@@ -115,24 +115,24 @@ This catches the most common mistake (pasting a key into the template) before it
 ### Lifecycle: re-rendered every deploy, host-edits detected
 
 - Materialization happens **before `up`, host-side**: resolve every binding → render → write atomically → record `rendered_sha256` → bind-mount read-only.
-- Files are **re-rendered on every redeploy** from the current `helmsman.yaml`, so there is never a stale render left over from an old deploy.
-- A host hand-edit of a rendered file is **detected** by SHA mismatch and surfaced as *"host-edited, will be overwritten."* Detection only — Helmsman never auto-merges a hand edit.
+- Files are **re-rendered on every redeploy** from the current `mooring.yaml`, so there is never a stale render left over from an old deploy.
+- A host hand-edit of a rendered file is **detected** by SHA mismatch and surfaced as *"host-edited, will be overwritten."* Detection only — Mooring never auto-merges a hand edit.
 
 ---
 
 ## Cert bindings (edge cert → app)
 
-When [Helmsman owns the edge](./edge-and-tls.md), it is the ACME agent for your hostnames. A **cert binding** mounts an edge-managed cert into a service so the app can read the leaf cert and key off disk.
+When [Mooring owns the edge](./edge-and-tls.md), it is the ACME agent for your hostnames. A **cert binding** mounts an edge-managed cert into a service so the app can read the leaf cert and key off disk.
 
 A cert binding has exactly two fields:
 
 ```yaml
 cert_bindings:
-  - hostname: broker.example.com   # a hostname Helmsman issues a cert for
+  - hostname: broker.example.com   # a hostname Mooring issues a cert for
     mount: /etc/broker/tls         # absolute directory inside the container
 ```
 
-Helmsman syncs the edge-issued cert into that directory as two files:
+Mooring syncs the edge-issued cert into that directory as two files:
 
 - `tls.crt` (mode `0644`) — the leaf cert (plus chain).
 - `tls.key` (mode `0600`) — the private key.
@@ -147,7 +147,7 @@ A cert binding is **not** the same as an edge route. To serve a hostname through
 
 ## Replacing a bespoke entrypoint, declaratively
 
-The classic "templated config + custom entrypoint" pattern bundles three imperative jobs into a shell script. Helmsman dissolves all three into declarative config, and the container reverts to its upstream default command.
+The classic "templated config + custom entrypoint" pattern bundles three imperative jobs into a shell script. Mooring dissolves all three into declarative config, and the container reverts to its upstream default command.
 
 | Imperative job (old entrypoint) | Declarative replacement |
 |---|---|
@@ -163,9 +163,9 @@ Each job moves out of the container entrypoint and into a typed, validated, host
 
 ### Secret-by-reference is an invariant
 
-Helmsman's master rule for secrets: **they are always by reference, never by value, in any authoring surface.**
+Mooring's master rule for secrets: **they are always by reference, never by value, in any authoring surface.**
 
-- A `helmsman.yaml` declares secret **names** in `spec.secrets` (with an optional `generate` hint) — **never values.** The file is safe to commit.
+- A `mooring.yaml` declares secret **names** in `spec.secrets` (with an optional `generate` hint) — **never values.** The file is safe to commit.
 - env entries, `config_files.bindings`, `secret_files`, and `cert_bindings` are all *references* — they never carry a value.
 - The actual secret value arrives **only out-of-band** (see provisioning below) and lands in the encrypted store.
 
@@ -183,16 +183,16 @@ spec:
 
 Every secret reference resolves **only within the referencing app's own `(slug, name)` namespace.** A name owned by another app resolves as missing / fail-closed — there is no error that leaks the other app's secret. A `{ secret: SHARED_KEY }` reference in app A can never read app B's `SHARED_KEY`.
 
-### Provisioning: `helmsman secret import` (never argv)
+### Provisioning: `mooring secret import` (never argv)
 
 Secret values are imported from a `.env` file — **never from `argv`** (so the value can't land in shell history, `ps` output, or process listings):
 
 ```bash
 # Import every KEY=VALUE in the file into my-app's encrypted store.
-helmsman secret import --slug my-app --from ./secrets.env
+mooring secret import --slug my-app --from ./secrets.env
 
 # If an import would rotate an already-provisioned value, confirm it explicitly:
-helmsman secret import --slug my-app --from ./secrets.env --confirm-rotations
+mooring secret import --slug my-app --from ./secrets.env --confirm-rotations
 ```
 
 The values are read from the file, never passed as command arguments. A secret declared with a `generate` hint is minted on explicit operator action, with a per-type entropy floor, and never overwrites an already-provisioned value.
@@ -203,8 +203,8 @@ Secrets, env blobs, and other sensitive material are encrypted with **AES-256-GC
 
 - A dedicated redacted type makes secrets unprintable, so a secret can't accidentally serialize into a log line, an error, or a temp file.
 - Key rotation is supported via a previous-key slot in the config.
-- Generate the key with `helmsman gen-key`; confirm the configured key matches the DB with `helmsman verify-key`.
-- **Back up the config (which holds the key) and the database separately and offsite.** Losing the key bricks every ciphertext — there is no recovery path. The running server writes encrypted backups under `<data_dir>/backups/`; restore one with the service stopped via `helmsman restore --from <archive.hmbk> --force` (same master key required; the prior DB is kept as `helmsman.db.pre-restore-<ts>`).
+- Generate the key with `mooring gen-key`; confirm the configured key matches the DB with `mooring verify-key`.
+- **Back up the config (which holds the key) and the database separately and offsite.** Losing the key bricks every ciphertext — there is no recovery path. The running server writes encrypted backups under `<data_dir>/backups/`; restore one with the service stopped via `mooring restore --from <archive.mbk> --force` (same master key required; the prior DB is kept as `mooring.db.pre-restore-<ts>`).
 
 ### The masked preview
 
@@ -223,12 +223,12 @@ This confirms two things at a glance:
 
 ## Worked example: templating a broker config
 
-Suppose your message broker ships this config template, with a mix of values Helmsman should fill and values the app resolves itself at runtime.
+Suppose your message broker ships this config template, with a mix of values Mooring should fill and values the app resolves itself at runtime.
 
 **`broker.conf` (template):**
 
 ```ini
-# --- Helmsman fills these at deploy time (host-side) ---
+# --- Mooring fills these at deploy time (host-side) ---
 node.cookie            = {{hm.NODE_COOKIE}}
 management.password    = {{hm.DASH_PASSWORD}}
 cluster.public_host    = {{hm.PUBLIC_HOST}}
@@ -245,12 +245,12 @@ log.console.level      = %(LOG_LEVEL)s
 
 Note the TLS paths are **plain literals** that point at the cert binding's `mount` directory — there are no cert tokens. The `{{hm.*}}` tokens are simple keys (no colon, no dot); each one is resolved by the file's `bindings`.
 
-### How it's declared in `helmsman.yaml`
+### How it's declared in `mooring.yaml`
 
 `config_files` and `cert_bindings` are nested under the service. The TLS cert is mounted into the same directory the template references. Only `spec.secrets` is top-level.
 
 ```yaml
-apiVersion: helmsman/v1
+apiVersion: mooring/v1
 kind: App
 metadata:
   slug: broker
@@ -275,12 +275,12 @@ spec:
               DASH_PASSWORD: { secret: DASH_PASSWORD }
               PUBLIC_HOST:   broker.example.com  # a literal binding
         cert_bindings:
-          - hostname: broker.example.com        # Helmsman syncs tls.crt + tls.key here
+          - hostname: broker.example.com        # Mooring syncs tls.crt + tls.key here
             mount: /etc/broker/tls
   secrets:
     - name: NODE_COOKIE
       generate: hex:32                           # minted on first deploy
-    - name: DASH_PASSWORD                        # provisioned via `helmsman secret import`
+    - name: DASH_PASSWORD                        # provisioned via `mooring secret import`
   edge:
     routes:
       - hostname: broker.example.com
@@ -313,11 +313,11 @@ default_user           = ${username}
 default_pass           = ${password}
 ```
 
-Both secrets are masked (source name, no value), and every `${...}` line is byte-identical to the template — Helmsman touched only its own `{{hm.*}}` tokens.
+Both secrets are masked (source name, no value), and every `${...}` line is byte-identical to the template — Mooring touched only its own `{{hm.*}}` tokens.
 
 ### What happens at deploy
 
-1. Before `up`, Helmsman resolves each binding from this app's namespace.
+1. Before `up`, Mooring resolves each binding from this app's namespace.
 2. Each resolved value is checked for NUL and CR/LF (always rejected).
 3. The cert binding for `broker.example.com` syncs `tls.crt` (`0644`) and `tls.key` (`0600`) into `/etc/broker/tls`; the deploy waits automatically until they exist.
 4. `broker.conf` is rendered in a single pass, written atomically as `0600` (secret-bearing), and bind-mounted read-only.
@@ -332,8 +332,8 @@ If `NODE_COOKIE` had not been provisioned, the deploy would **fail closed** at m
 | You want to… | Use |
 |---|---|
 | Pass a flat `KEY: value` the app reads from the env | an **env** entry (literal or `{ secret: NAME }`) |
-| Hand the app an opaque file Helmsman shouldn't read | a **`secret_files`** entry (encrypted store → read-only mount) |
+| Hand the app an opaque file Mooring shouldn't read | a **`secret_files`** entry (encrypted store → read-only mount) |
 | Fill placeholders in a structured config, keeping the app's own `${...}` | a **config file** + `{{hm.KEY}}` bindings |
-| Reference a credential without ever writing its value | a `{ secret: NAME }` binding + `helmsman secret import` |
+| Reference a credential without ever writing its value | a `{ secret: NAME }` binding + `mooring secret import` |
 | Give an app an edge-issued TLS cert on disk | a **cert binding** (`tls.crt`/`tls.key` at `mount`) |
 | Verify a template without leaking secrets | the **masked preview** |

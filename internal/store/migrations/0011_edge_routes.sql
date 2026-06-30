@@ -1,5 +1,5 @@
 -- M11 managed edge (plan §6): the operator's desired edge routes (Layer 1). The
--- edge config is NEVER stored as text — Helmsman holds this declarative set and
+-- edge config is NEVER stored as text — Mooring holds this declarative set and
 -- renders the WHOLE Caddy JSON document from typed structs every apply (SBD-7).
 -- A route's upstream is an allowlisted app endpoint; control-plane ports are
 -- rejected at struct-validate AND render time AND (on Linux) refused at dial.

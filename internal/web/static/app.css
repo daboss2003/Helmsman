@@ -1,4 +1,4 @@
-/* Helmsman admin UI — Filament-inspired dark theme (indigo primary).
+/* Mooring admin UI — Filament-inspired dark theme (indigo primary).
    CSP is script-src/style-src 'self': no inline styles, no CDN. All chart drawing
    lives in app.js (this file only styles the SVG it produces). */
 
@@ -217,7 +217,7 @@ section.panel > h2 .pill { font-weight: 600; }
 .tile:hover { border-color: var(--border-2); transform: translateY(-1px); box-shadow: var(--shadow-lg); color: var(--fg); }
 .tile-name { font-weight: 600; display: flex; align-items: center; gap: 0.5rem; word-break: break-word; }
 .tile-stat { font-size: 0.88rem; }
-/* System tiles are Helmsman-managed infrastructure: read-only, visually distinct
+/* System tiles are Mooring-managed infrastructure: read-only, visually distinct
    (dashed border + recessed surface) so they never read as operator apps. */
 .tile-system { background: var(--surface); border-style: dashed; }
 
@@ -267,7 +267,7 @@ details.accordion > summary:hover { color: var(--primary); }
 .health-unhealthy { color: var(--error); font-weight: 600; }
 .health-starting { color: var(--warn); }
 
-/* Read-only notice banner (config pages whose source of truth is the repo helmsman.yaml). */
+/* Read-only notice banner (config pages whose source of truth is the repo mooring.yaml). */
 .notice {
   background: var(--surface-2); border: 1px solid var(--border-2); border-left: 3px solid var(--primary);
   border-radius: var(--radius-md); padding: 0.7rem 0.95rem; margin: 0.9rem 0; color: var(--muted); font-size: 0.9rem;

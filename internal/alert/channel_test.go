@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// The managed-ntfy channel publishes to Helmsman's OWN ntfy on loopback (which the SSRF
+// The managed-ntfy channel publishes to Mooring's OWN ntfy on loopback (which the SSRF
 // guard blocks for every other channel), and MUST refuse any non-loopback target so a
 // tampered config can't turn it into an off-host SSRF.
 func TestNtfyManagedLoopbackOnly(t *testing.T) {

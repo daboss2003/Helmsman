@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/mooring/internal/compose"
 )
 
 func sampleSpec() Spec {

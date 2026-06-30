@@ -7,16 +7,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/cfgfile"
-	"github.com/daboss2003/Helmsman/internal/definition"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/cfgfile"
+	"github.com/daboss2003/mooring/internal/definition"
 )
 
 // configfiles_canonical.go backs the config-files editor: config files + cert bindings
 // are dashboard-EDITABLE per service (persisted to the app's stored definition and
-// reconciled), like scaling and ops. They may also be declared in helmsman.yaml, which
+// reconciled), like scaling and ops. They may also be declared in mooring.yaml, which
 // seeds them on deploy. (Edge & L4 routes are NOT editable here — they come read-only
-// from the repo's helmsman.yaml.) The legacy app-level cfgStore editor (configfiles.go)
+// from the repo's mooring.yaml.) The legacy app-level cfgStore editor (configfiles.go)
 // stays for provisioned apps with no stored definition; a one-time migration moves
 // legacy rows into the per-service model.
 
@@ -283,7 +283,7 @@ func (s *Server) handleConfigFileMigrate(w http.ResponseWriter, r *http.Request)
 	}
 	def := s.currentDef(project)
 	if def == nil {
-		http.Error(w, "no canonical helmsman.yaml to migrate into", http.StatusConflict)
+		http.Error(w, "no canonical mooring.yaml to migrate into", http.StatusConflict)
 		return
 	}
 	name := r.PostFormValue("name")

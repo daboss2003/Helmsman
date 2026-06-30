@@ -1,9 +1,9 @@
-# Helmsman configuration. Copy to /etc/helmsman/config.yaml (owned root:helmsman,
+# Mooring configuration. Copy to /etc/mooring/config.yaml (owned root:mooring,
 # mode 0640) and fill in the generated values. See `docs/installation.md`.
 #
-#   helmsman gen-key        -> encryption_key
-#   helmsman hash-password  -> auth.password_hash
-#   helmsman gen-totp       -> auth.totp_secret (optional 2FA)
+#   mooring gen-key        -> encryption_key
+#   mooring hash-password  -> auth.password_hash
+#   mooring gen-totp       -> auth.totp_secret (optional 2FA)
 
 bind_addr: "127.0.0.1:9000"          # the dashboard binds loopback; the edge fronts it
 
@@ -18,17 +18,17 @@ auth:
   # totp_secret: "<from gen-totp>"
 
 edge:
-  mode: "managed"                     # Helmsman runs the web server + HTTPS for you
+  mode: "managed"                     # Mooring runs the web server + HTTPS for you
   acme_email: "you@example.com"
   # Optional: own a managed L4 (TCP/UDP) load balancer for non-HTTP stream services
   # (DNS 53, DoT 853, MQTTS 8883) so they can run as an auto-scaled internal replica
   # pool. Requires nginx installed on the host + the privileged-ports systemd drop-in
-  # (see /usr/share/helmsman/systemd/). Off by default.
+  # (see /usr/share/mooring/systemd/). Off by default.
   # l4_enabled: true
   # l4_nginx_digest: ""               # optional SHA-256 pin of the nginx binary
 
 admin:
-  hostname: "admin.example.com"       # Helmsman serves the dashboard here over HTTPS,
+  hostname: "admin.example.com"       # Mooring serves the dashboard here over HTTPS,
                                       # behind ip_allowlist. Omit to use an SSH tunnel.
 
-data_dir: "/var/lib/helmsman"
+data_dir: "/var/lib/mooring"

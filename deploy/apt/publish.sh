@@ -4,11 +4,11 @@
 #   deploy/apt/publish.sh v1.2.3
 #
 # Requires: aptly, gh (GitHub CLI, authenticated), gpg with the signing key present.
-# Env: GPG_KEY_ID (the signing key id/fingerprint); REPO defaults to daboss2003/Helmsman.
+# Env: GPG_KEY_ID (the signing key id/fingerprint); REPO defaults to daboss2003/mooring.
 set -euo pipefail
 
 VERSION="${1:?usage: publish.sh <vX.Y.Z>}"
-REPO="${REPO:-daboss2003/Helmsman}"
+REPO="${REPO:-daboss2003/mooring}"
 DIST="${DIST:-stable}"
 COMPONENT="${COMPONENT:-main}"
 GPG_KEY_ID="${GPG_KEY_ID:?set GPG_KEY_ID to the signing key fingerprint}"
@@ -28,7 +28,7 @@ ver="${VERSION#v}"
 hdr=""
 if [ "${GH_AUTH:-}" = "1" ]; then hdr="Authorization: Bearer $(gh auth token)"; fi
 for arch in $ARCHES; do
-    f="helmsman_${ver}_linux_${arch}.deb"
+    f="mooring_${ver}_linux_${arch}.deb"
     echo "   $f"
     url="https://github.com/${REPO}/releases/download/${VERSION}/${f}"
     if [ -n "$hdr" ]; then
@@ -39,10 +39,10 @@ for arch in $ARCHES; do
 done
 
 # Create the aptly repo on first run; ignore if it already exists.
-aptly repo create -distribution="$DIST" -component="$COMPONENT" helmsman 2>/dev/null || true
+aptly repo create -distribution="$DIST" -component="$COMPONENT" mooring 2>/dev/null || true
 
 echo ">> adding packages"
-aptly repo add helmsman "$workdir"/*.deb
+aptly repo add mooring "$workdir"/*.deb
 
 echo ">> publishing (signed)"
 # sign always has >=1 element, so "${sign[@]}" is safe even on bash 3.2. In CI set
@@ -57,7 +57,7 @@ fi
 if aptly publish list | grep -q "$DIST"; then
     aptly publish update "${sign[@]}" "$DIST"
 else
-    aptly publish repo "${sign[@]}" -distribution="$DIST" helmsman
+    aptly publish repo "${sign[@]}" -distribution="$DIST" mooring
 fi
 
 # Export the rendered repo + the public signing key for static hosting.
@@ -72,15 +72,15 @@ touch "$OUT/.nojekyll" # serve dists/ + pool/ raw (no GitHub Pages Jekyll proces
 # A small landing page so the Pages root isn't a bare 404 (apt only fetches sub-paths,
 # but a human visiting the URL should see install instructions).
 cat > "$OUT/index.html" <<'HTML'
-<!doctype html><meta charset="utf-8"><title>Helmsman APT repository</title>
+<!doctype html><meta charset="utf-8"><title>Mooring APT repository</title>
 <body style="font:16px system-ui;max-width:48rem;margin:3rem auto;padding:0 1rem">
-<h1>Helmsman APT repository</h1>
+<h1>Mooring APT repository</h1>
 <p>Install on Debian / Ubuntu:</p>
-<pre style="background:#f4f4f5;padding:1rem;border-radius:8px;overflow:auto">curl -fsSL https://daboss2003.github.io/Helmsman/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/helmsman.gpg
-echo "deb [signed-by=/usr/share/keyrings/helmsman.gpg] https://daboss2003.github.io/Helmsman stable main" | sudo tee /etc/apt/sources.list.d/helmsman.list
-sudo apt update &amp;&amp; sudo apt install helmsman</pre>
-<p><a href="https://github.com/daboss2003/Helmsman">github.com/daboss2003/Helmsman</a></p>
+<pre style="background:#f4f4f5;padding:1rem;border-radius:8px;overflow:auto">curl -fsSL https://daboss2003.github.io/mooring/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/mooring.gpg
+echo "deb [signed-by=/usr/share/keyrings/mooring.gpg] https://daboss2003.github.io/mooring stable main" | sudo tee /etc/apt/sources.list.d/mooring.list
+sudo apt update &amp;&amp; sudo apt install mooring</pre>
+<p><a href="https://github.com/daboss2003/mooring">github.com/daboss2003/mooring</a></p>
 </body>
 HTML
 
-echo ">> done. Serve ./$OUT/ at your apt domain (e.g. https://daboss2003.github.io/Helmsman)."
+echo ">> done. Serve ./$OUT/ at your apt domain (e.g. https://daboss2003.github.io/mooring)."

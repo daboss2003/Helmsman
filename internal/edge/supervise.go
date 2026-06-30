@@ -18,7 +18,7 @@ import (
 // supervised child Caddy with a systemd slice + CAP_NET_BIND_SERVICE + an egress
 // firewall (plan §6) — Linux-only. On any other OS, or with no caddy binary, the
 // edge is FAIL-CLOSED unavailable (managed mode degrades to an "edge not owned"
-// banner; Helmsman's control plane still serves).
+// banner; Mooring's control plane still serves).
 func Available(caddyBin string) (bool, string) {
 	if runtime.GOOS != "linux" {
 		return false, "managed edge requires Linux (got " + runtime.GOOS + ")"

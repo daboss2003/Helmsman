@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // Store persists the per-(app,service) FSM and the expected_down leases. Alert and
@@ -127,10 +127,10 @@ func (s *Store) ClearAllExpectedDown(ctx context.Context) error {
 	return err
 }
 
-// --- per-app self-healing policy (helmsman.yaml spec.self_healing) ---
+// --- per-app self-healing policy (mooring.yaml spec.self_healing) ---
 
 // SavePolicy upserts one app's tuned self-healing policy. The whole-app policy is
-// the helmsman.yaml source of truth; the supervisor reads it per tick via PolicyFor
+// the mooring.yaml source of truth; the supervisor reads it per tick via PolicyFor
 // and falls back to the built-in default for an app with no row.
 func (s *Store) SavePolicy(ctx context.Context, project string, p Policy, now int64) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO app_selfheal

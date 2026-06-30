@@ -10,8 +10,8 @@
 
   {{if .ManagedNtfy}}
   <section class="panel">
-    <h2>Helmsman-hosted ntfy <span class="badge badge-warn">running</span></h2>
-    <p class="muted">Helmsman is running its own private ntfy server for you. Sign into it from the ntfy app
+    <h2>Mooring-hosted ntfy <span class="badge badge-warn">running</span></h2>
+    <p class="muted">Mooring is running its own private ntfy server for you. Sign into it from the ntfy app
       (iOS/Android) or web UI with the <strong>read-only</strong> username + password below — they can only
       <em>receive</em> alerts, never publish. Delete the <code>{{.ManagedNtfy.Name}}</code> channel below to
       stop and remove it.</p>
@@ -69,7 +69,7 @@
       <label>Kind
         <select name="kind" data-kind-toggle>
           <option value="ntfy">ntfy (external)</option>
-          {{if .ManagedNtfy}}{{else}}<option value="ntfy_managed">ntfy (Helmsman-hosted)</option>{{end}}
+          {{if .ManagedNtfy}}{{else}}<option value="ntfy_managed">ntfy (Mooring-hosted)</option>{{end}}
           <option value="webhook">webhook</option>
           <option value="slack">slack</option>
           <option value="discord">discord</option>
@@ -81,20 +81,20 @@
         <label>Server URL <span class="muted">(public ntfy.sh, or your own server)</span>
           <input type="text" name="url" autocomplete="off" placeholder="https://ntfy.sh"></label>
         <label>Topic <span class="muted">(pick something unguessable on public ntfy.sh)</span>
-          <input type="text" name="topic" autocomplete="off" placeholder="helmsman-alerts-7x2k9"></label>
+          <input type="text" name="topic" autocomplete="off" placeholder="mooring-alerts-7x2k9"></label>
         <label>Token <span class="muted">(optional — only for a protected topic/server)</span>
           <input type="password" name="token" autocomplete="new-password"></label>
       </div>
 
       <div class="kind-fields" data-kind="ntfy_managed" hidden>
         {{if .EdgeOwned}}
-        <p class="muted">Helmsman will run its OWN private ntfy server, expose it at the hostname below over
+        <p class="muted">Mooring will run its OWN private ntfy server, expose it at the hostname below over
           HTTPS, and give you a read-only token to subscribe with. It's only started when you save this.</p>
         <label>Hostname <span class="muted">(a DNS name pointed at this server)</span>
           <input type="text" name="ntfy_hostname" autocomplete="off" disabled placeholder="ntfy.example.com"></label>
         <label>Topic <input type="text" name="ntfy_topic" autocomplete="off" disabled placeholder="alerts"></label>
         {{else}}
-        <p class="muted">Helmsman-hosted ntfy needs the <strong>managed edge</strong> (it exposes ntfy over HTTPS).
+        <p class="muted">Mooring-hosted ntfy needs the <strong>managed edge</strong> (it exposes ntfy over HTTPS).
           Enable the managed edge, or use an <strong>external</strong> ntfy instead.</p>
         {{end}}
       </div>

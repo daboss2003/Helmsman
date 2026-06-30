@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 // settings is the free-form operator-UI key/value store (never Tier-1 / security
@@ -43,7 +43,7 @@ func (s *Server) orderedApps(snap *monitor.Snapshot) []monitor.App {
 		return nil
 	}
 	// Protected/managed projects (the read-plane socket-proxy, the edge) are
-	// Helmsman's own infrastructure — surfaced in the System section, never mixed
+	// Mooring's own infrastructure — surfaced in the System section, never mixed
 	// in with the operator's app tiles.
 	apps := make([]monitor.App, 0, len(snap.Apps))
 	for _, a := range snap.Apps {
@@ -78,7 +78,7 @@ func (s *Server) orderedApps(snap *monitor.Snapshot) []monitor.App {
 
 // systemApps returns the protected/managed projects (e.g. the read-plane socket-
 // proxy) as read-only tiles, kept separate from the operator's apps. They are
-// Helmsman's own infrastructure: shown for visibility, never app-controllable.
+// Mooring's own infrastructure: shown for visibility, never app-controllable.
 func (s *Server) systemApps(snap *monitor.Snapshot) []monitor.App {
 	if snap == nil {
 		return nil

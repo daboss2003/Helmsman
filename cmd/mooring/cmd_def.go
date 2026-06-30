@@ -7,18 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/definition"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/definition"
 )
 
-// cmdValidate is the read-plane `helmsman validate` — parse + reconcile a
-// helmsman.yaml through the SAME §5.6/§6.2 chokepoints an apply uses, with NO DB and
+// cmdValidate is the read-plane `mooring validate` — parse + reconcile a
+// mooring.yaml through the SAME §5.6/§6.2 chokepoints an apply uses, with NO DB and
 // NO write plane (safe to run in CI, below the §0 floor). Exit non-zero on any
 // violation. This is the CLI/dashboard parity guarantee: a def that validates here
 // is one the dashboard would accept, because both go through the one reconciler.
 func cmdValidate(args []string) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
-	from := fs.String("from", "helmsman.yaml", "path to the definition file")
+	from := fs.String("from", "mooring.yaml", "path to the definition file")
 	runDir := fs.String("run-dir", "", "app run directory bind mounts must stay under (optional)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -43,7 +43,7 @@ func cmdValidate(args []string) error {
 	if err != nil {
 		return err // parse + envelope + parser-differential rejections
 	}
-	// Resolve ${VAR} for an inline compose from a sibling .env, never Helmsman's env.
+	// Resolve ${VAR} for an inline compose from a sibling .env, never Mooring's env.
 	env := compose.Env{}
 	if data, derr := os.ReadFile(filepath.Join(filepath.Dir(*from), ".env")); derr == nil {
 		env = compose.ParseEnvFile(data)
@@ -65,7 +65,7 @@ func relPath(flag, p string) error {
 	return nil
 }
 
-// cmdInit scaffolds a generated helmsman.yaml skeleton (Helmsman owns the compose —
+// cmdInit scaffolds a generated mooring.yaml skeleton (Mooring owns the compose —
 // there is no compose/Dockerfile to point at). The operator edits the seed service
 // (image: or build:) and fills in env/secrets/edge.
 func cmdInit(args []string) error {
@@ -73,12 +73,12 @@ func cmdInit(args []string) error {
 	slug := fs.String("slug", "", "app slug (immutable after first apply)")
 	image := fs.String("image", "nginx:1.27", "image for the seed service (replace, or switch to build:)")
 	port := fs.Int("port", 0, "internal container port for the seed service (optional)")
-	out := fs.String("out", "helmsman.yaml", "output path")
+	out := fs.String("out", "mooring.yaml", "output path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *slug == "" {
-		return fmt.Errorf("usage: helmsman init --slug <slug> [--image <image>] [--port <n>] [--out helmsman.yaml]")
+		return fmt.Errorf("usage: mooring init --slug <slug> [--image <image>] [--port <n>] [--out mooring.yaml]")
 	}
 	// --out must be repo-relative + non-traversing — never write outside the
 	// operator's working directory.
@@ -111,6 +111,6 @@ func cmdInit(args []string) error {
 	if err := os.WriteFile(*out, canon, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s — edit spec.compose.services (each service's image:/build:, env, ports), spec.secrets, and spec.edge.routes, then `helmsman validate`\n", *out)
+	fmt.Printf("wrote %s — edit spec.compose.services (each service's image:/build:, env, ports), spec.secrets, and spec.edge.routes, then `mooring validate`\n", *out)
 	return nil
 }

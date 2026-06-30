@@ -31,8 +31,8 @@ type composeService struct {
 	StopGracePeriod string         `yaml:"stop_grace_period,omitempty"`
 }
 
-// composeBuild is the generated `build:` directive — Helmsman builds the service's
-// image from a Helmsman-generated Dockerfile (the operator never writes one).
+// composeBuild is the generated `build:` directive — Mooring builds the service's
+// image from a Mooring-generated Dockerfile (the operator never writes one).
 type composeBuild struct {
 	Context    string `yaml:"context"`
 	Dockerfile string `yaml:"dockerfile,omitempty"`

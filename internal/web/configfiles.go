@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/cfgfile"
-	"github.com/daboss2003/Helmsman/internal/cfgstore"
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/cfgfile"
+	"github.com/daboss2003/mooring/internal/cfgstore"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 type configFileView struct {
@@ -61,7 +61,7 @@ func (s *Server) handleConfigFilesGet(w http.ResponseWriter, r *http.Request) {
 		app = snap.AppByProject(project)
 	}
 	// Per-service first: an app with a stored definition edits config files + cert
-	// bindings PER SERVICE (dashboard-editable; helmsman.yaml may also seed them).
+	// bindings PER SERVICE (dashboard-editable; mooring.yaml may also seed them).
 	// Legacy provisioned apps (no stored definition) keep the app-level cfgStore editor.
 	if def := s.currentDef(project); def != nil {
 		s.populateCanonicalConfig(&data, def, project)

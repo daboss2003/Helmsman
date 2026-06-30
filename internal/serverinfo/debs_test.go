@@ -16,13 +16,13 @@ func writeFile(t *testing.T, p string) {
 func TestListAndDeleteDebs(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{
-		"helmsman_0.3.48_linux_amd64.deb",
-		"helmsman_0.3.49_linux_amd64.deb",
-		"helmsman_0.3.50_linux_amd64.deb",
-		"helmsman_0.3.50_linux_arm64.deb",
-		"nothelmsman_1.0_linux_amd64.deb", // must be ignored
-		"helmsman_0.3.50_linux_amd64.txt", // must be ignored
-		"random.tar.gz",                   // must be ignored
+		"mooring_0.3.48_linux_amd64.deb",
+		"mooring_0.3.49_linux_amd64.deb",
+		"mooring_0.3.50_linux_amd64.deb",
+		"mooring_0.3.50_linux_arm64.deb",
+		"notmooring_1.0_linux_amd64.deb", // must be ignored
+		"mooring_0.3.50_linux_amd64.txt", // must be ignored
+		"random.tar.gz",                  // must be ignored
 	} {
 		writeFile(t, filepath.Join(dir, n))
 	}
@@ -32,7 +32,7 @@ func TestListAndDeleteDebs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(debs) != 4 {
-		t.Fatalf("expected 4 helmsman debs, got %d: %+v", len(debs), debs)
+		t.Fatalf("expected 4 mooring debs, got %d: %+v", len(debs), debs)
 	}
 	running := 0
 	for _, d := range debs {
@@ -48,31 +48,31 @@ func TestListAndDeleteDebs(t *testing.T) {
 	}
 
 	// Deleting the running version is refused.
-	if err := DeleteDeb(dir, "helmsman_0.3.50_linux_amd64.deb", "0.3.50"); err != ErrRunningDeb {
+	if err := DeleteDeb(dir, "mooring_0.3.50_linux_amd64.deb", "0.3.50"); err != ErrRunningDeb {
 		t.Errorf("deleting running version should be ErrRunningDeb, got %v", err)
 	}
 	// Deleting an OLD version works.
-	if err := DeleteDeb(dir, "helmsman_0.3.48_linux_amd64.deb", "0.3.50"); err != nil {
+	if err := DeleteDeb(dir, "mooring_0.3.48_linux_amd64.deb", "0.3.50"); err != nil {
 		t.Errorf("deleting old deb should succeed, got %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "helmsman_0.3.48_linux_amd64.deb")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "mooring_0.3.48_linux_amd64.deb")); !os.IsNotExist(err) {
 		t.Error("old deb should be gone")
 	}
 }
 
 func TestDeleteDebRejectsNonDebAndTraversal(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "helmsman_0.3.49_linux_amd64.deb"))
+	writeFile(t, filepath.Join(dir, "mooring_0.3.49_linux_amd64.deb"))
 	// A real secret-ish sibling we must never reach.
 	outside := filepath.Join(filepath.Dir(dir), "passwd")
 	writeFile(t, outside)
 
 	bad := map[string]error{
-		"nothelmsman_1.0_linux_amd64.deb":     ErrNotADeb,
-		"helmsman_0.3.49_linux_amd64.txt":     ErrNotADeb,
-		"../passwd":                           ErrNotADeb, // has separator → rejected before glob
-		"sub/helmsman_0.3.49_linux_amd64.deb": ErrNotADeb,
-		"helmsman_0.3.49_linux_riscv.deb":     ErrNotADeb, // unsupported arch
+		"notmooring_1.0_linux_amd64.deb":     ErrNotADeb,
+		"mooring_0.3.49_linux_amd64.txt":     ErrNotADeb,
+		"../passwd":                          ErrNotADeb, // has separator → rejected before glob
+		"sub/mooring_0.3.49_linux_amd64.deb": ErrNotADeb,
+		"mooring_0.3.49_linux_riscv.deb":     ErrNotADeb, // unsupported arch
 	}
 	for name, want := range bad {
 		if err := DeleteDeb(dir, name, "0.3.50"); err != want {
@@ -80,7 +80,7 @@ func TestDeleteDebRejectsNonDebAndTraversal(t *testing.T) {
 		}
 	}
 	// The real deb is still there (nothing above deleted it).
-	if _, err := os.Stat(filepath.Join(dir, "helmsman_0.3.49_linux_amd64.deb")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "mooring_0.3.49_linux_amd64.deb")); err != nil {
 		t.Errorf("legit deb should be untouched: %v", err)
 	}
 }

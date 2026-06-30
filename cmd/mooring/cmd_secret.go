@@ -9,10 +9,10 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/daboss2003/Helmsman/internal/config"
-	"github.com/daboss2003/Helmsman/internal/envimport"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/config"
+	"github.com/daboss2003/mooring/internal/envimport"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
@@ -20,7 +20,7 @@ var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 // cmdSecret is the SSH-only secret/env surface (values never on argv).
 func cmdSecret(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: helmsman secret import --slug <slug> --from <.env>")
+		return fmt.Errorf("usage: mooring secret import --slug <slug> --from <.env>")
 	}
 	switch args[0] {
 	case "import":
@@ -44,7 +44,7 @@ func cmdSecretImport(args []string) error {
 		return err
 	}
 	if *slug == "" || *from == "" {
-		return fmt.Errorf("usage: helmsman secret import --slug <slug> --from <.env> [--confirm-rotations]")
+		return fmt.Errorf("usage: mooring secret import --slug <slug> --from <.env> [--confirm-rotations]")
 	}
 	if !slugRe.MatchString(*slug) {
 		return fmt.Errorf("slug must match [a-z][a-z0-9-]{1,30} (got %q)", *slug)
@@ -54,7 +54,7 @@ func cmdSecretImport(args []string) error {
 	if err != nil {
 		return err
 	}
-	db, err := store.Open(filepath.Join(cfg.DataDir, "helmsman.db"))
+	db, err := store.Open(filepath.Join(cfg.DataDir, "mooring.db"))
 	if err != nil {
 		return err
 	}

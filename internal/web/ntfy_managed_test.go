@@ -23,7 +23,7 @@ func TestValidHostname(t *testing.T) {
 }
 
 // Without the managed edge (no runner/edge in the bare test server), provisioning a
-// Helmsman-hosted ntfy is refused with a clear error and creates no channel.
+// Mooring-hosted ntfy is refused with a clear error and creates no channel.
 func TestProvisionManagedNtfyNeedsEdge(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	sess, csrf := e.authed(t)

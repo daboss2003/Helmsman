@@ -7,9 +7,9 @@ import (
 )
 
 // M11 managed-edge UI. Per-app public routes are READ-ONLY in the dashboard: they are
-// declared in the app's helmsman.yaml (the single source of truth) and reconciled onto
+// declared in the app's mooring.yaml (the single source of truth) and reconciled onto
 // the edge at deploy. This page shows the deployed routes; to add/change/remove one,
-// edit helmsman.yaml and deploy.
+// edit mooring.yaml and deploy.
 
 type edgeRouteView struct {
 	ID              int64
@@ -44,7 +44,7 @@ func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.render(w, r, "edge.html", tmplData{
-		Title:     "Edge routes — Helmsman",
+		Title:     "Edge routes — Mooring",
 		CSRFToken: CSRFToken(r.Context()),
 		Username:  sessionUser(r),
 		Edge:      ev,

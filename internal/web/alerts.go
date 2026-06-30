@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/alert"
-	"github.com/daboss2003/Helmsman/internal/alertstore"
-	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/mooring/internal/alert"
+	"github.com/daboss2003/mooring/internal/alertstore"
+	"github.com/daboss2003/mooring/internal/audit"
 )
 
 // M10 alerting UI. Channels are write-only (secrets never rendered back); rules
@@ -39,7 +39,7 @@ type alertsView struct {
 	Channels    []alertstore.ChannelMeta
 	Rules       []alertRuleView
 	Firing      []firingView
-	ManagedNtfy *alertstore.NtfyManagedInfo // the Helmsman-hosted ntfy subscribe info, if configured
+	ManagedNtfy *alertstore.NtfyManagedInfo // the Mooring-hosted ntfy subscribe info, if configured
 	EdgeOwned   bool                        // managed ntfy needs the managed edge to expose it
 }
 
@@ -64,12 +64,12 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 		av.Rules = make([]alertRuleView, len(rules)) // count only here
 	}
 	s.render(w, r, "alerts.html", tmplData{
-		Title: "Alerts — Helmsman", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r), Alerts: av,
+		Title: "Alerts — Mooring", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r), Alerts: av,
 	})
 }
 
 // handleChannelsPage (GET /alerts/channels) is the dedicated channels page: list +
-// create + delete + test, plus the Helmsman-hosted ntfy subscribe info.
+// create + delete + test, plus the Mooring-hosted ntfy subscribe info.
 func (s *Server) handleChannelsPage(w http.ResponseWriter, r *http.Request) {
 	if s.alertStore == nil {
 		http.Error(w, "alerting unavailable", http.StatusServiceUnavailable)
@@ -82,7 +82,7 @@ func (s *Server) handleChannelsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	av.EdgeOwned = s.edgeRoutes != nil && s.edgeRecon != nil && s.runner != nil
 	s.render(w, r, "channels.html", tmplData{
-		Title: "Alert channels — Helmsman", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r),
+		Title: "Alert channels — Mooring", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r),
 		Error: r.URL.Query().Get("err"), Alerts: av,
 	})
 }
@@ -105,7 +105,7 @@ func (s *Server) handleRulesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	av.Channels, _ = s.alertStore.ListChannels()
 	s.render(w, r, "rules.html", tmplData{
-		Title: "Alert rules — Helmsman", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r),
+		Title: "Alert rules — Mooring", CSRFToken: CSRFToken(r.Context()), Username: sessionUser(r),
 		Error: r.URL.Query().Get("err"), Alerts: av,
 	})
 }
@@ -169,7 +169,7 @@ func (s *Server) handleAlertChannelDelete(w http.ResponseWriter, r *http.Request
 	}
 	_ = r.ParseForm()
 	id, _ := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
-	// If this is the Helmsman-hosted ntfy, tear its container + edge route down too.
+	// If this is the Mooring-hosted ntfy, tear its container + edge route down too.
 	if kind, err := s.alertStore.ChannelKind(id); err == nil && kind == "ntfy_managed" {
 		s.teardownManagedNtfy(r.Context())
 	}
@@ -201,7 +201,7 @@ func (s *Server) handleAlertChannelTest(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	n := alert.Notification{Title: "[test] Helmsman alert channel", Body: "This is a test notification from Helmsman.", Level: alert.LevelWarning}
+	n := alert.Notification{Title: "[test] Mooring alert channel", Body: "This is a test notification from Mooring.", Level: alert.LevelWarning}
 	if err := ch.Send(ctx, n); err != nil {
 		_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "alert_channel_test", Target: strconv.FormatInt(id, 10), Outcome: audit.Error, Level: audit.Security})
 		w.WriteHeader(http.StatusBadGateway)

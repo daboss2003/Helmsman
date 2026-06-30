@@ -7,30 +7,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/gitstore"
 )
 
-func TestHelmsmanVariantLabel(t *testing.T) {
+func TestMooringVariantLabel(t *testing.T) {
 	cases := map[string]string{
-		"helmsman.yaml":         "default",
-		"helmsman.yml":          "default",
-		"helmsman.staging.yaml": "staging",
-		"helmsman.prod.yml":     "prod",
-		"helmsman.us-east.yaml": "us-east",
+		"mooring.yaml":         "default",
+		"mooring.yml":          "default",
+		"mooring.staging.yaml": "staging",
+		"mooring.prod.yml":     "prod",
+		"mooring.us-east.yaml": "us-east",
 	}
 	for in, want := range cases {
-		if got := helmsmanVariantLabel(in); got != want {
-			t.Errorf("helmsmanVariantLabel(%q) = %q, want %q", in, got, want)
+		if got := mooringVariantLabel(in); got != want {
+			t.Errorf("mooringVariantLabel(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
 
 func TestSortCandidatesDefaultFirst(t *testing.T) {
 	c := []discoveryCandidate{
-		{Path: "helmsman.prod.yaml", Label: "prod"},
-		{Path: "helmsman.yaml", Label: "default"},
-		{Path: "helmsman.staging.yaml", Label: "staging"},
+		{Path: "mooring.prod.yaml", Label: "prod"},
+		{Path: "mooring.yaml", Label: "default"},
+		{Path: "mooring.staging.yaml", Label: "staging"},
 	}
 	sortCandidates(c)
 	if c[0].Label != "default" {
@@ -67,10 +67,10 @@ func TestDiscoveryFlashSingleUseAndExpiry(t *testing.T) {
 func TestBuildCandidatesDedupAndSkip(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
 	cands, skipped := e.srv.buildCandidates([]discoveredFile{
-		{Path: "helmsman.yaml", Slug: "app"},
-		{Path: "helmsman.staging.yaml", Slug: "app"}, // duplicate slug → skipped
-		{Path: "helmsman.broken.yaml", Slug: ""},     // invalid slug → skipped
-		{Path: "helmsman.prod.yaml", Slug: "app-prod"},
+		{Path: "mooring.yaml", Slug: "app"},
+		{Path: "mooring.staging.yaml", Slug: "app"}, // duplicate slug → skipped
+		{Path: "mooring.broken.yaml", Slug: ""},     // invalid slug → skipped
+		{Path: "mooring.prod.yaml", Slug: "app-prod"},
 	})
 	if len(cands) != 2 {
 		t.Fatalf("creatable candidates = %d, want 2 (%+v)", len(cands), cands)
@@ -89,7 +89,7 @@ func TestBuildCandidatesDedupAndSkip(t *testing.T) {
 }
 
 func TestPeekMetadata(t *testing.T) {
-	slug, name := definition.PeekMetadata([]byte("apiVersion: helmsman/v1\nkind: App\nmetadata:\n  slug: shop\n  name: My Shop\n"))
+	slug, name := definition.PeekMetadata([]byte("apiVersion: mooring/v1\nkind: App\nmetadata:\n  slug: shop\n  name: My Shop\n"))
 	if slug != "shop" || name != "My Shop" {
 		t.Errorf("PeekMetadata = (%q, %q), want (shop, My Shop)", slug, name)
 	}
@@ -108,10 +108,10 @@ func TestGitChooseRejectsUnknownPath(t *testing.T) {
 	handle := e.srv.discoFlash.put(&discoveryStash{
 		repoURL:    "https://github.com/o/r.git",
 		ref:        "refs/heads/main",
-		candidates: []discoveryCandidate{{Path: "helmsman.yaml", Slug: "newapp", Label: "default"}},
+		candidates: []discoveryCandidate{{Path: "mooring.yaml", Slug: "newapp", Label: "default"}},
 	})
 	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", hdr, []*http.Cookie{sess, csrf},
-		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.evil.yaml"}})
+		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"mooring.evil.yaml"}})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unknown selection = %d, want 400", resp.StatusCode)
 	}
@@ -125,15 +125,15 @@ func TestGitChooseCreatesNewApp(t *testing.T) {
 	handle := e.srv.discoFlash.put(&discoveryStash{
 		repoURL:    "https://github.com/o/r.git",
 		ref:        "refs/heads/main",
-		candidates: []discoveryCandidate{{Path: "helmsman.staging.yaml", Slug: "stg", Label: "staging"}},
+		candidates: []discoveryCandidate{{Path: "mooring.staging.yaml", Slug: "stg", Label: "staging"}},
 	})
 	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", hdr, []*http.Cookie{sess, csrf},
-		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.staging.yaml"}})
+		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"mooring.staging.yaml"}})
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/apps/stg/git" {
 		t.Fatalf("create = %d loc=%q, want 303 /apps/stg/git", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	cfg, ok, _ := e.srv.gitStore.Get("stg")
-	if !ok || cfg.HelmsmanFile != "helmsman.staging.yaml" || cfg.RepoURL != "https://github.com/o/r.git" {
+	if !ok || cfg.MooringFile != "mooring.staging.yaml" || cfg.RepoURL != "https://github.com/o/r.git" {
 		t.Errorf("app not created with the variant file: %+v ok=%v", cfg, ok)
 	}
 }
@@ -154,10 +154,10 @@ func TestGitChooseExistingRedirectsWithoutOverwrite(t *testing.T) {
 	handle := e.srv.discoFlash.put(&discoveryStash{
 		repoURL:    "https://github.com/o/ATTACKER.git",
 		ref:        "refs/heads/main",
-		candidates: []discoveryCandidate{{Path: "helmsman.yaml", Slug: "taken", Label: "default", Exists: true}},
+		candidates: []discoveryCandidate{{Path: "mooring.yaml", Slug: "taken", Label: "default", Exists: true}},
 	})
 	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", hdr, []*http.Cookie{sess, csrf},
-		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.yaml"}})
+		url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"mooring.yaml"}})
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/apps/taken/git" {
 		t.Fatalf("existing = %d loc=%q, want 303 /apps/taken/git", resp.StatusCode, resp.Header.Get("Location"))
 	}

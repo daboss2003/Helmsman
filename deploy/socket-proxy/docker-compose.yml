@@ -1,11 +1,11 @@
 # The docker-socket-proxy companion (plan §3): a READ-ONLY, verb-allowlisted
 # proxy in front of the real Docker socket. The raw /var/run/docker.sock is
-# mounted ONLY here — never into Helmsman. Helmsman reads container state through
+# mounted ONLY here — never into Mooring. Mooring reads container state through
 # this proxy on loopback :2375.
 #
 # Deny-by-default: only CONTAINERS / INFO / VERSION are enabled (the read plane,
 # M2). Everything else — EXEC, POST, IMAGES, VOLUMES, NETWORKS, BUILD, the
-# write verbs — stays 0. Writes are done by Helmsman shelling out to
+# write verbs — stays 0. Writes are done by Mooring shelling out to
 # `docker compose` directly (M4), never through this proxy.
 #
 #   docker compose -f deploy/socket-proxy/docker-compose.yml up -d
@@ -13,7 +13,7 @@
 services:
   docker-socket-proxy:
     image: ghcr.io/tecnativa/docker-socket-proxy@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2  # 0.3.0, digest-pinned (plan §15)
-    container_name: helmsman-socket-proxy
+    container_name: mooring-socket-proxy
     restart: unless-stopped
     read_only: true
     cap_drop:

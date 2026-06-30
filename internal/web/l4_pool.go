@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/daboss2003/Helmsman/internal/docker"
-	"github.com/daboss2003/Helmsman/internal/l4"
+	"github.com/daboss2003/mooring/internal/docker"
+	"github.com/daboss2003/mooring/internal/l4"
 )
 
 // DiscoverL4Pools resolves each L4 route to the live container endpoints (ip:port) of

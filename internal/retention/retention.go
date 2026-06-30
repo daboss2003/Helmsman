@@ -1,4 +1,4 @@
-// Package retention bounds Helmsman's own audit/events table so it can never
+// Package retention bounds Mooring's own audit/events table so it can never
 // become the disk-wedge that kills the write plane (plan §16.1). It is read-plane
 // (it only prunes its own rows) and runs precisely when the box is small.
 //
@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // Config is the live, SIGHUP-reloadable retention policy (plan §16.1 Tier-1).
@@ -42,7 +42,7 @@ type Runner struct {
 }
 
 // New builds a Runner. archiveDir is where the security-row NDJSON archive lives
-// (Helmsman's own data dir); cfg is the initial (reloadable) policy.
+// (Mooring's own data dir); cfg is the initial (reloadable) policy.
 func New(db *store.DB, log *slog.Logger, archiveDir string, cfg Config) *Runner {
 	r := &Runner{db: db, log: log, archivePath: filepath.Join(archiveDir, "events-archive.ndjson")}
 	r.cfg.Store(&cfg)

@@ -2,7 +2,7 @@
 {{template "nav" .}}
 <main class="wrap">
   <h1>Server</h1>
-  <p class="muted">A read-only view of this host — what's using memory and disk, plus cleanup for old Helmsman downloads. Nothing here can move or delete your files (the only exception is removing old <code>.deb</code> packages, which asks for your password again).</p>
+  <p class="muted">A read-only view of this host — what's using memory and disk, plus cleanup for old Mooring downloads. Nothing here can move or delete your files (the only exception is removing old <code>.deb</code> packages, which asks for your password again).</p>
   {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
 
   {{/* Live host meters + top processes — refreshed in place every 5s. */}}
@@ -10,7 +10,7 @@
     {{template "serverlive" .}}
   </div>
 
-  {{/* Disk usage — Helmsman's own footprint (measured off the request path). */}}
+  {{/* Disk usage — Mooring's own footprint (measured off the request path). */}}
   <section class="panel">
     <h2>Disk usage</h2>
     {{with .Server}}
@@ -21,7 +21,7 @@
         {{range .Footprint.Groups}}
         <tr><td>{{.Label}}</td><td class="mono">{{.Path}}</td><td class="num">{{humanBytes .Bytes}}</td><td class="num">{{.Files}}</td></tr>
         {{end}}
-        <tr class="row-total"><td><strong>Total (Helmsman)</strong></td><td></td><td class="num"><strong>{{humanBytes .Footprint.Total}}</strong></td><td class="num"><strong>{{.Footprint.Files}}</strong></td></tr>
+        <tr class="row-total"><td><strong>Total (Mooring)</strong></td><td></td><td class="num"><strong>{{humanBytes .Footprint.Total}}</strong></td><td class="num"><strong>{{.Footprint.Files}}</strong></td></tr>
       </tbody>
     </table></div>
     {{if .Footprint.Partial}}<p class="muted">Note: measurement hit its time budget and may undercount a large directory.</p>{{end}}
@@ -29,17 +29,17 @@
     <p class="muted">Measuring disk usage… reload in a moment.</p>
     {{end}}
     {{end}}
-    <p class="muted">Helmsman discards its own build leftovers (interrupted-deploy staging dirs are swept on boot). <strong>Docker</strong>'s build cache, dangling images, and stopped containers do accumulate separately — check them over SSH with <code>docker system df</code> and reclaim with <code>docker system prune</code>. Helmsman never prunes Docker for you (it could delete something you still want).</p>
+    <p class="muted">Mooring discards its own build leftovers (interrupted-deploy staging dirs are swept on boot). <strong>Docker</strong>'s build cache, dangling images, and stopped containers do accumulate separately — check them over SSH with <code>docker system df</code> and reclaim with <code>docker system prune</code>. Mooring never prunes Docker for you (it could delete something you still want).</p>
   </section>
 
   {{/* Old-download cleanup. */}}
   {{with .Server}}
   <section class="panel">
-    <h2>Helmsman downloads (<code>.deb</code>)</h2>
+    <h2>Mooring downloads (<code>.deb</code>)</h2>
     {{if eq .DebCacheDir ""}}
-    <p class="muted">To clean up old downloaded Helmsman <code>.deb</code> packages here, set <code>server.deb_cache_dir</code> in <code>/etc/helmsman/config.yaml</code> to the folder you download them into (it must be writable by the Helmsman service). The running version is never deletable.</p>
+    <p class="muted">To clean up old downloaded Mooring <code>.deb</code> packages here, set <code>server.deb_cache_dir</code> in <code>/etc/mooring/config.yaml</code> to the folder you download them into (it must be writable by the Mooring service). The running version is never deletable.</p>
     {{else if not .Debs}}
-    <p class="muted">No Helmsman <code>.deb</code> files found in <code class="mono">{{.DebCacheDir}}</code>.</p>
+    <p class="muted">No Mooring <code>.deb</code> files found in <code class="mono">{{.DebCacheDir}}</code>.</p>
     {{else}}
     <p class="muted">Found in <code class="mono">{{.DebCacheDir}}</code>. The version you're running ({{.Version}}) is kept and can't be deleted. Deleting asks for your password{{if .TOTPEnabled}} and 2FA code{{end}}.</p>
     <div class="table-scroll"><table class="grid">
@@ -83,7 +83,7 @@
       {{range .FileRoots}}<li><a href="/server/files?root={{pathEscape .Name}}">{{template "icon-folder"}} {{.Name}} <span class="muted mono">{{.Path}}</span></a></li>{{end}}
     </ul>
     {{else}}
-    <p class="muted">The file view is off. To enable it, add allow-listed directories under <code>server.file_roots</code> in <code>/etc/helmsman/config.yaml</code>. It is strictly read-only and can never reach Helmsman's secrets, keys, database, or config.</p>
+    <p class="muted">The file view is off. To enable it, add allow-listed directories under <code>server.file_roots</code> in <code>/etc/mooring/config.yaml</code>. It is strictly read-only and can never reach Mooring's secrets, keys, database, or config.</p>
     {{end}}
   </section>
   {{end}}
@@ -133,7 +133,7 @@
       {{end}}
     </tbody>
   </table></div>
-  <p class="muted">Top {{len .Procs}} by resident memory{{if .At}} · updated {{.At}}{{end}}. Read-only — Helmsman can't signal or kill processes.</p>
+  <p class="muted">Top {{len .Procs}} by resident memory{{if .At}} · updated {{.At}}{{end}}. Read-only — Mooring can't signal or kill processes.</p>
   {{else}}
   <p class="muted">No process data.</p>
   {{end}}

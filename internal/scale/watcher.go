@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/alert"
-	"github.com/daboss2003/Helmsman/internal/alertstore"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/alert"
+	"github.com/daboss2003/mooring/internal/alertstore"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 // Scaler performs the actual replica change for a service (static-argv

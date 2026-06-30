@@ -7,14 +7,14 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/git"
-	"github.com/daboss2003/Helmsman/internal/github"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/git"
+	"github.com/daboss2003/mooring/internal/github"
+	"github.com/daboss2003/mooring/internal/gitstore"
 )
 
 // "Connect with GitHub": a standard OAuth web flow that lets the operator pick a repo
-// and have Helmsman install a READ-ONLY deploy key for it — no key pasting. The OAuth
+// and have Mooring install a READ-ONLY deploy key for it — no key pasting. The OAuth
 // token is used only to list repos + install the key; fetching uses the repo-scoped
 // deploy key over SSH with a pinned known_hosts.
 //
@@ -144,7 +144,7 @@ func (s *Server) handleGitHubRepos(w http.ResponseWriter, r *http.Request) {
 		out = append(out, githubRepoView{FullName: rp.FullName, Private: rp.Private, DefaultBranch: rp.DefaultBranch})
 	}
 	s.render(w, r, "github_repos.html", tmplData{
-		Title:       "Connect a repository — Helmsman",
+		Title:       "Connect a repository — Mooring",
 		CSRFToken:   CSRFToken(r.Context()),
 		GitHubLogin: conn.Login,
 		GitHubRepos: out,
@@ -152,7 +152,7 @@ func (s *Server) handleGitHubRepos(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGitHubConnectRepo (POST, auth+CSRF) is the one-click connect for a picked repo.
-// Like the manual flow, the app's slug comes from the repo's helmsman file(s) — so it
+// Like the manual flow, the app's slug comes from the repo's mooring file(s) — so it
 // runs discovery first (over HTTPS with the OAuth token, since the per-slug deploy key
 // isn't installed until the slug is known) and then: 0 files → scaffold (slug derived
 // from the repo name); 1 → connect; >1 → the chooser (one app per file). The read-only
@@ -182,13 +182,13 @@ func (s *Server) handleGitHubConnectRepo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Discover helmsman files using the OAuth token over HTTPS.
+	// Discover mooring files using the OAuth token over HTTPS.
 	repoURL := "https://github.com/" + owner + "/" + name + ".git"
 	if !s.gitDeploy.TryAcquire() {
 		http.Error(w, "a git operation is already in progress; try again shortly", http.StatusConflict)
 		return
 	}
-	files, derr := s.discoverHelmsmanFiles(r.Context(), repoURL, "refs/heads/"+branch, git.Creds{Token: conn.Token})
+	files, derr := s.discoverMooringFiles(r.Context(), repoURL, "refs/heads/"+branch, git.Creds{Token: conn.Token})
 	s.gitDeploy.Release()
 	if derr != nil {
 		http.Error(w, "could not read the repository from github: "+derr.Error(), http.StatusBadGateway)
@@ -216,26 +216,26 @@ func (s *Server) handleGitHubConnectRepo(w http.ResponseWriter, r *http.Request)
 			Discovery: &discoveryView{Handle: handle, RepoURL: fullName, Ref: "refs/heads/" + branch, Candidates: candidates, Skipped: skipped},
 		})
 	case len(skipped) >= 1:
-		http.Error(w, "found helmsman files but none has a valid metadata.slug — add one (lowercase, e.g. slug: myapp) and reconnect", http.StatusUnprocessableEntity)
+		http.Error(w, "found mooring files but none has a valid metadata.slug — add one (lowercase, e.g. slug: myapp) and reconnect", http.StatusUnprocessableEntity)
 	default:
 		slug := deriveSlug(name)
 		if slug == "" {
-			http.Error(w, "this repository has no helmsman.yaml and its name can't be used as an app slug — add a helmsman.yaml with metadata.slug and reconnect", http.StatusUnprocessableEntity)
+			http.Error(w, "this repository has no mooring.yaml and its name can't be used as an app slug — add a mooring.yaml with metadata.slug and reconnect", http.StatusUnprocessableEntity)
 			return
 		}
 		if _, exists, _ := s.gitStore.Get(slug); exists {
 			http.Redirect(w, r, "/apps/"+slug+"/git", http.StatusSeeOther)
 			return
 		}
-		s.finishGitHubConnect(w, r, slug, owner, name, branch, "helmsman.yaml")
+		s.finishGitHubConnect(w, r, slug, owner, name, branch, "mooring.yaml")
 	}
 }
 
 // finishGitHubConnect installs a fresh read-only deploy key (named per the slug) on the
 // repo via the OAuth token, then saves the app with that key as its SSH credential and
-// the chosen helmsman file. The OAuth token is re-read from the DB here (never carried
+// the chosen mooring file. The OAuth token is re-read from the DB here (never carried
 // through the chooser). Idempotent: an already-present key (ErrKeyExists) is fine.
-func (s *Server) finishGitHubConnect(w http.ResponseWriter, r *http.Request, slug, owner, name, branch, helmsmanFile string) {
+func (s *Server) finishGitHubConnect(w http.ResponseWriter, r *http.Request, slug, owner, name, branch, mooringFile string) {
 	if s.cfg.IsProtectedProject(slug) {
 		http.Error(w, "protected project", http.StatusForbidden)
 		return
@@ -245,19 +245,19 @@ func (s *Server) finishGitHubConnect(w http.ResponseWriter, r *http.Request, slu
 		http.Redirect(w, r, "/git/new", http.StatusSeeOther)
 		return
 	}
-	key, err := github.GenerateDeployKey("helmsman:" + slug)
+	key, err := github.GenerateDeployKey("mooring:" + slug)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := s.githubClient.CreateDeployKey(r.Context(), conn.Token, owner, name, "helmsman:"+slug, key.PublicLine); err != nil {
+	if err := s.githubClient.CreateDeployKey(r.Context(), conn.Token, owner, name, "mooring:"+slug, key.PublicLine); err != nil {
 		// We mint a FRESH key per connect, so a 422 (ErrKeyExists) can't mean "this exact
 		// key is already installed" — it means a DIFFERENT key already holds the title
-		// "helmsman:<slug>" (an orphan from a deleted app, or another Helmsman using the
+		// "mooring:<slug>" (an orphan from a deleted app, or another Mooring using the
 		// same slug). Our key was NOT installed, so fail loudly instead of saving a
 		// credential that can never fetch.
 		if err == github.ErrKeyExists {
-			http.Error(w, "a deploy key named \"helmsman:"+slug+"\" already exists on this repository — remove it on GitHub (it may be left over from a deleted app, or this slug is connected from another Helmsman instance), then reconnect", http.StatusConflict)
+			http.Error(w, "a deploy key named \"mooring:"+slug+"\" already exists on this repository — remove it on GitHub (it may be left over from a deleted app, or this slug is connected from another Mooring instance), then reconnect", http.StatusConflict)
 			return
 		}
 		s.log.Warn("github create deploy key failed", "err", err)
@@ -265,24 +265,24 @@ func (s *Server) finishGitHubConnect(w http.ResponseWriter, r *http.Request, slu
 		return
 	}
 	in := gitstore.SaveInput{
-		Project:      slug,
-		RepoURL:      "git@github.com:" + owner + "/" + name + ".git",
-		Ref:          "refs/heads/" + branch,
-		HelmsmanFile: helmsmanFile,
-		NewCred:      &key.PrivatePEM,
-		CredKind:     "ssh",
-		KnownHosts:   github.KnownHosts,
+		Project:     slug,
+		RepoURL:     "git@github.com:" + owner + "/" + name + ".git",
+		Ref:         "refs/heads/" + branch,
+		MooringFile: mooringFile,
+		NewCred:     &key.PrivatePEM,
+		CredKind:    "ssh",
+		KnownHosts:  github.KnownHosts,
 	}
 	if err := s.gitStore.Save(r.Context(), in); err != nil {
 		http.Error(w, "repository config rejected: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "github_connect_repo", Target: slug, Outcome: audit.OK, Level: audit.Security, Detail: owner + "/" + name + " (" + helmsmanFile + ")"})
+	_ = s.audit.Log(r.Context(), audit.Event{Actor: sessionUser(r), IP: ClientIP(r.Context()).String(), Action: "github_connect_repo", Target: slug, Outcome: audit.OK, Level: audit.Security, Detail: owner + "/" + name + " (" + mooringFile + ")"})
 	http.Redirect(w, r, "/apps/"+slug+"/git", http.StatusSeeOther)
 }
 
 // deriveSlug turns a GitHub repo name into a valid app slug for the scaffold case
-// (a repo with no helmsman.yaml). Returns "" if it can't be made valid.
+// (a repo with no mooring.yaml). Returns "" if it can't be made valid.
 func deriveSlug(repoName string) string {
 	var b strings.Builder
 	prevDash := false

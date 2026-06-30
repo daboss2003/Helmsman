@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/crypto"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/sandbox"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/crypto"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/sandbox"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 // M9 setup-script sandbox (plan §7/§9, Mode 3). OFF by default; every run is
@@ -129,7 +129,7 @@ func (s *Server) handleSetupGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSetupSync ingests the setup script from an uploaded helmsman.yaml — the setup
+// handleSetupSync ingests the setup script from an uploaded mooring.yaml — the setup
 // script is DECLARED in the definition (spec.setup), never typed into the dashboard.
 // The file goes through the hardened definition parser; only spec.setup is extracted
 // and persisted (encrypted) into the setup store. Running it is still a separate,
@@ -145,12 +145,12 @@ func (s *Server) handleSetupSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 10); err != nil {
-		http.Error(w, "attach your helmsman.yaml", http.StatusBadRequest)
+		http.Error(w, "attach your mooring.yaml", http.StatusBadRequest)
 		return
 	}
 	file, _, err := r.FormFile("definition")
 	if err != nil {
-		http.Error(w, "attach your helmsman.yaml (field 'definition')", http.StatusBadRequest)
+		http.Error(w, "attach your mooring.yaml (field 'definition')", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
@@ -161,11 +161,11 @@ func (s *Server) handleSetupSync(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := definition.Parse(raw)
 	if err != nil {
-		http.Error(w, "helmsman.yaml rejected: "+err.Error(), http.StatusUnprocessableEntity)
+		http.Error(w, "mooring.yaml rejected: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	if d.Spec.Setup == nil {
-		http.Error(w, "the uploaded helmsman.yaml has no spec.setup", http.StatusUnprocessableEntity)
+		http.Error(w, "the uploaded mooring.yaml has no spec.setup", http.StatusUnprocessableEntity)
 		return
 	}
 	// auto-setup + git.auto_deploy is a hard reject (plan §7); setupStore.Save re-validates.
@@ -197,7 +197,7 @@ func (s *Server) handleSetupDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetupRun executes the setup script in the jail — the most dangerous path
-// in Helmsman, gated at every step (plan §7):
+// in Mooring, gated at every step (plan §7):
 //  1. setup.enabled (config) — else 403.
 //  2. NEVER an auto path (this is an operator POST with CSRF).
 //  3. single-use confirm token bound to (slug, checksum) + typed app id.
@@ -288,7 +288,7 @@ func (s *Server) handleSetupRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fresh, Helmsman-owned 0700 scratch — the jail's ONLY writable mount.
+	// Fresh, Mooring-owned 0700 scratch — the jail's ONLY writable mount.
 	scratch, err := os.MkdirTemp(filepath.Dir(s.appRunDir(project)), ".setup-"+project+"-")
 	if err != nil {
 		writeln("[error: could not create scratch dir]")
@@ -336,7 +336,7 @@ func (s *Server) recordSetupBlocked(project, checksum, actor string) {
 }
 
 // captureSetupOutputs ingests the jail's declared outputs (plan §7): env vars
-// from a single .helmsman.env file (only keys DECLARED in produces, each through
+// from a single .mooring.env file (only keys DECLARED in produces, each through
 // the hostile-data validators → encrypted store) and declared files (regular,
 // size-capped, confined under run_dir, 0600). Anything not declared is ignored.
 func (s *Server) captureSetupOutputs(scratch, project string, ss sandbox.ScriptSet, actor string) (string, error) {
@@ -351,12 +351,12 @@ func (s *Server) captureSetupOutputs(scratch, project string, ss sandbox.ScriptS
 	}
 	var notes []string
 
-	// env capture from scratch/.helmsman.env (KEY=VALUE lines).
+	// env capture from scratch/.mooring.env (KEY=VALUE lines).
 	if len(declaredEnv) > 0 && s.envStore != nil {
-		envPath := filepath.Join(scratch, ".helmsman.env")
+		envPath := filepath.Join(scratch, ".mooring.env")
 		// Same parent-symlink defense as file captures: O_NOFOLLOW guards only the
 		// final component, so canonicalize-then-confine the whole path under scratch
-		// (a hostile `ln -s /etc /work/.helmsman` must not redirect this read).
+		// (a hostile `ln -s /etc /work/.mooring` must not redirect this read).
 		if !confinedUnder(envPath, scratch) || noSymlinkComponents(envPath, scratch) != nil {
 			return "", fmt.Errorf("env capture resolves outside the scratch dir (symlink?)")
 		}

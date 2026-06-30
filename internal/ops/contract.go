@@ -32,7 +32,7 @@ const (
 	BASIC Mode = "basic"
 )
 
-// contractMajor is the MAJOR version Helmsman speaks. Same MAJOR required;
+// contractMajor is the MAJOR version Mooring speaks. Same MAJOR required;
 // higher MINOR tolerated; unknown fields ignored (plan §4).
 const contractMajor = 1
 
@@ -80,7 +80,7 @@ type MetricItem struct {
 }
 
 // MetricGroup is a titled card of metric items — the open-ended "monitor" unit. The
-// app names the groups it wants (Database, Cache, Routes, System, Memory, …); Helmsman
+// app names the groups it wants (Database, Cache, Routes, System, Memory, …); Mooring
 // renders each as a panel, so the set is NOT limited to a fixed schema.
 type MetricGroup struct {
 	Title string

@@ -1,4 +1,4 @@
-// Package edge owns the managed edge (plan §6): Helmsman supervises a child Caddy
+// Package edge owns the managed edge (plan §6): Mooring supervises a child Caddy
 // and is the SINGLE SOURCE OF TRUTH for its config via the admin API. The config
 // is NEVER stored as text — this package RENDERS the whole Caddy JSON document
 // from typed structs (SBD-7), baking in the secure-by-default baseline (§6.1):
@@ -18,8 +18,8 @@ import (
 	"strings"
 )
 
-// controlPorts are Helmsman's own ports; an edge upstream may NEVER target them
-// (SBD-4). The admin-vhost→:9000 route is injected by Helmsman, not via this set.
+// controlPorts are Mooring's own ports; an edge upstream may NEVER target them
+// (SBD-4). The admin-vhost→:9000 route is injected by Mooring, not via this set.
 var controlPorts = map[string]bool{"9000": true, "2019": true, "2375": true}
 
 var (
@@ -56,7 +56,7 @@ type CA struct {
 // BaseConfig is Layer 0 — the protected base, injected from typed config (never
 // operator text).
 type BaseConfig struct {
-	AdminListen    string   // "unix//run/helmsman/caddy-admin.sock" or "127.0.0.1:2019"
+	AdminListen    string   // "unix//run/mooring/caddy-admin.sock" or "127.0.0.1:2019"
 	ACMEEmail      string   // pinned ACME contact
 	ACMECA         string   // pinned default issuer directory URL
 	CAs            []CA     // extra named issuers (private CAs) a subject can opt into
@@ -144,7 +144,7 @@ func isLoopbackHostname(host string) bool {
 // Render builds the whole Caddy JSON document from the base + the enabled routes
 // (Layer 0 protected base ⊕ Layer 1 per-app routes). The edge config is ALWAYS
 // rendered from these typed structs — the operator never authors Caddy config
-// (neither a file nor a portal field); everything originates from helmsman.yaml /
+// (neither a file nor a portal field); everything originates from mooring.yaml /
 // the typed route model. It re-validates every route (defense in depth) and FAILS
 // if any is unsafe — a bad route can never become a partially-applied config.
 // certOnly are hostnames Caddy must obtain+renew an ACME cert for WITHOUT a proxy
@@ -313,7 +313,7 @@ func Render(base BaseConfig, routes []Route, certOnly []CertHost) ([]byte, error
 }
 
 // xffOverwrite sets X-Forwarded-For to the real TCP peer (overwrite, not append),
-// matching Helmsman's own XFF invariant so an app behind the edge sees the true
+// matching Mooring's own XFF invariant so an app behind the edge sees the true
 // client and a forged upstream XFF can't slip through.
 func xffOverwrite() *caddyProxyHeaders {
 	return &caddyProxyHeaders{Request: &caddyHeaderOps{Set: map[string][]string{

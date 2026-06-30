@@ -1,6 +1,6 @@
 -- M5b managed config files + cert bindings (plan §7.4/§7.5, §9).
 
--- A managed config file: a structured template Helmsman renders host-side. The
+-- A managed config file: a structured template Mooring renders host-side. The
 -- template is stored encrypted (AES-256-GCM). secret_bearing forces 0600.
 CREATE TABLE app_config_files (
     project        TEXT NOT NULL,

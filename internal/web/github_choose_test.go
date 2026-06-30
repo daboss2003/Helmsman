@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/github"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/github"
+	"github.com/daboss2003/mooring/internal/gitstore"
 )
 
 func TestDeriveSlug(t *testing.T) {
@@ -61,10 +61,10 @@ func TestGitHubChooseInstallsKeyAndSavesVariant(t *testing.T) {
 	sess, csrf := e.authed(t)
 	handle := e.srv.discoFlash.put(&discoveryStash{
 		github: true, ghOwner: "octocat", ghName: "app", ghBranch: "main",
-		candidates: []discoveryCandidate{{Path: "helmsman.prod.yaml", Slug: "app-prod", Label: "prod"}},
+		candidates: []discoveryCandidate{{Path: "mooring.prod.yaml", Slug: "app-prod", Label: "prod"}},
 	})
 	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", map[string]string{"Origin": "https://example.com"},
-		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.prod.yaml"}})
+		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"mooring.prod.yaml"}})
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/apps/app-prod/git" {
 		t.Fatalf("choose = %d loc=%q, want 303 /apps/app-prod/git", resp.StatusCode, resp.Header.Get("Location"))
 	}
@@ -72,7 +72,7 @@ func TestGitHubChooseInstallsKeyAndSavesVariant(t *testing.T) {
 		t.Errorf("deploy key not installed read-only on the repo: path=%q readOnly=%v", keyPath, readOnly)
 	}
 	cfg, ok, _ := e.srv.gitStore.Get("app-prod")
-	if !ok || cfg.HelmsmanFile != "helmsman.prod.yaml" || cfg.CredKind != "ssh" || cfg.RepoURL != "git@github.com:octocat/app.git" {
+	if !ok || cfg.MooringFile != "mooring.prod.yaml" || cfg.CredKind != "ssh" || cfg.RepoURL != "git@github.com:octocat/app.git" {
 		t.Errorf("app not saved with the variant + ssh deploy key: %+v ok=%v", cfg, ok)
 	}
 }
@@ -93,10 +93,10 @@ func TestGitHubChooseKeyConflictFailsClosed(t *testing.T) {
 	sess, csrf := e.authed(t)
 	handle := e.srv.discoFlash.put(&discoveryStash{
 		github: true, ghOwner: "octocat", ghName: "app", ghBranch: "main",
-		candidates: []discoveryCandidate{{Path: "helmsman.yaml", Slug: "app-x", Label: "default"}},
+		candidates: []discoveryCandidate{{Path: "mooring.yaml", Slug: "app-x", Label: "default"}},
 	})
 	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", map[string]string{"Origin": "https://example.com"},
-		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.yaml"}})
+		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"mooring.yaml"}})
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("key-title conflict = %d, want 409", resp.StatusCode)
 	}
@@ -129,10 +129,10 @@ func TestGitHubChooseExistingRedirects(t *testing.T) {
 	sess, csrf := e.authed(t)
 	handle := e.srv.discoFlash.put(&discoveryStash{
 		github: true, ghOwner: "octocat", ghName: "app", ghBranch: "main",
-		candidates: []discoveryCandidate{{Path: "helmsman.prod.yaml", Slug: "app-prod", Label: "prod", Exists: true}},
+		candidates: []discoveryCandidate{{Path: "mooring.prod.yaml", Slug: "app-prod", Label: "prod", Exists: true}},
 	})
 	resp := e.req(t, "POST", "/git/choose", "127.0.0.1:1", map[string]string{"Origin": "https://example.com"},
-		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"helmsman.prod.yaml"}})
+		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}, "handle": {handle}, "path": {"mooring.prod.yaml"}})
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/apps/app-prod/git" {
 		t.Fatalf("existing = %d loc=%q, want 303 /apps/app-prod/git", resp.StatusCode, resp.Header.Get("Location"))
 	}

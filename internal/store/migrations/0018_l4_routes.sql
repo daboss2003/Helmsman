@@ -1,6 +1,6 @@
 -- L4 (TCP/UDP) load-balancer routes: the operator's desired stream listeners
 -- (the L4 analog of app_routes). Like the edge, the nginx-stream config is NEVER
--- stored as text — Helmsman holds this declarative set and renders the whole config
+-- stored as text — Mooring holds this declarative set and renders the whole config
 -- from typed structs each apply. A listener (listen+protocol) is globally unique so
 -- two apps can never fight over the same public port; the upstream is an allowlisted
 -- internal service:port, control-plane ports rejected at validate + render time.

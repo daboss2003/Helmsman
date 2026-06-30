@@ -1,5 +1,5 @@
 // Package cfgfile implements managed config files (plan §7.4): a SELECTIVE,
-// single-pass renderer that fills ONLY Helmsman's own `{{hm.<key>}}` delimiter
+// single-pass renderer that fills ONLY Mooring's own `{{hm.<key>}}` delimiter
 // and copies everything else — the app's `${…}`, `$VAR`, Go `{{ }}`, and even
 // `{{hmFoo}}` (no dot) — byte-identical. It is a byte scanner, NOT a template
 // engine (no conditionals/loops/functions/shell). Output is emitted, never
@@ -50,7 +50,7 @@ func Render(template []byte, resolve Resolver) (out []byte, secretBearing bool, 
 				i = end
 				continue
 			}
-			// Not a well-formed Helmsman token: emit "{{" literally and rescan the
+			// Not a well-formed Mooring token: emit "{{" literally and rescan the
 			// remainder as ordinary data (so `{{hm.foo bar}}`, `{{hmFoo}}`, etc.
 			// survive byte-identical).
 			out = append(out, '{', '{')

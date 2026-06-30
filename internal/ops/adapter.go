@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/opsclient"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/opsclient"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 // Target is everything an adapter needs to reach an app's ops endpoints. The

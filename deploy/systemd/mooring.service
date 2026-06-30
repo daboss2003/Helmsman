@@ -1,32 +1,32 @@
-# Helmsman runs as its own systemd unit, NOT a compose container, so it can
+# Mooring runs as its own systemd unit, NOT a compose container, so it can
 # never appear in a managed project's container list and a stack `down` can't
 # take it down (plan §3). Runs non-root as a dedicated low-priv user in the
 # `docker` group. Hardening per plan §3 / §15 Phase 4.
 #
 # Install:
-#   useradd --system --no-create-home --shell /usr/sbin/nologin helmsman
-#   usermod -aG docker helmsman
-#   install -m0755 helmsman /usr/local/bin/helmsman
-#   install -d -o helmsman -g helmsman -m0700 /var/lib/helmsman
-#   install -d -o helmsman -g helmsman -m0700 /var/lib/helmsman-apps  # app run dirs
-#   install -d -o helmsman -g helmsman -m0700 /var/lib/caddy          # edge data/cert store
+#   useradd --system --no-create-home --shell /usr/sbin/nologin mooring
+#   usermod -aG docker mooring
+#   install -m0755 mooring /usr/local/bin/mooring
+#   install -d -o mooring -g mooring -m0700 /var/lib/mooring
+#   install -d -o mooring -g mooring -m0700 /var/lib/mooring-apps  # app run dirs
+#   install -d -o mooring -g mooring -m0700 /var/lib/caddy          # edge data/cert store
 #   # Config is root-OWNED and group-readable by the service group so the
 #   # non-root service can read it; the master key is never group-WRITABLE:
-#   install -o root -g helmsman -m0640 config.yaml /etc/helmsman/config.yaml
-#   systemctl daemon-reload && systemctl enable --now helmsman
+#   install -o root -g mooring -m0640 config.yaml /etc/mooring/config.yaml
+#   systemctl daemon-reload && systemctl enable --now mooring
 
 [Unit]
-Description=Helmsman ops dashboard (control plane)
-Documentation=https://github.com/daboss2003/Helmsman
+Description=Mooring ops dashboard (control plane)
+Documentation=https://github.com/daboss2003/mooring
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=helmsman
-Group=helmsman
+User=mooring
+Group=mooring
 SupplementaryGroups=docker
-ExecStart=/usr/local/bin/helmsman serve --config /etc/helmsman/config.yaml
+ExecStart=/usr/local/bin/mooring serve --config /etc/mooring/config.yaml
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2s
@@ -40,10 +40,10 @@ MemoryMax=384M
 Environment=GOMEMLIMIT=150MiB
 # OOMScoreAdjust only biases the GLOBAL killer; it is NOT a substitute for MemoryMax.
 OOMScoreAdjust=-100
-# HOME for forked children only (Helmsman itself never reads HOME): docker compose's
+# HOME for forked children only (Mooring itself never reads HOME): docker compose's
 # buildx/BuildKit writes its cache to $HOME/.cache and its config to $HOME/.docker, and
 # git writes $HOME/.gitconfig — all must land in a writable dir or `--build` deploys fail.
-Environment=HOME=/var/lib/helmsman
+Environment=HOME=/var/lib/mooring
 
 # --- Sandbox (plan §15 Phase 4). The raw docker.sock is NEVER mounted here;
 # reads go through the read-only socket-proxy, writes shell out to `docker compose`.
@@ -76,23 +76,23 @@ SystemCallFilter=~@privileged @obsolete
 SystemCallErrorNumber=EPERM
 
 # Only these state dirs are writable (ProtectSystem=strict makes everything else
-# read-only). The admin UI binds loopback only; Helmsman never binds a public port
+# read-only). The admin UI binds loopback only; Mooring never binds a public port
 # itself (the managed edge child does). The three paths, for the DEFAULT data_dir
-# (/var/lib/helmsman) — if you change data_dir, update the first two to match:
-#   /var/lib/helmsman        DB, keys, git object store
-#   /var/lib/helmsman-apps   per-app run dirs (a sibling of data_dir by design — see
+# (/var/lib/mooring) — if you change data_dir, update the first two to match:
+#   /var/lib/mooring        DB, keys, git object store
+#   /var/lib/mooring-apps   per-app run dirs (a sibling of data_dir by design — see
 #                            appsRoot: keeps app binds from reaching the DB/keys)
 #   /var/lib/caddy           the supervised edge's data/cert store (HOME/XDG_DATA_HOME)
 # Omit any of them and the corresponding writes fail (Caddy/nginx exit, deploys can't
 # materialize) — the failure mode that looks like "edge won't start / deploy hangs".
-ReadWritePaths=/var/lib/helmsman /var/lib/helmsman-apps /var/lib/caddy
+ReadWritePaths=/var/lib/mooring /var/lib/mooring-apps /var/lib/caddy
 
-# Runtime dir: systemd creates /run/helmsman (owned helmsman:helmsman, writable even
+# Runtime dir: systemd creates /run/mooring (owned mooring:mooring, writable even
 # under ProtectSystem=strict, torn down on stop) BEFORE ExecStart. The managed edge's
-# Caddy admin socket lives at unix//run/helmsman/caddy-admin.sock — without this the
-# child can't bind it and the edge crash-loops. Do NOT mkdir /run/helmsman by hand
+# Caddy admin socket lives at unix//run/mooring/caddy-admin.sock — without this the
+# child can't bind it and the edge crash-loops. Do NOT mkdir /run/mooring by hand
 # (it's tmpfs, lost on reboot); this directive is the durable creator.
-RuntimeDirectory=helmsman
+RuntimeDirectory=mooring
 RuntimeDirectoryMode=0700
 
 # CAP_NET_BIND_SERVICE lets the managed edge/L4 children (Caddy :80/:443, nginx :53)

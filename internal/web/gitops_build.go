@@ -13,14 +13,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/builder"
-	"github.com/daboss2003/Helmsman/internal/cfgfile"
-	"github.com/daboss2003/Helmsman/internal/cfgstore"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/git"
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/secretgen"
+	"github.com/daboss2003/mooring/internal/builder"
+	"github.com/daboss2003/mooring/internal/cfgfile"
+	"github.com/daboss2003/mooring/internal/cfgstore"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/git"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/secretgen"
 )
 
 // configBindingResolver resolves {{hm.KEY}} tokens in one config file against its
@@ -94,43 +94,43 @@ func (s *Server) configBindingResolver(project, service string, svc definition.S
 	}
 }
 
-// loadRepoDefinition reads this app's helmsman file at the pinned commit and parses it
-// (Helmsman generates the compose from it — the repo never supplies a compose). The file
-// is helmsman.yaml by default, or a variant (helmsman.staging.yaml / helmsman.prod.yaml)
+// loadRepoDefinition reads this app's mooring file at the pinned commit and parses it
+// (Mooring generates the compose from it — the repo never supplies a compose). The file
+// is mooring.yaml by default, or a variant (mooring.staging.yaml / mooring.prod.yaml)
 // when the repo holds several and this app instance was connected to one of them. If the
 // file is absent, it scaffolds a default from the repo's detected stack so "connect a
 // repo" still works. The app's identity is its REGISTRATION slug (chosen at connect from
 // the file's metadata.slug), so the parsed slug is overridden here — editing the file's
 // slug afterwards can't rename or hijack the app.
-func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, slug, helmsmanFile string) (*definition.Definition, bool, error) {
-	if helmsmanFile == "" {
-		helmsmanFile = "helmsman.yaml"
+func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, slug, mooringFile string) (*definition.Definition, bool, error) {
+	if mooringFile == "" {
+		mooringFile = "mooring.yaml"
 	}
-	if b, err := repo.CatFile(ctx, sha, helmsmanFile); err == nil {
+	if b, err := repo.CatFile(ctx, sha, mooringFile); err == nil {
 		d, perr := definition.Parse(b)
 		if perr != nil {
-			return nil, false, fmt.Errorf("%s: %w", helmsmanFile, perr)
+			return nil, false, fmt.Errorf("%s: %w", mooringFile, perr)
 		}
 		d.Metadata.Slug = slug
 		return d, false, nil
 	}
 	// The CatFile failed (the file is absent, or it's a symlink/gitlink/wrong mode).
 	// Scaffolding a generic default is the right "connect a repo that has no config
-	// yet" behavior ONLY for the plain helmsman.yaml. An app explicitly connected to a
-	// NAMED variant (helmsman.prod.yaml, …) exists BECAUSE of that file — if it's gone
+	// yet" behavior ONLY for the plain mooring.yaml. An app explicitly connected to a
+	// NAMED variant (mooring.prod.yaml, …) exists BECAUSE of that file — if it's gone
 	// at the deployed commit, fail closed rather than silently replacing the operator's
 	// real config with a guessed single-service app under the same slug.
-	if helmsmanFile != "helmsman.yaml" {
-		return nil, false, fmt.Errorf("the helmsman file %q this app was connected to is missing (or not a regular file) at %s — restore it in the repo, or reconnect the app to a different file", helmsmanFile, shortSha(sha))
+	if mooringFile != "mooring.yaml" {
+		return nil, false, fmt.Errorf("the mooring file %q this app was connected to is missing (or not a regular file) at %s — restore it in the repo, or reconnect the app to a different file", mooringFile, shortSha(sha))
 	}
-	// No helmsman.yaml — scaffold a single build service from the detected stack.
+	// No mooring.yaml — scaffold a single build service from the detected stack.
 	files, err := repo.LsFiles(ctx, sha)
 	if err != nil {
 		return nil, false, fmt.Errorf("list repo files: %w", err)
 	}
 	b, derr := builder.Resolve(builder.Spec{Language: "auto"}, topLevelSet(files))
 	if derr != nil {
-		return nil, false, fmt.Errorf("no %s in the repo and %w — add a %s", helmsmanFile, derr, helmsmanFile)
+		return nil, false, fmt.Errorf("no %s in the repo and %w — add a %s", mooringFile, derr, mooringFile)
 	}
 	d := &definition.Definition{
 		APIVersion: definition.APIVersion,
@@ -146,13 +146,13 @@ func (s *Server) loadRepoDefinition(ctx context.Context, repo *git.Repo, sha, sl
 	return d, true, nil
 }
 
-// writeGeneratedDockerfiles renders the Helmsman-owned Dockerfile for each build
+// writeGeneratedDockerfiles renders the Mooring-owned Dockerfile for each build
 // service and writes it under the run dir at builder.DockerfilePath (confined,
 // symlink-safe). Detection (language: auto) reads the repo's top-level file list at
 // the pinned commit.
 func (s *Server) writeGeneratedDockerfiles(ctx context.Context, repo *git.Repo, sha, rd string, def *definition.Definition, onLine func(string)) error {
 	if defHasBuild(def) {
-		// CRITICAL: the build context is the run dir, which also holds .helmsman/
+		// CRITICAL: the build context is the run dir, which also holds .mooring/
 		// (rendered config + secret VALUES). Exclude it so `COPY . .` can never bake
 		// a secret into an image layer.
 		if err := ensureDockerignore(rd); err != nil {
@@ -281,7 +281,7 @@ func (s *Server) ensureGeneratedSecrets(ctx context.Context, project string, def
 
 // materializeManaged renders each service's config_files (from the repo @ pinned
 // commit, or an inline template) and writes each secret_files value (from the
-// encrypted store) into the run dir at the Helmsman-managed paths — the read-only
+// encrypted store) into the run dir at the Mooring-managed paths — the read-only
 // bind mounts for these were already emitted into the generated compose by reconcile.
 // All writes are confined + symlink-safe (atomicWrite). secret values are 0600.
 // (cert_bindings sync is a follow-on — it integrates with the edge cert issuance.)
@@ -316,9 +316,9 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 			}
 			// 0644 (world-readable): the bind-mounted file must be readable by the
 			// CONTAINER's process, which runs as a non-root user different from the
-			// helmsman user that wrote it — a 0600/0640 helmsman-owned file EACCESes
+			// mooring user that wrote it — a 0600/0640 mooring-owned file EACCESes
 			// inside the container. Host exposure is confined by the 0700 run dir (only
-			// helmsman + root can traverse it), so this does not widen on-host access.
+			// mooring + root can traverse it), so this does not widen on-host access.
 			if err := atomicWrite(dest, rendered, 0o644, rd); err != nil {
 				return fmt.Errorf("service %q config file: %w", name, err)
 			}
@@ -355,8 +355,8 @@ func (s *Server) materializeManaged(ctx context.Context, repo *git.Repo, sha, rd
 	return nil
 }
 
-// ensureDockerignore guarantees the build context excludes Helmsman's managed dir
-// (.helmsman/ holds rendered config + secret VALUES + the generated Dockerfile), so a
+// ensureDockerignore guarantees the build context excludes Mooring's managed dir
+// (.mooring/ holds rendered config + secret VALUES + the generated Dockerfile), so a
 // `COPY . .` in a generated Dockerfile can never bake secrets into image layers. It
 // merges with the repo's own .dockerignore if present.
 func ensureDockerignore(rd string) error {
@@ -364,7 +364,7 @@ func ensureDockerignore(rd string) error {
 	var existing []byte
 	if b, err := os.ReadFile(p); err == nil {
 		for _, line := range strings.Split(string(b), "\n") {
-			if strings.TrimSuffix(strings.TrimSpace(line), "/") == ".helmsman" {
+			if strings.TrimSuffix(strings.TrimSpace(line), "/") == ".mooring" {
 				return nil // already excluded
 			}
 		}
@@ -375,7 +375,7 @@ func ensureDockerignore(rd string) error {
 	if len(existing) > 0 && !bytes.HasSuffix(existing, []byte("\n")) {
 		buf.WriteByte('\n')
 	}
-	buf.WriteString("# added by Helmsman — never send rendered config/secrets into the build context\n.helmsman\n")
+	buf.WriteString("# added by Mooring — never send rendered config/secrets into the build context\n.mooring\n")
 	return atomicWrite(p, buf.Bytes(), 0o644, rd)
 }
 
@@ -418,7 +418,7 @@ func (s *Server) managedDigests(rd string, def *definition.Definition) map[strin
 // readDigestState reads the last deploy's per-service managed-file digests.
 func readDigestState(rd string) map[string]string {
 	out := map[string]string{}
-	b, err := os.ReadFile(filepath.Join(rd, ".helmsman", "state", "digests"))
+	b, err := os.ReadFile(filepath.Join(rd, ".mooring", "state", "digests"))
 	if err != nil {
 		return out
 	}
@@ -431,7 +431,7 @@ func readDigestState(rd string) map[string]string {
 }
 
 // writeDigestState records the current per-service managed-file digests (0600, under
-// the gitignored .helmsman tree so it never enters the build context).
+// the gitignored .mooring tree so it never enters the build context).
 func (s *Server) writeDigestState(rd string, m map[string]string) error {
 	names := make([]string, 0, len(m))
 	for k := range m {
@@ -442,7 +442,7 @@ func (s *Server) writeDigestState(rd string, m map[string]string) error {
 	for _, k := range names {
 		fmt.Fprintf(&buf, "%s %s\n", k, m[k])
 	}
-	return atomicWrite(filepath.Join(rd, ".helmsman", "state", "digests"), buf.Bytes(), 0o600, rd)
+	return atomicWrite(filepath.Join(rd, ".mooring", "state", "digests"), buf.Bytes(), 0o600, rd)
 }
 
 // changedServices are the services whose managed-file digest changed since last
@@ -683,7 +683,7 @@ func defBindSources(def *definition.Definition) []string {
 	return out
 }
 
-// materializeBindDirs pre-creates each bind source as a Helmsman-owned directory under
+// materializeBindDirs pre-creates each bind source as a Mooring-owned directory under
 // the run dir BEFORE `docker compose up`, so a missing bind isn't created by the Docker
 // daemon as root. Each is confined under the run dir (symlink-safe); an existing path
 // (file or dir) is left untouched.

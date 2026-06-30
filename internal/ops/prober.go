@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // ServiceResolver maps (project, service) → a routable container bridge IP, via the
@@ -107,7 +107,7 @@ func (p *Prober) Probe(ctx context.Context, project string) (*Result, bool) {
 }
 
 // ProbeTarget probes ONE ops Target directly (no DB-backed config, no snapshot ring),
-// for per-service ops driven from the canonical helmsman.yaml. mode is auto|rich|basic.
+// for per-service ops driven from the canonical mooring.yaml. mode is auto|rich|basic.
 // Returns nil when mode is "basic" (ops disabled for the service).
 func (p *Prober) ProbeTarget(ctx context.Context, project string, target Target, adapterName, mode string) *Result {
 	if mode == "basic" {

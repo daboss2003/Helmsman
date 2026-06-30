@@ -23,11 +23,11 @@ func TestDefaultsFieldsAllPostureChecked(t *testing.T) {
 
 func TestDefaultsScalingValidated(t *testing.T) {
 	bad := []string{
-		`apiVersion: helmsman/v1
+		`apiVersion: mooring/v1
 kind: Host
 spec:
   defaults: {scaling: {min: -1}}`,
-		`apiVersion: helmsman/v1
+		`apiVersion: mooring/v1
 kind: Host
 spec:
   defaults: {scaling: {min: 5, max: 2}}`,
@@ -39,7 +39,7 @@ spec:
 	}
 }
 
-const goodHost = `apiVersion: helmsman/v1
+const goodHost = `apiVersion: mooring/v1
 kind: Host
 spec:
   apps:
@@ -91,11 +91,11 @@ func idx(s []string, v string) int {
 // reject with a pointer to SSH — for BOTH kinds, at any nesting depth.
 func TestTier1FieldsRejected(t *testing.T) {
 	for _, field := range []string{"encryption_key", "ip_allowlist", "bind_addr", "trusted_proxies", "password_hash", "totp_secret"} {
-		hostSrc := "apiVersion: helmsman/v1\nkind: Host\nspec:\n  " + field + ": x\n"
+		hostSrc := "apiVersion: mooring/v1\nkind: Host\nspec:\n  " + field + ": x\n"
 		if _, err := ParseHost([]byte(hostSrc)); err == nil || !strings.Contains(err.Error(), "Tier-1") {
 			t.Errorf("host with %q must be a Tier-1 reject, got %v", field, err)
 		}
-		appSrc := "apiVersion: helmsman/v1\nkind: App\nmetadata: {slug: shop}\nspec:\n  " + field + ": x\n  compose: {source: generated, services: {web: {image: nginx:1}}}\n"
+		appSrc := "apiVersion: mooring/v1\nkind: App\nmetadata: {slug: shop}\nspec:\n  " + field + ": x\n  compose: {source: generated, services: {web: {image: nginx:1}}}\n"
 		if _, err := Parse([]byte(appSrc)); err == nil || !strings.Contains(err.Error(), "Tier-1") {
 			t.Errorf("app with %q must be a Tier-1 reject, got %v", field, err)
 		}
@@ -105,23 +105,23 @@ func TestTier1FieldsRejected(t *testing.T) {
 func TestParseHostBadEnvelopeAndOneOf(t *testing.T) {
 	cases := map[string]string{
 		"wrong kind": strings.Replace(goodHost, "kind: Host", "kind: App", 1),
-		"dup slug": `apiVersion: helmsman/v1
+		"dup slug": `apiVersion: mooring/v1
 kind: Host
 spec:
   apps:
     - {slug: app1, source: {managed: true}}
     - {slug: app1, source: {managed: true}}`,
-		"source not oneOf": `apiVersion: helmsman/v1
+		"source not oneOf": `apiVersion: mooring/v1
 kind: Host
 spec:
   apps:
     - {slug: app1, source: {repo: "x", path: "y"}}`,
-		"ref without repo": `apiVersion: helmsman/v1
+		"ref without repo": `apiVersion: mooring/v1
 kind: Host
 spec:
   apps:
     - {slug: app1, source: {ref: main}}`,
-		"order unknown app": `apiVersion: helmsman/v1
+		"order unknown app": `apiVersion: mooring/v1
 kind: Host
 spec:
   apps:
@@ -137,7 +137,7 @@ spec:
 }
 
 func TestDeployOrderCycleRejected(t *testing.T) {
-	src := `apiVersion: helmsman/v1
+	src := `apiVersion: mooring/v1
 kind: Host
 spec:
   apps:

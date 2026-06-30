@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/ops"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/ops"
 )
 
 // tmplData is the view model passed to every template render.
@@ -28,7 +28,7 @@ type tmplData struct {
 	Provisioned   []provisionedView // provisioned apps incl. not-yet-deployed (M8)
 	App           *monitor.App
 	Project       string
-	Protected     bool         // the App is a Helmsman-managed/protected project — no app actions
+	Protected     bool         // the App is a Mooring-managed/protected project — no app actions
 	TOTPEnabled   bool         // 2FA is configured → destructive re-auth (app delete) also asks for a code
 	BackURL       string       // breadcrumb target; the app home, or the repository page when not yet deployed
 	Svc           *serviceView // the per-service page model
@@ -46,12 +46,12 @@ type tmplData struct {
 
 	ManagedFiles    []configFileView
 	CertBindings    []certBindingView
-	ConfigCanonical bool             // config files are authored in the canonical helmsman.yaml (per-service)
+	ConfigCanonical bool             // config files are authored in the canonical mooring.yaml (per-service)
 	ConfigServices  []string         // the app's service names (for the per-service add/update selects)
 	LegacyFiles     []configFileView // legacy app-level config files awaiting migration into the canonical
 
 	Git       *gitView
-	Discovery *discoveryView // multi-file repo chooser (helmsman.yaml + variants → one app each)
+	Discovery *discoveryView // multi-file repo chooser (mooring.yaml + variants → one app each)
 	Setup     *setupView
 	Alerts    *alertsView
 	Edge      *edgeView
@@ -111,7 +111,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, errMsg string) {
 	s.render(w, r, "login.html", tmplData{
-		Title:     "Sign in — Helmsman",
+		Title:     "Sign in — Mooring",
 		CSRFToken: CSRFToken(r.Context()),
 		Error:     errMsg,
 	})
@@ -139,7 +139,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	sess := SessionFrom(r.Context())
 	snap := s.snapshot()
 	s.render(w, r, "home.html", tmplData{
-		Title:       "Helmsman",
+		Title:       "Mooring",
 		CSRFToken:   CSRFToken(r.Context()),
 		Username:    sess.Username,
 		EdgeMode:    string(s.cfg.Edge.Mode),
@@ -169,7 +169,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "app.html", tmplData{
-		Title:               project + " — Helmsman",
+		Title:               project + " — Mooring",
 		CSRFToken:           CSRFToken(r.Context()),
 		Username:            sess.Username,
 		App:                 app,
@@ -280,7 +280,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := tmplData{
-		Title:        "Audit log — Helmsman",
+		Title:        "Audit log — Mooring",
 		CSRFToken:    CSRFToken(r.Context()),
 		Username:     sess.Username,
 		Events:       events,

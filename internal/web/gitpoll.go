@@ -34,7 +34,7 @@ func (s *Server) dashActiveRecently() bool {
 // this loop). A fetch never mutates a running app, and the loop is serialized through
 // the same single-flight gate as deploys, so it can never pile up docker/git children.
 //
-// Because Helmsman never auto-deploys, fetching when nobody is looking is wasted work
+// Because Mooring never auto-deploys, fetching when nobody is looking is wasted work
 // — so the loop only fetches while a focused dashboard is open (the heartbeat above).
 // When the operator opens/returns to the dashboard, the next tick fetches.
 //

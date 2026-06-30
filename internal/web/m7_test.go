@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 func insertEvt(t *testing.T, e *testEnv, ts int64, action, outcome, level string) {
@@ -131,16 +131,16 @@ func TestTileOrderPersistAndApply(t *testing.T) {
 // systemApps surfaces exactly them — even when a saved tile order names one.
 func TestManagedProjectsPartitionedFromApps(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
-	e.srv.cfg.ProtectedProjects = []string{"helmsman-socket-proxy"}
+	e.srv.cfg.ProtectedProjects = []string{"mooring-socket-proxy"}
 
 	snap := &monitor.Snapshot{Apps: []monitor.App{
-		{Project: "blog"}, {Project: "helmsman-socket-proxy"}, {Project: "shop"},
+		{Project: "blog"}, {Project: "mooring-socket-proxy"}, {Project: "shop"},
 	}}
 
 	// No saved order: managed infra is excluded from app tiles.
 	apps := e.srv.orderedApps(snap)
 	for _, a := range apps {
-		if a.Project == "helmsman-socket-proxy" {
+		if a.Project == "mooring-socket-proxy" {
 			t.Fatalf("orderedApps leaked a protected project: %v", apps)
 		}
 	}
@@ -150,12 +150,12 @@ func TestManagedProjectsPartitionedFromApps(t *testing.T) {
 
 	// systemApps surfaces exactly the protected project.
 	sys := e.srv.systemApps(snap)
-	if len(sys) != 1 || sys[0].Project != "helmsman-socket-proxy" {
-		t.Fatalf("systemApps = %v, want [helmsman-socket-proxy]", sys)
+	if len(sys) != 1 || sys[0].Project != "mooring-socket-proxy" {
+		t.Fatalf("systemApps = %v, want [mooring-socket-proxy]", sys)
 	}
 
 	// Even if the saved order explicitly names the protected project, it stays out.
-	if err := e.srv.setSetting(context.Background(), tileOrderKey, "helmsman-socket-proxy,shop,blog"); err != nil {
+	if err := e.srv.setSetting(context.Background(), tileOrderKey, "mooring-socket-proxy,shop,blog"); err != nil {
 		t.Fatal(err)
 	}
 	apps = e.srv.orderedApps(snap)

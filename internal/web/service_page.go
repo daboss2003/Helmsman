@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/ops"
-	secretpkg "github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/ops"
+	secretpkg "github.com/daboss2003/mooring/internal/secret"
 )
 
 // serviceView is the per-service page model: one service's live status, self-heal

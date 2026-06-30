@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-// Compose label keys Helmsman groups containers by (an app = one project) and
+// Compose label keys Mooring groups containers by (an app = one project) and
 // targets `docker compose` with (the project dir + config files).
 const (
 	LabelProject     = "com.docker.compose.project"
@@ -45,7 +45,7 @@ func New(proxyAddr string) *Client {
 			Timeout: 15 * time.Second,
 			// Never follow redirects (review #4): a 3xx from a compromised/
 			// misconfigured proxy (e.g. Location: http://169.254.169.254/...) must
-			// not move Helmsman's request off the loopback proxy. ErrUseLastResponse
+			// not move Mooring's request off the loopback proxy. ErrUseLastResponse
 			// returns the 3xx verbatim, which get()'s non-200 check then rejects.
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse

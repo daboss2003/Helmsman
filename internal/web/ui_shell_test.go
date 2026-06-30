@@ -91,7 +91,7 @@ func TestAPITokensScreen(t *testing.T) {
 		t.Fatalf("GET /settings/api-tokens = %d, want 200", resp.StatusCode)
 	}
 	body := readBody(resp)
-	for _, want := range []string{"API tokens", "status:read", "deploy:write:web", "203.0.113.0/24", "helmsman token mint"} {
+	for _, want := range []string{"API tokens", "status:read", "deploy:write:web", "203.0.113.0/24", "mooring token mint"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("api tokens screen missing %q", want)
 		}

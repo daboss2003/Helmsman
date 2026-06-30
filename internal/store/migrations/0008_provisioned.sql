@@ -1,7 +1,7 @@
--- M8 app provisioning (plan §7). One row per Helmsman-provisioned app. Helmsman
--- GENERATES and owns the compose from the typed spec (helmsman.yaml under the
+-- M8 app provisioning (plan §7). One row per Mooring-provisioned app. Mooring
+-- GENERATES and owns the compose from the typed spec (mooring.yaml under the
 -- hood) — there is no raw-compose paste. The run dir lives outside DataDir
--- (Helmsman-owned, sibling tree) and holds the generated compose; env values live
+-- (Mooring-owned, sibling tree) and holds the generated compose; env values live
 -- in the encrypted env store, NEVER here, so this row + spec are non-secret.
 CREATE TABLE app_provisioned (
     slug         TEXT PRIMARY KEY,

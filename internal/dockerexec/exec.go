@@ -144,10 +144,10 @@ func (r *Runner) RunHeld(ctx context.Context, job Job, onLine func(string)) erro
 	return r.runHeld(ctx, job, onLine)
 }
 
-// RunInternal runs a Helmsman-OWNED infrastructure job (bringing up the embedded
+// RunInternal runs a Mooring-OWNED infrastructure job (bringing up the embedded
 // read-only socket-proxy) REGARDLESS of the §0 write-plane resource gate — the read
 // plane must come up even on a sub-1 GB box. It is NOT for app workloads: the caller
-// passes a fixed, embedded, Helmsman-authored compose (never operator input), so it
+// passes a fixed, embedded, Mooring-authored compose (never operator input), so it
 // bypasses the RAM gate while keeping the static-argv discipline, the
 // one-docker-child semaphore, and process-group reaping. It acquires the semaphore
 // (blocking on ctx) like Run.
@@ -218,7 +218,7 @@ func readLineTruncated(r *bufio.Reader) (string, error) {
 	}
 }
 
-// minimalEnv passes only what `docker compose` needs, never Helmsman's full env
+// minimalEnv passes only what `docker compose` needs, never Mooring's full env
 // (which could leak GOMEMLIMIT et al. or, later, secrets) to the child.
 func minimalEnv() []string {
 	var env []string

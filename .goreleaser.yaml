@@ -5,16 +5,16 @@
 #   dry run:      goreleaser release --snapshot --clean
 version: 2
 
-project_name: helmsman
+project_name: mooring
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: helmsman
-    main: ./cmd/helmsman
-    binary: helmsman
+  - id: mooring
+    main: ./cmd/mooring
+    binary: mooring
     env:
       - CGO_ENABLED=0 # pure-Go (modernc sqlite) → a fully static binary
     goos: [linux]
@@ -25,8 +25,8 @@ builds:
       - -s -w -X main.Version={{ .Version }}
 
 archives:
-  - id: helmsman
-    ids: [helmsman]
+  - id: mooring
+    ids: [mooring]
     formats: ["tar.gz"]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -34,15 +34,15 @@ archives:
       - NOTICE
       - README.md
       - docs/**/*
-      - deploy/systemd/helmsman.service
+      - deploy/systemd/mooring.service
       - deploy/socket-proxy/docker-compose.yml
 
 nfpms:
-  - id: helmsman
-    ids: [helmsman]
-    package_name: helmsman
+  - id: mooring
+    ids: [mooring]
+    package_name: mooring
     vendor: Samson Olawale Oluwafemi
-    homepage: https://github.com/daboss2003/Helmsman
+    homepage: https://github.com/daboss2003/mooring
     maintainer: Samson Olawale Oluwafemi <samsonoluwafemi203@gmail.com>
     description: |-
       Security-first self-hosted ops dashboard. Run your apps on your own server
@@ -51,8 +51,8 @@ nfpms:
     formats: [deb, rpm]
     # The managed HTTPS edge supervises a child Caddy, so it's effectively required —
     # but Caddy isn't in the distro's default repos, so a hard Depends would make
-    # `apt install helmsman` fail. Recommends pulls it in when the Caddy repo is
-    # configured and is silently skipped otherwise; `helmsman setup` adds the repo +
+    # `apt install mooring` fail. Recommends pulls it in when the Caddy repo is
+    # configured and is silently skipped otherwise; `mooring setup` adds the repo +
     # installs it. nginx (+ stream) is only for opt-in L4, so it's a soft Suggests.
     recommends: [caddy]
     suggests: [nginx, libnginx-mod-stream]
@@ -60,21 +60,21 @@ nfpms:
     # same path the shipped systemd unit's ExecStart expects.
     bindir: /usr/local/bin
     contents:
-      - src: deploy/systemd/helmsman.service
-        dst: /usr/lib/systemd/system/helmsman.service
+      - src: deploy/systemd/mooring.service
+        dst: /usr/lib/systemd/system/mooring.service
       # Reference drop-in (NOT auto-active): grants the supervised edge/L4 children
-      # CAP_NET_BIND_SERVICE. Copy into helmsman.service.d/ only if the host owns the
+      # CAP_NET_BIND_SERVICE. Copy into mooring.service.d/ only if the host owns the
       # public edge and/or the L4 load balancer (see the file header).
-      - src: deploy/systemd/helmsman-privileged-ports.conf
-        dst: /usr/share/helmsman/systemd/helmsman-privileged-ports.conf
+      - src: deploy/systemd/mooring-privileged-ports.conf
+        dst: /usr/share/mooring/systemd/mooring-privileged-ports.conf
       - src: deploy/socket-proxy/docker-compose.yml
-        dst: /usr/share/helmsman/socket-proxy/docker-compose.yml
+        dst: /usr/share/mooring/socket-proxy/docker-compose.yml
       - src: deploy/nfpm/config.example.yaml
-        dst: /usr/share/helmsman/config.example.yaml
+        dst: /usr/share/mooring/config.example.yaml
       - src: LICENSE
-        dst: /usr/share/doc/helmsman/LICENSE
+        dst: /usr/share/doc/mooring/LICENSE
       - src: NOTICE
-        dst: /usr/share/doc/helmsman/NOTICE
+        dst: /usr/share/doc/mooring/NOTICE
     scripts:
       postinstall: deploy/nfpm/postinstall.sh
       preremove: deploy/nfpm/preremove.sh
@@ -99,7 +99,7 @@ signs:
 release:
   github:
     owner: daboss2003
-    name: Helmsman
+    name: Mooring
   draft: false
   prerelease: auto
 

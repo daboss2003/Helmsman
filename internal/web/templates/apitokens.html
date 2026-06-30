@@ -2,7 +2,7 @@
 {{template "nav" .}}
 <main class="wrap">
   <h1>API tokens</h1>
-  <p class="muted">Scoped tokens let scripts and CI talk to Helmsman's read/deploy API. Each is limited to specific permissions and networks, and always expires.</p>
+  <p class="muted">Scoped tokens let scripts and CI talk to Mooring's read/deploy API. Each is limited to specific permissions and networks, and always expires.</p>
 
   <section class="panel">
     <h2>Tokens</h2>
@@ -42,7 +42,7 @@
   <section class="panel">
     <h2>Create a token</h2>
     <p class="muted">For security, tokens are minted over SSH — never from the dashboard. On your server:</p>
-    <pre class="mono">helmsman token mint \
+    <pre class="mono">mooring token mint \
   --scopes status:read,metrics:read,deploy:write:my-app \
   --cidrs 203.0.113.0/24 \
   --ttl 720h</pre>

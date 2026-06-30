@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/ops"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/ops"
 )
 
 // All operator-facing assets are embedded in the binary (plan §2): no asset
@@ -29,7 +29,7 @@ var templateFuncs = template.FuncMap{
 	// {project} route matches and r.PathValue decodes back to the exact value.
 	"pathEscape": url.PathEscape,
 	"unixTime":   func(ts int64) string { return time.Unix(ts, 0).UTC().Format("2006-01-02 15:04:05Z") },
-	// sparkPoints builds an SVG polyline "points" string from Helmsman-computed
+	// sparkPoints builds an SVG polyline "points" string from Mooring-computed
 	// health scores (0..1). The values are numeric (never app strings), so the
 	// output is safe to embed in an html/template-escaped attribute.
 	"sparkPoints": sparkPoints,

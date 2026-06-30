@@ -12,5 +12,5 @@ func versionString() string {
 			v = bi.Main.Version
 		}
 	}
-	return "helmsman " + v
+	return "mooring " + v
 }

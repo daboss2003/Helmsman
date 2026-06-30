@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 func openDB(t *testing.T) *store.DB {

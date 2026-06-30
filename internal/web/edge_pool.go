@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/edge"
+	"github.com/daboss2003/mooring/internal/edge"
 )
 
 // DiscoverEdgePools resolves each route to the live container endpoints (ip:port) of

@@ -1,6 +1,6 @@
 // Package envimport is the env import-and-own pipeline (plan §7.9). A user-provided
 // .env is an IMPORT SOURCE only — its values are copied into the encrypted store and
-// the uploaded file is never the live file (Helmsman renders a fresh 0600 --env-file
+// the uploaded file is never the live file (Mooring renders a fresh 0600 --env-file
 // from the store at every deploy). Every stage treats the input as hostile: parse
 // (a dotenv reader, not a shell) → hygiene (key charset, NUL reject) → classify
 // (biased to secret) → the §7.4 literal-secret HARD STOP → ingest by reference.
@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/cfgfile"
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/cfgfile"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 // maxImportBytes caps an uploaded .env (a decode-bomb defence).

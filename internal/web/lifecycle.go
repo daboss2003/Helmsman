@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 // actionArgs maps a lifecycle action to its static `docker compose` argv. Only
@@ -50,7 +50,7 @@ func (s *Server) runLifecycle(w http.ResponseWriter, r *http.Request, project, s
 		http.Error(w, "unknown action", http.StatusNotFound)
 		return
 	}
-	// Protected set: the edge / socket-proxy are Helmsman's, never lifecycle-able
+	// Protected set: the edge / socket-proxy are Mooring's, never lifecycle-able
 	// as an app (plan §3).
 	if s.cfg.IsProtectedProject(project) {
 		_ = s.audit.Log(ctx, audit.Event{Actor: actor, IP: peer, Action: "lifecycle_" + action, Target: project, Outcome: audit.Deny, Level: audit.Security, Detail: "protected project"})
@@ -157,7 +157,7 @@ func serviceSuffix(service string) string {
 // the §5.6 validator. NOTE (review #8/#11/#12/#14): the run_dir and config_files
 // come from compose container labels (operator-deployed, not in-container-app
 // controllable) and each file is validated individually rather than merged; the
-// durable fix (Helmsman-owned run_dir + cat-file of the pinned commit) lands with
+// durable fix (Mooring-owned run_dir + cat-file of the pinned commit) lands with
 // repo-path provisioning (M6/M8, plan §5.6(e)). Here we add the cheap guards that
 // reduce blast radius now.
 func (s *Server) validateAppCompose(app *monitor.App, env compose.Env) compose.Result {
@@ -194,7 +194,7 @@ func (s *Server) validateAppCompose(app *monitor.App, env compose.Env) compose.R
 	return res
 }
 
-// protectedHostPaths are Helmsman-owned host paths a bind mount must never reach
+// protectedHostPaths are Mooring-owned host paths a bind mount must never reach
 // (the DB lives in DataDir; the master key lives in the config dir) — review #17.
 func (s *Server) protectedHostPaths() []string {
 	var p []string

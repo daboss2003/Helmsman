@@ -2,7 +2,7 @@ package web
 
 import "net/http"
 
-// appsRow is one line in the Apps table: a unified view of every app Helmsman knows —
+// appsRow is one line in the Apps table: a unified view of every app Mooring knows —
 // running ones (from the live snapshot) and provisioned ones not yet deployed.
 type appsRow struct {
 	Project     string
@@ -45,7 +45,7 @@ func (s *Server) appsRows() []appsRow {
 // handleAppsList renders the Apps table.
 func (s *Server) handleAppsList(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "apps.html", tmplData{
-		Title:     "Apps — Helmsman",
+		Title:     "Apps — Mooring",
 		CSRFToken: CSRFToken(r.Context()),
 		Username:  sessionUser(r),
 		AppsRows:  s.appsRows(),

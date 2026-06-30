@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 func genDef(slug string, secrets ...definition.Secret) *definition.Definition {
 	return &definition.Definition{
-		APIVersion: "helmsman/v1",
+		APIVersion: "mooring/v1",
 		Kind:       "App",
 		Metadata:   definition.Metadata{Slug: slug},
 		Spec:       definition.Spec{Secrets: secrets},

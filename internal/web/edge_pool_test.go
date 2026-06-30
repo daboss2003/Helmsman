@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/docker"
-	"github.com/daboss2003/Helmsman/internal/edge"
+	"github.com/daboss2003/mooring/internal/docker"
+	"github.com/daboss2003/mooring/internal/edge"
 )
 
 // containersJSON is a /containers/json fixture exercising every discovery filter:

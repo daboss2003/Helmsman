@@ -14,34 +14,34 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/alertengine"
-	"github.com/daboss2003/Helmsman/internal/alertstore"
-	"github.com/daboss2003/Helmsman/internal/apitoken"
-	"github.com/daboss2003/Helmsman/internal/backupstore"
-	"github.com/daboss2003/Helmsman/internal/cfgstore"
-	"github.com/daboss2003/Helmsman/internal/config"
-	"github.com/daboss2003/Helmsman/internal/definition"
-	"github.com/daboss2003/Helmsman/internal/docker"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/edge"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/gitstore"
-	"github.com/daboss2003/Helmsman/internal/hostmon"
-	"github.com/daboss2003/Helmsman/internal/l4"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/ntfy"
-	"github.com/daboss2003/Helmsman/internal/ops"
-	"github.com/daboss2003/Helmsman/internal/opsclient"
-	"github.com/daboss2003/Helmsman/internal/provision"
-	"github.com/daboss2003/Helmsman/internal/provstore"
-	"github.com/daboss2003/Helmsman/internal/retention"
-	"github.com/daboss2003/Helmsman/internal/sandbox"
-	"github.com/daboss2003/Helmsman/internal/scale"
-	"github.com/daboss2003/Helmsman/internal/selfheal"
-	"github.com/daboss2003/Helmsman/internal/setupstore"
-	"github.com/daboss2003/Helmsman/internal/socketproxy"
-	"github.com/daboss2003/Helmsman/internal/store"
-	"github.com/daboss2003/Helmsman/internal/web"
+	"github.com/daboss2003/mooring/internal/alertengine"
+	"github.com/daboss2003/mooring/internal/alertstore"
+	"github.com/daboss2003/mooring/internal/apitoken"
+	"github.com/daboss2003/mooring/internal/backupstore"
+	"github.com/daboss2003/mooring/internal/cfgstore"
+	"github.com/daboss2003/mooring/internal/config"
+	"github.com/daboss2003/mooring/internal/definition"
+	"github.com/daboss2003/mooring/internal/docker"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/edge"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/gitstore"
+	"github.com/daboss2003/mooring/internal/hostmon"
+	"github.com/daboss2003/mooring/internal/l4"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/ntfy"
+	"github.com/daboss2003/mooring/internal/ops"
+	"github.com/daboss2003/mooring/internal/opsclient"
+	"github.com/daboss2003/mooring/internal/provision"
+	"github.com/daboss2003/mooring/internal/provstore"
+	"github.com/daboss2003/mooring/internal/retention"
+	"github.com/daboss2003/mooring/internal/sandbox"
+	"github.com/daboss2003/mooring/internal/scale"
+	"github.com/daboss2003/mooring/internal/selfheal"
+	"github.com/daboss2003/mooring/internal/setupstore"
+	"github.com/daboss2003/mooring/internal/socketproxy"
+	"github.com/daboss2003/mooring/internal/store"
+	"github.com/daboss2003/mooring/internal/web"
 )
 
 func cmdServe(args []string) error {
@@ -66,7 +66,7 @@ func cmdServe(args []string) error {
 		return err
 	}
 
-	db, err := store.Open(filepath.Join(cfg.DataDir, "helmsman.db"))
+	db, err := store.Open(filepath.Join(cfg.DataDir, "mooring.db"))
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func cmdServe(args []string) error {
 	cfgStore := cfgstore.New(db, cipher)
 	gitStore := gitstore.New(db, cipher)
 	provStore := provstore.New(db)
-	// Canonical definition store (the single source of truth: helmsman.yaml). Both
+	// Canonical definition store (the single source of truth: mooring.yaml). Both
 	// the deploy (file edit) and the dashboard editors write to it; the runtime
 	// stores (scale, edge routes) are reconciled FROM it. HMAC-keyed off the master key.
 	var defStore *definition.Store
@@ -137,13 +137,13 @@ func cmdServe(args []string) error {
 	dockerSem := dockerexec.NewSemaphore()
 	runner := dockerexec.NewRunner(dockerSem, writeAllowed, writeReason)
 
-	// Helmsman MANAGES its own read-only socket-proxy (plan §3) so the operator never
-	// runs a docker command — they only ever write helmsman.yaml. Bring it up in the
+	// Mooring MANAGES its own read-only socket-proxy (plan §3) so the operator never
+	// runs a docker command — they only ever write mooring.yaml. Bring it up in the
 	// background (the first run may pull the image) and ungated (the read plane must
 	// work even on a sub-1 GB box). Best-effort: a failure just leaves the read plane
 	// "unavailable" until it is up. Set docker.external_proxy to opt out (you run your
 	// own proxy/endpoint at docker.proxy_addr).
-	// The managed proxy is the read-plane SECURITY BOUNDARY, and because Helmsman now
+	// The managed proxy is the read-plane SECURITY BOUNDARY, and because Mooring now
 	// runs it as a compose project it shows up as a normal app in the snapshot. Protect
 	// it from EVERY write path (lifecycle stop/redeploy, self-heal restart, auto-scale)
 	// exactly like the edge — it must never be a target. This must not depend on the
@@ -152,7 +152,7 @@ func cmdServe(args []string) error {
 	protectManagedProxy(cfg)
 	// Reserve the managed-ntfy project name so it can never become an operator app or a
 	// lifecycle/self-heal target. The container itself is only run when the operator
-	// configures a Helmsman-hosted ntfy alert channel.
+	// configures a Mooring-hosted ntfy alert channel.
 	protectProject(cfg, ntfy.Project)
 
 	if !cfg.Docker.ExternalProxy {
@@ -179,13 +179,13 @@ func cmdServe(args []string) error {
 				}
 				log.Warn("could not start the managed socket-proxy; the read plane (container view) stays unavailable",
 					"err", err, "output", strings.Join(tail, " | "),
-					"hint", "usually the daemon can't PULL the proxy image — check host DNS (getent hosts ghcr.io) then `docker pull` it; it retries on a helmsman restart")
+					"hint", "usually the daemon can't PULL the proxy image — check host DNS (getent hosts ghcr.io) then `docker pull` it; it retries on a mooring restart")
 			} else {
 				log.Info("managed read-only docker socket-proxy is up", "addr", cfg.Docker.ProxyAddr)
 			}
 		}()
 	} else {
-		log.Info("docker.external_proxy set; Helmsman will NOT manage the socket-proxy", "addr", cfg.Docker.ProxyAddr)
+		log.Info("docker.external_proxy set; Mooring will NOT manage the socket-proxy", "addr", cfg.Docker.ProxyAddr)
 	}
 
 	// Setup sandbox (M9, Mode 3 — OFF by default, hard-gated). Fail-closed boot
@@ -209,7 +209,7 @@ func cmdServe(args []string) error {
 	// the evaluator + notifier + heartbeat are joined before the deferred db.Close.
 	alertStore := alertstore.New(db, cipher)
 
-	// If a Helmsman-hosted ntfy alert channel is configured, reconcile its protected
+	// If a Mooring-hosted ntfy alert channel is configured, reconcile its protected
 	// container to running at boot (best-effort, ungated). restart:unless-stopped covers
 	// reboots; this also recovers from a manual `docker rm`. It ups the EXISTING on-disk
 	// compose (no re-materialize), so it needs no tokens.
@@ -249,7 +249,7 @@ func cmdServe(args []string) error {
 		log.Info("alert engine started", "eval_interval", cfg.Alerting.EvalInterval.D())
 	}
 
-	// Managed edge (M11, plan §6): Helmsman owns a child Caddy. The route set is
+	// Managed edge (M11, plan §6): Mooring owns a child Caddy. The route set is
 	// declarative; the whole Caddy config is rendered from typed structs + pushed
 	// via the admin API. Fail-closed: in external mode, or on a host that can't own
 	// the edge (non-Linux / no caddy), the edge isn't started — routes still save
@@ -258,7 +258,7 @@ func cmdServe(args []string) error {
 	selfHealStore := selfheal.NewStore(db)
 	scalingStore := scale.NewStore(db)
 	apiTokenStore := apitoken.NewStore(db)
-	// Encrypted Helmsman-state backups (master key reused as the AES-256 key; restore
+	// Encrypted Mooring-state backups (master key reused as the AES-256 key; restore
 	// needs the same key, which the operator already backs up out-of-band).
 	var backupStore *backupstore.Store
 	if key, kerr := config.DecodeKey(cfg.EncryptionKey); kerr == nil {
@@ -301,7 +301,7 @@ func cmdServe(args []string) error {
 			log.Warn("managed edge not owned on this host", "reason", why)
 		}
 	} else {
-		edgeReason = "external edge mode — Helmsman does not own the edge"
+		edgeReason = "external edge mode — Mooring does not own the edge"
 	}
 
 	// Managed L4 (TCP/UDP) load balancer (opt-in via edge.l4_enabled): a supervised
@@ -419,7 +419,7 @@ func cmdServe(args []string) error {
 		Sem:    dockerSem,
 		Act:    srv,
 		Policy: shPolicy,
-		// Per-app override from helmsman.yaml spec.self_healing (falls back to the
+		// Per-app override from mooring.yaml spec.self_healing (falls back to the
 		// built-in default for an app with no tuned policy / on a read error).
 		PolicyFor: func(app string) selfheal.Policy {
 			if p, ok, err := selfHealStore.PolicyFor(app); err == nil && ok {
@@ -487,7 +487,7 @@ func cmdServe(args []string) error {
 	// Edge reconcile/refresh loop (managed edge only). Two jobs:
 	//   1. Boot: the edge child starts on a base-only floor (routes live in SQLite but
 	//      aren't pushed at startup, unlike L4), so without an initial pass the edge 404s
-	//      every app hostname after a Helmsman restart until the next deploy/route-edit.
+	//      every app hostname after a Mooring restart until the next deploy/route-edit.
 	//   2. Steady: re-discover each route's live replica pool on a cadence, so a container
 	//      RECREATE that changes a replica's IP (self-heal restart, manual `docker compose
 	//      up`) — neither of which fires a scale or deploy event — is still picked up.
@@ -499,7 +499,7 @@ func cmdServe(args []string) error {
 	}
 
 	// Connected-repo auto-fetch poller (Netlify-style): a repo connected in the
-	// dashboard "just works" with no webhook — Helmsman FETCHES every connected repo on
+	// dashboard "just works" with no webhook — Mooring FETCHES every connected repo on
 	// a cadence (read-plane only; it never deploys, it surfaces an "update available"
 	// the operator deploys with a click). Joined before db.Close.
 	wg.Add(1)
@@ -537,7 +537,7 @@ func cmdServe(args []string) error {
 		}
 	}()
 
-	log.Info("helmsman serving",
+	log.Info("mooring serving",
 		"bind", cfg.BindAddr, "edge_mode", string(cfg.Edge.Mode), "db", db.Path)
 	// Authoritative, visible signal of the login posture — so "I enabled 2FA but it
 	// isn't enforced" can't go unnoticed (set auth.totp_secret + reload to enable).
@@ -554,7 +554,7 @@ func cmdServe(args []string) error {
 	if runErr != nil {
 		return fmt.Errorf("server: %w", runErr)
 	}
-	log.Info("helmsman stopped")
+	log.Info("mooring stopped")
 	return nil
 }
 
@@ -587,7 +587,7 @@ func edgeCAs(cfg *config.Config) []edge.CA {
 	return out
 }
 
-// protectProject idempotently adds a Helmsman-managed project name to the protected set
+// protectProject idempotently adds a Mooring-managed project name to the protected set
 // (so it can never be a lifecycle/self-heal/scale target or collide with an operator app).
 func protectProject(cfg *config.Config, project string) {
 	for _, p := range cfg.ProtectedProjects {
@@ -611,7 +611,7 @@ func checkWritablePaths(cfg *config.Config, log *slog.Logger) error {
 	}
 	for _, d := range dirs {
 		if err := probeWritable(d); err != nil {
-			return fmt.Errorf("required directory %q is not writable — check the unit's ReadWritePaths and that it is provisioned helmsman-owned (a non-default data_dir must be added to ReadWritePaths): %w", d, err)
+			return fmt.Errorf("required directory %q is not writable — check the unit's ReadWritePaths and that it is provisioned mooring-owned (a non-default data_dir must be added to ReadWritePaths): %w", d, err)
 		}
 	}
 	if managed {
@@ -620,7 +620,7 @@ func checkWritablePaths(cfg *config.Config, log *slog.Logger) error {
 			if err := probeWritable(dir); err != nil {
 				log.Warn("edge admin socket dir is not writable — the managed edge will fail to start",
 					"dir", dir, "err", err,
-					"hint", "add RuntimeDirectory=helmsman to the unit (daemon-reload + restart), or point admin.listen at a writable dir")
+					"hint", "add RuntimeDirectory=mooring to the unit (daemon-reload + restart), or point admin.listen at a writable dir")
 			}
 		}
 	}
@@ -646,7 +646,7 @@ func edgeAdminListen(cfg *config.Config) string {
 	if cfg.Admin.Listen != "" {
 		return cfg.Admin.Listen
 	}
-	return "unix//run/helmsman/caddy-admin.sock"
+	return "unix//run/mooring/caddy-admin.sock"
 }
 
 // runReconcileLoop drives a managed plane's (edge or L4) reconcile lifecycle until ctx

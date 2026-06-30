@@ -3,10 +3,10 @@
 <main class="wrap">
   <p><a href="{{.BackURL}}">← {{.Project}}</a></p>
   <h1>Managed config files — {{.Project}}</h1>
-  <p class="muted">Helmsman fills only its own <code>{{"{{hm.KEY}}"}}</code> delimiter; your app's
+  <p class="muted">Mooring fills only its own <code>{{"{{hm.KEY}}"}}</code> delimiter; your app's
     <code>${…}</code>/<code>{{"{{ }}"}}</code> placeholders survive byte-identical. Rendered host-side at
     deploy (forced <code>0640</code>, <code>0600</code> when secret-bearing), re-rendered every redeploy.</p>
-  {{if .ConfigCanonical}}<p class="muted">These edits are written back to this app's <code>helmsman.yaml</code> (per-service), the source of truth — the same as editing the file and re-deploying.</p>{{end}}
+  {{if .ConfigCanonical}}<p class="muted">These edits are written back to this app's <code>mooring.yaml</code> (per-service), the source of truth — the same as editing the file and re-deploying.</p>{{end}}
   {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
 
   <section class="panel">
@@ -73,7 +73,7 @@
 
   {{if .LegacyFiles}}
   <section class="panel">
-    <h2>Legacy config files <span class="muted">(app-level — assign a service + mount to migrate into helmsman.yaml)</span></h2>
+    <h2>Legacy config files <span class="muted">(app-level — assign a service + mount to migrate into mooring.yaml)</span></h2>
     <div class="table-scroll"><table class="grid">
       <thead><tr><th>Name</th><th>Path</th><th>Bindings</th><th>Migrate into</th></tr></thead>
       <tbody>

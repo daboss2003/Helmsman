@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/mooring/internal/audit"
 )
 
 // The API tokens screen is read-only + revoke: it lists scoped machine tokens (id,
 // scopes, allowed networks, expiry, state) and lets the operator revoke one. Minting
-// stays CLI-only by design (`helmsman token mint`) — the web can never create a token,
+// stays CLI-only by design (`mooring token mint`) — the web can never create a token,
 // so a dashboard compromise can't issue API credentials.
 
 type apiTokenRow struct {
@@ -51,7 +51,7 @@ func (s *Server) handleAPITokens(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s.render(w, r, "apitokens.html", tmplData{
-		Title:        "API tokens — Helmsman",
+		Title:        "API tokens — Mooring",
 		CSRFToken:    CSRFToken(r.Context()),
 		Username:     sessionUser(r),
 		APITokenRows: rows,

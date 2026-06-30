@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/daboss2003/Helmsman/internal/crypto"
+	"github.com/daboss2003/mooring/internal/crypto"
 )
 
 // CSRF model (plan §5.4): a synchronizer/double-submit token in an HttpOnly

@@ -11,8 +11,8 @@ import (
 )
 
 // Env is a name→value map used for ${VAR} resolution. It is built from the app's
-// .env file (and, later, the encrypted env store) — NEVER from Helmsman's own
-// process environment, so Helmsman secrets can't leak into a compose render.
+// .env file (and, later, the encrypted env store) — NEVER from Mooring's own
+// process environment, so Mooring secrets can't leak into a compose render.
 type Env map[string]string
 
 // ParseEnvFile parses KEY=VALUE lines (a .env file). Blank lines and #comments

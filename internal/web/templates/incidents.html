@@ -52,7 +52,7 @@
   {{if .Circuit}}
   <section class="panel">
     <h2>Self-healing gave up <span class="pill pill-down">{{len .Circuit}}</span></h2>
-    <p class="muted">Helmsman tried to recover these and stopped (circuit open). Investigate, then clear to let it try again.</p>
+    <p class="muted">Mooring tried to recover these and stopped (circuit open). Investigate, then clear to let it try again.</p>
     <div class="table-scroll"><table class="grid">
       <thead><tr><th>App</th><th>Service</th><th></th></tr></thead>
       <tbody>
@@ -61,7 +61,7 @@
           <td><a href="/apps/{{pathEscape .App}}">{{.App}}</a></td>
           <td class="mono">{{.Service}}</td>
           <td>
-            <form method="post" action="/apps/{{pathEscape .App}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Helmsman try again?">
+            <form method="post" action="/apps/{{pathEscape .App}}/supervisor/clear" class="inline" data-confirm="Clear the self-heal circuit for {{.Service}} and let Mooring try again?">
               <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
               <input type="hidden" name="service" value="{{.Service}}">
               <button type="submit" class="link">clear &amp; retry</button>

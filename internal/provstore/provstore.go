@@ -1,6 +1,6 @@
-// Package provstore persists the registry of Helmsman-provisioned apps (plan §7):
-// the compose path and the typed form spec (helmsman.yaml under the hood) that is
-// the source of truth for regenerate/drift. Helmsman GENERATES and owns the
+// Package provstore persists the registry of Mooring-provisioned apps (plan §7):
+// the compose path and the typed form spec (mooring.yaml under the hood) that is
+// the source of truth for regenerate/drift. Mooring GENERATES and owns the
 // compose — there is no raw-compose paste — so source is always "generated". It
 // holds NO secrets (env values live in the encrypted env store), so rows are safe
 // at rest without a cipher.
@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
@@ -21,7 +21,7 @@ var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 // App is one provisioned-app registry row.
 type App struct {
 	Slug        string
-	Source      string // always "generated" — Helmsman owns the compose (no raw paste)
+	Source      string // always "generated" — Mooring owns the compose (no raw paste)
 	ComposePath string
 	SpecJSON    string
 	CreatedAt   int64
@@ -40,7 +40,7 @@ func (s *Store) Save(ctx context.Context, a App) error {
 		return errors.New("provstore: invalid slug")
 	}
 	if a.Source != "generated" {
-		return errors.New("provstore: source must be generated (Helmsman owns the compose)")
+		return errors.New("provstore: source must be generated (Mooring owns the compose)")
 	}
 	if a.ComposePath == "" {
 		a.ComposePath = "docker-compose.yml"

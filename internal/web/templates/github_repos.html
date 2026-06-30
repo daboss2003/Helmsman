@@ -4,9 +4,9 @@
   <p><a href="/git/new">← Connect a repository</a></p>
   <h1>Pick a repository</h1>
   <p class="muted">Connected to GitHub as <strong>{{.GitHubLogin}}</strong>.
-    Pick a repo and Helmsman reads its <code>helmsman.yaml</code>, installs a read-only deploy key, and
+    Pick a repo and Mooring reads its <code>mooring.yaml</code>, installs a read-only deploy key, and
     starts watching it. <strong>The app's name comes from the file's <code>metadata.slug</code></strong>.
-    If the repo has several helmsman files (e.g. <code>helmsman.staging.yaml</code> / <code>helmsman.prod.yaml</code>),
+    If the repo has several mooring files (e.g. <code>mooring.staging.yaml</code> / <code>mooring.prod.yaml</code>),
     you'll pick which one next — each is its own app.
     <form method="post" action="/github/disconnect" class="inline" data-confirm="Disconnect GitHub? Existing repos keep working.">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">

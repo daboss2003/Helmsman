@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/alert"
-	"github.com/daboss2003/Helmsman/internal/alertstore"
-	"github.com/daboss2003/Helmsman/internal/dockerexec"
-	"github.com/daboss2003/Helmsman/internal/monitor"
+	"github.com/daboss2003/mooring/internal/alert"
+	"github.com/daboss2003/mooring/internal/alertstore"
+	"github.com/daboss2003/mooring/internal/dockerexec"
+	"github.com/daboss2003/mooring/internal/monitor"
 )
 
 // Actioner executes a remediation rung for one service. The watcher calls it ONLY
@@ -249,7 +249,7 @@ func kindLevel(kind string) string {
 	return alert.LevelCritical
 }
 
-// emitInfra enqueues a Helmsman-originated infra alert (origin=helmsman_infra,
+// emitInfra enqueues a Mooring-originated infra alert (origin=mooring_infra,
 // rule_id=0, never deferred). Names are CR/LF/NUL-stripped before they reach any
 // channel (the email channel also builds MIME-safe, never placing a name in a
 // header). A nil alert store (alerting disabled) logs the page instead.
@@ -281,11 +281,11 @@ func infraSummary(kind, transition, target string) string {
 	}
 	switch kind {
 	case "oom_killed_repeated":
-		return "Service " + target + " is being OOM/at-limit killed repeatedly. Helmsman is NOT restarting it (a restart would not help on a memory-starved box). Reduce its memory use or raise the host's RAM."
+		return "Service " + target + " is being OOM/at-limit killed repeatedly. Mooring is NOT restarting it (a restart would not help on a memory-starved box). Reduce its memory use or raise the host's RAM."
 	case "low_headroom":
-		return "Service " + target + " needs a restart but host memory headroom is below the safety floor. Helmsman is holding off to avoid an OOM. Free memory or raise the floor."
+		return "Service " + target + " needs a restart but host memory headroom is below the safety floor. Mooring is holding off to avoid an OOM. Free memory or raise the floor."
 	case "crashloop_capped":
-		return "Service " + target + " is crash-looping and Helmsman's restart/recreate attempts did not recover it. Manual investigation needed."
+		return "Service " + target + " is crash-looping and Mooring's restart/recreate attempts did not recover it. Manual investigation needed."
 	case "unhealthy_capped":
 		return "Service " + target + " is up but failing its healthcheck and did not recover after restart/recreate. Manual investigation needed."
 	default:

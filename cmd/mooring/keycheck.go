@@ -6,16 +6,16 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/daboss2003/Helmsman/internal/config"
-	"github.com/daboss2003/Helmsman/internal/secret"
-	"github.com/daboss2003/Helmsman/internal/store"
+	"github.com/daboss2003/mooring/internal/config"
+	"github.com/daboss2003/mooring/internal/secret"
+	"github.com/daboss2003/mooring/internal/store"
 )
 
 // The key-check sentinel: a known plaintext sealed under the master key so a
 // key/DB mismatch is caught before it silently corrupts the next encrypted write
 // (plan §5.1). Shared by `serve` (boot guard, review #21) and `verify-key`.
 const (
-	keyCheckPlaintext = "helmsman-key-check-v1"
+	keyCheckPlaintext = "mooring-key-check-v1"
 	keyCheckSetting   = "key_check_enc"
 )
 

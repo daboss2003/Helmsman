@@ -7,11 +7,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
+	"github.com/daboss2003/mooring/internal/audit"
 )
 
 // The Backups screen lets the operator take, review, download, and delete encrypted
-// snapshots of Helmsman's own state (every app's config, definitions, routes, and
+// snapshots of Mooring's own state (every app's config, definitions, routes, and
 // already-encrypted secrets). The archive is AES-256-GCM-encrypted with the master
 // key, so it's safe to keep or move off-box; restoring needs that same key.
 
@@ -28,7 +28,7 @@ func (s *Server) handleBackups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := tmplData{
-		Title:         "Backups — Helmsman",
+		Title:         "Backups — Mooring",
 		CSRFToken:     CSRFToken(r.Context()),
 		Username:      sessionUser(r),
 		BackupEnabled: s.backups.Available(),
@@ -92,7 +92,7 @@ func (s *Server) handleBackupDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBackupDownload streams the encrypted archive (ciphertext — safe off-box). The
-// id selects a catalogued record; the served path is always a generated <id>.hmbk
+// id selects a catalogued record; the served path is always a generated <id>.mbk
 // confined to the backups dir, never a client-supplied path.
 func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 	if s.backups == nil {
@@ -115,7 +115,7 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 		Target: rec.ID, Outcome: audit.OK, Level: audit.Security,
 	})
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", `attachment; filename="helmsman-backup-`+rec.ID+`.hmbk"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="mooring-backup-`+rec.ID+`.mbk"`)
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.Copy(w, f)
 }

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daboss2003/Helmsman/internal/audit"
-	"github.com/daboss2003/Helmsman/internal/hostmon"
-	"github.com/daboss2003/Helmsman/internal/serverinfo"
+	"github.com/daboss2003/mooring/internal/audit"
+	"github.com/daboss2003/mooring/internal/hostmon"
+	"github.com/daboss2003/mooring/internal/serverinfo"
 )
 
 // procTopN bounds the process list so a busy host can't produce an unbounded
@@ -83,7 +83,7 @@ type serverFilesView struct {
 }
 
 // footprintCache holds the last on-disk footprint measurement and refreshes it in
-// the background when stale. Sizing Helmsman's dirs means a filepath.WalkDir over
+// the background when stale. Sizing Mooring's dirs means a filepath.WalkDir over
 // potentially large git stores, which must NEVER run on a request (it would stall
 // the page) — so the handler serves the cached value and kicks an async refresh.
 type footprintCache struct {
@@ -136,7 +136,7 @@ func (s *Server) footprintTargets() []serverinfo.Target {
 	var t []serverinfo.Target
 	if s.cfg.DataDir != "" {
 		t = append(t,
-			serverinfo.Target{Label: "Helmsman data (DB, git deploy history, secrets, state)", Path: s.cfg.DataDir},
+			serverinfo.Target{Label: "Mooring data (DB, git deploy history, secrets, state)", Path: s.cfg.DataDir},
 			serverinfo.Target{Label: "App working dirs (repo clones, generated compose/Dockerfile)", Path: s.appsRoot()},
 		)
 	}
@@ -150,7 +150,7 @@ func (s *Server) fileBrowser() *serverinfo.FileBrowser {
 	for _, r := range s.cfg.Server.FileRoots {
 		roots = append(roots, serverinfo.Root{Name: r.Name, Path: r.Path})
 	}
-	deny := []string{"/etc/helmsman", "/root/.ssh", "/etc/ssh", "/etc/shadow"}
+	deny := []string{"/etc/mooring", "/root/.ssh", "/etc/ssh", "/etc/shadow"}
 	if s.cfg.DataDir != "" {
 		deny = append(deny, s.cfg.DataDir, s.appsRoot())
 	}
@@ -175,7 +175,7 @@ func (s *Server) handleServer(w http.ResponseWriter, r *http.Request) {
 	fb := s.fileBrowser()
 	v.FileEnabled = fb.Enabled()
 	v.FileRoots = fb.Roots()
-	s.render(w, r, "server.html", tmplData{Title: "Server — Helmsman", Server: v, Error: r.URL.Query().Get("err")})
+	s.render(w, r, "server.html", tmplData{Title: "Server — Mooring", Server: v, Error: r.URL.Query().Get("err")})
 }
 
 // handleServerPartial is the live-polled fragment (host meters + process table).
@@ -216,7 +216,7 @@ func (s *Server) handleServerFiles(w http.ResponseWriter, r *http.Request) {
 	v.Root, v.Rel = root, rel
 
 	if !fb.Enabled() || root == "" {
-		s.render(w, r, "server_files.html", tmplData{Title: "Files — Helmsman", ServerFiles: v})
+		s.render(w, r, "server_files.html", tmplData{Title: "Files — Mooring", ServerFiles: v})
 		return
 	}
 
@@ -227,7 +227,7 @@ func (s *Server) handleServerFiles(w http.ResponseWriter, r *http.Request) {
 		v.Entries = entries
 		v.Crumbs = buildCrumbs(rel)
 		v.UpRel, v.HasUp = parentRel(rel)
-		s.render(w, r, "server_files.html", tmplData{Title: "Files — Helmsman", ServerFiles: v})
+		s.render(w, r, "server_files.html", tmplData{Title: "Files — Mooring", ServerFiles: v})
 		return
 	}
 
@@ -240,7 +240,7 @@ func (s *Server) handleServerFiles(w http.ResponseWriter, r *http.Request) {
 			v.Err = "file too large to view here"
 		}
 		_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "server_file_read", Target: root + ":" + rel, Outcome: audit.Deny, Level: audit.Security, Detail: readErr.Error()})
-		s.render(w, r, "server_files.html", tmplData{Title: "Files — Helmsman", ServerFiles: v})
+		s.render(w, r, "server_files.html", tmplData{Title: "Files — Mooring", ServerFiles: v})
 		return
 	}
 	v.IsFile = true
@@ -252,10 +252,10 @@ func (s *Server) handleServerFiles(w http.ResponseWriter, r *http.Request) {
 	v.Crumbs = buildCrumbs(rel)
 	v.UpRel, v.HasUp = parentRel(rel)
 	_ = s.audit.Log(r.Context(), audit.Event{Actor: actor, IP: peer, Action: "server_file_read", Target: root + ":" + rel, Outcome: audit.OK, Level: audit.Info})
-	s.render(w, r, "server_files.html", tmplData{Title: "Files — Helmsman", ServerFiles: v})
+	s.render(w, r, "server_files.html", tmplData{Title: "Files — Mooring", ServerFiles: v})
 }
 
-// handleDebDelete deletes ONE old Helmsman .deb from deb_cache_dir. It is a
+// handleDebDelete deletes ONE old Mooring .deb from deb_cache_dir. It is a
 // destructive action, so — exactly like app delete — it re-authenticates
 // (password + TOTP when enabled) behind the same brute-force lockout, never
 // touches the running version, and audits the outcome.

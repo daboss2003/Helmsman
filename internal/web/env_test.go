@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/compose"
-	"github.com/daboss2003/Helmsman/internal/envstore"
-	"github.com/daboss2003/Helmsman/internal/monitor"
-	"github.com/daboss2003/Helmsman/internal/secret"
+	"github.com/daboss2003/mooring/internal/compose"
+	"github.com/daboss2003/mooring/internal/envstore"
+	"github.com/daboss2003/mooring/internal/monitor"
+	"github.com/daboss2003/mooring/internal/secret"
 )
 
 // authedEnv logs in and returns the session + csrf cookies plus the csrf token.
@@ -195,9 +195,9 @@ func TestEnvProtectedProjectBlocked(t *testing.T) {
 // before the ops-availability check, mirroring every other write path.
 func TestQueueActionProtectedProjectBlocked(t *testing.T) {
 	e := buildServer(t, []string{"127.0.0.1/32"}, false, nil, "")
-	e.srv.cfg.ProtectedProjects = []string{"helmsman-socket-proxy"}
+	e.srv.cfg.ProtectedProjects = []string{"mooring-socket-proxy"}
 	sess, csrf := e.authed(t)
-	resp := e.req(t, "POST", "/apps/helmsman-socket-proxy/queues/default/pause", "127.0.0.1:1",
+	resp := e.req(t, "POST", "/apps/mooring-socket-proxy/queues/default/pause", "127.0.0.1:1",
 		map[string]string{"Origin": "https://example.com"},
 		[]*http.Cookie{sess, csrf}, url.Values{"csrf_token": {csrf.Value}})
 	if resp.StatusCode != http.StatusForbidden {

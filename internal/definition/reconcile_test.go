@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daboss2003/Helmsman/internal/compose"
+	"github.com/daboss2003/mooring/internal/compose"
 )
 
 // base parses the canonical goodDef fixture into a Definition — the shared starting
@@ -84,7 +84,7 @@ func TestValidateGeneratedProducesSafeCompose(t *testing.T) {
 	}
 }
 
-// A build service generates a compose `build:` directive pointing at the Helmsman-
+// A build service generates a compose `build:` directive pointing at the Mooring-
 // generated Dockerfile path; it must NOT emit an image for that service.
 func TestComposeBytesGeneratesBuild(t *testing.T) {
 	d := base()
@@ -98,7 +98,7 @@ func TestComposeBytesGeneratesBuild(t *testing.T) {
 		t.Fatalf("a build service must generate: %v", err)
 	}
 	out := string(raw)
-	if !strings.Contains(out, "build:") || !strings.Contains(out, ".helmsman/Dockerfile.web") {
+	if !strings.Contains(out, "build:") || !strings.Contains(out, ".mooring/Dockerfile.web") {
 		t.Errorf("generated compose must carry the build directive:\n%s", out)
 	}
 	if strings.Contains(out, "image:") {
@@ -106,7 +106,7 @@ func TestComposeBytesGeneratesBuild(t *testing.T) {
 	}
 }
 
-const stackDef = `apiVersion: helmsman/v1
+const stackDef = `apiVersion: mooring/v1
 kind: App
 metadata: {slug: credlock}
 spec:
@@ -140,7 +140,7 @@ spec:
         port: 3000
 `
 
-// A multi-service stack (the CredLock shape) parses, and Helmsman GENERATES a compose
+// A multi-service stack (the CredLock shape) parses, and Mooring GENERATES a compose
 // carrying the public port publish, the named volume, the inline literal env, and the
 // per-service secret reference (KEY=${NAME}).
 func TestGeneratedMultiServiceStack(t *testing.T) {

@@ -1,9 +1,9 @@
 package edge
 
-// The typed subset of the Caddy v2 admin-API config Helmsman emits. The config is
+// The typed subset of the Caddy v2 admin-API config Mooring emits. The config is
 // ALWAYS marshalled from these structs (never string concat / loose maps for the
-// security-relevant parts) so what Caddy runs is exactly Helmsman's typed render
-// (SBD-7). Only the fields Helmsman uses are modelled; everything else is omitted.
+// security-relevant parts) so what Caddy runs is exactly Mooring's typed render
+// (SBD-7). Only the fields Mooring uses are modelled; everything else is omitted.
 
 type caddyConfig struct {
 	Admin *caddyAdmin `json:"admin"`
