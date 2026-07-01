@@ -51,6 +51,30 @@ func TestValidateMemLimit(t *testing.T) {
 	}
 }
 
+// A definition with ulimits.nofile must survive the FULL deploy round-trip:
+// reconcile → Generate → §5.6 compose.ValidateBytes (i.e. `ulimits` is emitted and
+// the generated compose is not rejected). This is what proves the feature works at
+// deploy, not just at `mooring validate`.
+func TestValidateUlimitsRoundTrip(t *testing.T) {
+	d := base()
+	web := d.Spec.Compose.Services["web"]
+	web.Ulimits = &Ulimits{Nofile: &NofileLimit{Soft: 1048576, Hard: 1048576}}
+	d.Spec.Compose.Services["web"] = web
+	if err := Validate(d, "/run/app", compose.Env{}, nil); err != nil {
+		t.Errorf("a definition with ulimits must pass reconcile + §5.6 re-validation: %v", err)
+	}
+	// And the generated compose actually carries the ulimits block.
+	raw, err := ComposeBytes(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ulimits:", "nofile:", "soft: 1048576"} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("generated compose missing %q:\n%s", want, raw)
+		}
+	}
+}
+
 // stop_grace_period must be a valid positive duration; bad/zero/negative are rejected
 // early, a valid duration and the unset case pass.
 func TestValidateStopGracePeriod(t *testing.T) {

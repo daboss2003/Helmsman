@@ -47,6 +47,24 @@ func TestGenerateMemLimit(t *testing.T) {
 	}
 }
 
+// ulimits.nofile is rendered as the {soft, hard} map; unset omits the key.
+func TestGenerateUlimits(t *testing.T) {
+	spec := sampleSpec()
+	spec.Services[0].Ulimits = &Ulimits{Nofile: &NofileLimit{Soft: 1048576, Hard: 1048576}}
+	out, err := Generate(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ulimits:", "nofile:", "soft: 1048576", "hard: 1048576"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("generated compose missing %q:\n%s", want, out)
+		}
+	}
+	if bare, _ := Generate(sampleSpec()); strings.Contains(string(bare), "ulimits") {
+		t.Errorf("a service with no ulimits must omit the key:\n%s", bare)
+	}
+}
+
 // stop_grace_period is emitted into the generated compose; unset omits the key.
 func TestGenerateStopGracePeriod(t *testing.T) {
 	spec := sampleSpec()

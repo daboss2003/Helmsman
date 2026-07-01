@@ -161,6 +161,7 @@ compose:
 | `depends_on` / `healthcheck` / `command` / `restart` | sibling services / exec-array / exec-array / enum. |
 | `mem_limit` / `mem_reservation` | optional cgroup memory cap / soft reservation per replica, as a size string (`768m`, `1g`). A limit hard-bounds each replica (per-container OOM protection) **and** makes the auto-scaler's `up_mem_pct`/`down_mem_pct` measure against *this* budget instead of the host's total RAM — i.e. a true per-service signal. Omit both to leave the container unbounded (the default). Size comfortably above measured RSS so the kernel doesn't OOM-kill it. |
 | `stop_grace_period` | optional duration (`60s`, `1m30s`) the container gets between `SIGTERM` and `SIGKILL` on stop (scale-down / redeploy), widening docker's 10s default so the app can drain long in-flight requests. Pairs with the app's graceful-shutdown hooks. Omit for the default. |
+| `ulimits` | optional per-container open-file limit — only `nofile: { soft, hard }` is supported. Raise it for a service holding many concurrent sockets, whose `max_connections` would otherwise be clamped by docker's default `nofile` of 1024 (e.g. an MQTT broker). `1 ≤ soft ≤ hard`; `hard` can't exceed the host kernel's `fs.nr_open` (commonly `1048576`) — higher needs a host `sysctl` (Mooring forbids in-container `sysctls`). Omit for the docker default. |
 
 The dangerous keys (`privileged`, `cap_add`, host namespaces, host binds, host-publish) **cannot be
 expressed** — no input can generate them, and the generated compose is re-checked by the validator
@@ -838,6 +839,7 @@ spec:
 | `…services.<name>.depends_on[]` | list of sibling service names | no | — |
 | `…services.<name>.mem_limit` / `.mem_reservation` | size string (`768m`, `1g`) | no | unbounded |
 | `…services.<name>.stop_grace_period` | duration string (`60s`, `1m30s`) | no | docker 10s |
+| `…services.<name>.ulimits.nofile` | `{ soft, hard }` ints (`1 ≤ soft ≤ hard`) | no | docker default (1024) |
 | `…services.<name>.ops_interface` | object (see `spec.ops_interface`) | no | — |
 | `spec.secrets[].name` | string | yes (per entry) | — |
 | `spec.secrets[].generate` | string (`hex:N`\|`base64:N`\|`password:N`\|`rsa:BITS`\|`ed25519`) | no | — |

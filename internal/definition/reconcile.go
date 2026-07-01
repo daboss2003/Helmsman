@@ -59,6 +59,7 @@ func toProvisionSpec(d *Definition) provision.Spec {
 			Name:    name,
 			Command: svc.Command, Healthcheck: svc.Healthcheck, Restart: svc.Restart, DependsOn: svc.DependsOn,
 			MemLimit: svc.MemLimit, MemReservation: svc.MemReservation, StopGracePeriod: svc.StopGracePeriod,
+			Ulimits: toProvisionUlimits(svc.Ulimits),
 		}
 		if svc.Build != nil {
 			// Mooring generates the Dockerfile into the run dir at deploy; the compose
@@ -116,6 +117,14 @@ func ComposeBytes(d *Definition) ([]byte, error) {
 // compose, then §6.2 over the edge routes (upstreams are service selectors, never
 // literal dial targets). Returns the first violation. env is for inline ${VAR}
 // resolution; runDir is the app run dir bind mounts must stay under.
+// toProvisionUlimits maps a definition ulimits block to the provision spec (nil-safe).
+func toProvisionUlimits(u *Ulimits) *provision.Ulimits {
+	if u == nil || u.Nofile == nil {
+		return nil
+	}
+	return &provision.Ulimits{Nofile: &provision.NofileLimit{Soft: u.Nofile.Soft, Hard: u.Nofile.Hard}}
+}
+
 func Validate(d *Definition, runDir string, env compose.Env, protectedPaths []string) error {
 	raw, err := ComposeBytes(d)
 	if err != nil {

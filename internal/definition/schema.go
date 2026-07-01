@@ -110,6 +110,23 @@ type Service struct {
 	// from docker's 10s default, so the app can drain long in-flight requests, e.g. "60s",
 	// "1m30s". Empty = docker default. Pairs with the app's graceful-shutdown hooks.
 	StopGracePeriod string `yaml:"stop_grace_period,omitempty"`
+	// Ulimits sets per-container resource limits (currently only `nofile`, the open
+	// file-descriptor cap). Raise it for services that hold many concurrent sockets
+	// beyond the docker daemon default of 1024 (e.g. an MQTT broker whose
+	// max_connections is otherwise clamped to the fd limit). nil = daemon default.
+	Ulimits *Ulimits `yaml:"ulimits,omitempty"`
+}
+
+// Ulimits is the per-service ulimit block. Only `nofile` (max open file
+// descriptors) is supported — the knob that gates concurrent connection count.
+type Ulimits struct {
+	Nofile *NofileLimit `yaml:"nofile,omitempty"`
+}
+
+// NofileLimit is a soft/hard open-file-descriptor limit (compose `ulimits.nofile`).
+type NofileLimit struct {
+	Soft int `yaml:"soft"`
+	Hard int `yaml:"hard"`
 }
 
 // EnvValue is a per-service env var: a literal value XOR a `{secret: NAME}` reference.
@@ -636,6 +653,9 @@ func (s *Spec) validateServices() error {
 		if err := validateServiceEnv(name, svc.Env, declaredSecrets); err != nil {
 			return err
 		}
+		if err := validateUlimits(name, svc.Ulimits); err != nil {
+			return err
+		}
 		for _, sf := range svc.SecretFiles {
 			if !declaredSecrets[sf] {
 				return fmt.Errorf("service %q secret_files references undeclared secret %q", name, sf)
@@ -678,6 +698,34 @@ func (s *Spec) validateServices() error {
 				return fmt.Errorf("service %q depends_on unknown service %q", name, d)
 			}
 		}
+	}
+	return nil
+}
+
+// maxNofile caps a declared open-file limit at the usual kernel ceiling (fs.nr_open
+// default, 2^30). Above this the HOST needs an fs.nr_open sysctl bump, which Mooring
+// can't set (sysctls are forbidden in generated compose), so reject rather than
+// silently generate a compose Docker won't honor.
+const maxNofile = 1073741824 // 2^30
+
+// validateUlimits checks a per-service ulimits block. Only `nofile` is supported,
+// and it must be present with sane soft/hard values (1 ≤ soft ≤ hard ≤ maxNofile).
+func validateUlimits(svc string, u *Ulimits) error {
+	if u == nil {
+		return nil
+	}
+	if u.Nofile == nil {
+		return fmt.Errorf("service %q ulimits: only `nofile` is supported and must be set", svc)
+	}
+	n := u.Nofile
+	if n.Soft < 1 || n.Hard < 1 {
+		return fmt.Errorf("service %q ulimits.nofile: soft and hard must be >= 1", svc)
+	}
+	if n.Soft > n.Hard {
+		return fmt.Errorf("service %q ulimits.nofile: soft (%d) must be <= hard (%d)", svc, n.Soft, n.Hard)
+	}
+	if n.Hard > maxNofile {
+		return fmt.Errorf("service %q ulimits.nofile.hard (%d) exceeds max %d — raise host fs.nr_open first", svc, n.Hard, maxNofile)
 	}
 	return nil
 }

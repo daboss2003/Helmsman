@@ -17,18 +17,30 @@ type composeFile struct {
 }
 
 type composeService struct {
-	Image           string         `yaml:"image,omitempty"`
-	Build           *composeBuild  `yaml:"build,omitempty"`
-	Restart         string         `yaml:"restart,omitempty"`
-	Ports           []string       `yaml:"ports,omitempty"`
-	Volumes         []string       `yaml:"volumes,omitempty"`
-	Environment     []string       `yaml:"environment,omitempty"`
-	Command         []string       `yaml:"command,omitempty"`
-	Healthcheck     *composeHealth `yaml:"healthcheck,omitempty"`
-	DependsOn       []string       `yaml:"depends_on,omitempty"`
-	MemLimit        string         `yaml:"mem_limit,omitempty"`
-	MemReservation  string         `yaml:"mem_reservation,omitempty"`
-	StopGracePeriod string         `yaml:"stop_grace_period,omitempty"`
+	Image           string          `yaml:"image,omitempty"`
+	Build           *composeBuild   `yaml:"build,omitempty"`
+	Restart         string          `yaml:"restart,omitempty"`
+	Ports           []string        `yaml:"ports,omitempty"`
+	Volumes         []string        `yaml:"volumes,omitempty"`
+	Environment     []string        `yaml:"environment,omitempty"`
+	Command         []string        `yaml:"command,omitempty"`
+	Healthcheck     *composeHealth  `yaml:"healthcheck,omitempty"`
+	DependsOn       []string        `yaml:"depends_on,omitempty"`
+	MemLimit        string          `yaml:"mem_limit,omitempty"`
+	MemReservation  string          `yaml:"mem_reservation,omitempty"`
+	StopGracePeriod string          `yaml:"stop_grace_period,omitempty"`
+	Ulimits         *composeUlimits `yaml:"ulimits,omitempty"`
+}
+
+// composeUlimits / composeNofile render docker-compose's
+// `ulimits: { nofile: { soft, hard } }` (the map form Docker always accepts).
+type composeUlimits struct {
+	Nofile *composeNofile `yaml:"nofile,omitempty"`
+}
+
+type composeNofile struct {
+	Soft int `yaml:"soft"`
+	Hard int `yaml:"hard"`
 }
 
 // composeBuild is the generated `build:` directive — Mooring builds the service's
@@ -59,6 +71,9 @@ func Generate(spec Spec) ([]byte, error) {
 
 	for _, svc := range spec.Services {
 		cs := composeService{Restart: svc.Restart, DependsOn: svc.DependsOn, MemLimit: svc.MemLimit, MemReservation: svc.MemReservation, StopGracePeriod: svc.StopGracePeriod}
+		if svc.Ulimits != nil && svc.Ulimits.Nofile != nil {
+			cs.Ulimits = &composeUlimits{Nofile: &composeNofile{Soft: svc.Ulimits.Nofile.Soft, Hard: svc.Ulimits.Nofile.Hard}}
+		}
 		if svc.Build != nil {
 			cs.Build = &composeBuild{Context: svc.Build.Context, Dockerfile: svc.Build.Dockerfile}
 		} else {

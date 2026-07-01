@@ -75,6 +75,19 @@ type Service struct {
 	// StopGracePeriod is a compose duration ("60s", "1m30s"); empty omits the key. Widens
 	// the SIGTERM→SIGKILL drain window on stop. Validated in the definition layer.
 	StopGracePeriod string `json:"stop_grace_period,omitempty"`
+	// Ulimits are per-container limits (currently only nofile). Validated in the
+	// definition layer; allow-listed in compose (§5.6). nil omits the compose key.
+	Ulimits *Ulimits `json:"ulimits,omitempty"`
+}
+
+// Ulimits / NofileLimit mirror the definition types for compose `ulimits.nofile`.
+type Ulimits struct {
+	Nofile *NofileLimit `json:"nofile,omitempty"`
+}
+
+type NofileLimit struct {
+	Soft int `json:"soft"`
+	Hard int `json:"hard"`
 }
 
 // Build marks a service whose image Mooring BUILDS from a generated Dockerfile.

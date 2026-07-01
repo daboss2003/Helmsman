@@ -34,6 +34,32 @@ func TestServiceImageXorBuild(t *testing.T) {
 	}
 }
 
+func TestUlimitsValidation(t *testing.T) {
+	cases := map[string]struct {
+		ulimits string
+		wantErr bool
+	}{
+		"valid nofile":    {`{nofile: {soft: 1048576, hard: 1048576}}`, false},
+		"soft below hard": {`{nofile: {soft: 1024, hard: 65536}}`, false},
+		"soft above hard": {`{nofile: {soft: 65536, hard: 1024}}`, true},
+		"soft below one":  {`{nofile: {soft: 0, hard: 1024}}`, true},
+		"hard over max":   {`{nofile: {soft: 1, hard: 2000000000}}`, true},
+		"nofile missing":  {`{}`, true},
+	}
+	for name, c := range cases {
+		spec := `  compose:
+    source: generated
+    services:
+      web:
+        image: nginx:1
+        ulimits: ` + c.ulimits
+		_, err := Parse([]byte(docWith(spec)))
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s: wantErr=%v got err=%v", name, c.wantErr, err)
+		}
+	}
+}
+
 func TestBuildValidation(t *testing.T) {
 	cases := map[string]struct {
 		build   string
