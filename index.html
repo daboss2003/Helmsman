@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>Mooring APT repository</title>
+<body style="font:16px system-ui;max-width:48rem;margin:3rem auto;padding:0 1rem">
+<h1>Mooring APT repository</h1>
+<p>Install on Debian / Ubuntu:</p>
+<pre style="background:#f4f4f5;padding:1rem;border-radius:8px;overflow:auto">curl -fsSL https://daboss2003.github.io/mooring/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/mooring.gpg
+echo "deb [signed-by=/usr/share/keyrings/mooring.gpg] https://daboss2003.github.io/mooring stable main" | sudo tee /etc/apt/sources.list.d/mooring.list
+sudo apt update &amp;&amp; sudo apt install mooring</pre>
+<p><a href="https://github.com/daboss2003/mooring">github.com/daboss2003/mooring</a></p>
+</body>
